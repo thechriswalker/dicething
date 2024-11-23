@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DiceThing</title>
+  <link rel="stylesheet" href="/bulma.min.css" />
+  <style>
+    /* 
+      still not sure whether to have the scene as the full background, 
+      or whether to have it as a "window" managed by svelte. I think maybe the latter
+      with an "onMount" to setup the scene, and an unmount handler to remove it all.
+    */
+    /* no pointer events on the wrapper */
+    #app {
+      pointer-events: none;
+    }
+
+    main>* {
+      pointer-events: all;
+    }
+
+    #debug:target main>* {
+      outline: 1px solid red;
+    }
+
+    #viewport,
+    #app {
+      position: absolute;
+      top: 0;
+      left: 0;
+      bottom: 0;
+      right: 0;
+    }
+
+    #viewport {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+  </style>
+</head>
+
+<body id="debug">
+  <!-- the Three JS viewport will be here always, managed outside of svelte -->
+  <div id="viewport"></div>
+
+  <!-- this is the svelte app Viewport -->
+  <!-- going to have to work out -->
+  <div id="app"></div>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+
+</html>
