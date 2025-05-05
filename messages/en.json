@@ -1,0 +1,57 @@
+{
+	"$schema": "https://inlang.com/schema/inlang-message-format",
+	"meta": {
+		"app_name": "DiceThing",
+		"app_tagline": "Design, Model, Print",
+		"app_version": "0.0.0"
+	},
+	"not_available": {
+		"title": "DiceThing is not ready yet",
+		"content": "I'm working on it, but it's a slow process. Reach out for early access if you like sharp edges."
+	},
+	"splash": {
+		"about": "About",
+		"start": "Start",
+		"early_access": "(early access only)"
+	},
+	"start": {
+		"new_set_header": "Create a new set",
+		"load_set_header": "Load an existing set",
+		"import": "Import from JSON",
+		"no_saved_sets": "You don't have any saved sets... yet ;)"
+	},
+	"presets": {
+		"title": [
+			{
+				"declarations": [
+					"input preset"
+				],
+				"selectors": [
+					"preset"
+				],
+				"match": {
+					"preset=go_first": "Go First Dice (4 Players)",
+					"preset=scratch": "Start from Scratch",
+					"preset=classic": "Classic 7 Dice D&D Set",
+					"preset=dicething": "DiceThing Custom 7"
+				}
+			}
+		],
+		"description": [
+			{
+				"declarations": [
+					"input preset"
+				],
+				"selectors": [
+					"preset"
+				],
+				"match": {
+					"preset=go_first": "A set of 4d12 that always roll different numbers and have a equal chance of each die being first (and second, third, fourth).",
+					"preset=scratch": "Empty set so you can start from a blank slate",
+					"preset=classic": "The standard 7 D&D dice set with a caltrop D4. Sized around a 14mm D6",
+					"preset=dicething": "My personal picks. A larger than standard set with the shapes that I like (no caltops!)"
+				}
+			}
+		]
+	}
+}

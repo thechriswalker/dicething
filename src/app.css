@@ -1,0 +1,25 @@
+@import 'tailwindcss';
+
+@import '@skeletonlabs/skeleton';
+@import '@skeletonlabs/skeleton/optional/presets';
+@import '@skeletonlabs/skeleton/themes/terminus';
+
+@source '../node_modules/@skeletonlabs/skeleton-svelte/dist';
+
+@custom-variant dark (&:where(.dark, .dark *)); 
+
+@utility icon-text {
+    width: 1em;
+    height: 1em;
+}
+
+/* if I don't style a paragraph directly, I almost always want this. */
+p {
+    @apply my-2 leading-[1.4em]
+}
+
+.preset-glass-neutral {
+    background: color-mix(in oklab, var(--color-surface-50-950) 30%, transparent);
+    box-shadow: 0 0px 30px color-mix(in oklab, var(--color-surface-50-950) 30%, transparent) inset;
+    backdrop-filter: blur(16px);
+  }
