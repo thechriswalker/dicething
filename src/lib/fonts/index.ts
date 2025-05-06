@@ -1,9 +1,24 @@
 // AUTO-GENERATED FILE - DO NOT EDIT MANUALLY
 import { loadImmutableLegends, type LegendSet } from "$lib/utils/legends";
 
-const deferredFontLoader = (fontname: string) => {
+const imports = {
+  alice_in_wonderland: "./generated/alice_in_wonderland.json",
+  alice_in_wonderland_100: "./generated/alice_in_wonderland_100.json",
+  averia: "./generated/averia.json",
+  averia_100: "./generated/averia_100.json",
+  germania_one: "./generated/germania_one.json",
+  germania_one_100: "./generated/germania_one_100.json",
+  siamese_katsong: "./generated/siamese_katsong.json",
+  siamese_katsong_100: "./generated/siamese_katsong_100.json",
+  tektur: "./generated/tektur.json",
+  tektur_100: "./generated/tektur_100.json",
+  voltaire: "./generated/voltaire.json",
+  voltaire_100: "./generated/voltaire_100.json"
+} as const;
+
+const deferredFontLoader = (fontname: keyof typeof imports) => {
 	const fn = async () => {
-		const data = await import(`./generated/${fontname}.json`);
+		const data = await import(imports[`${fontname}`], {assert:{type:"json"}});
 		return loadImmutableLegends(data);
 	}
 	let promise: ReturnType<typeof fn>;

@@ -416,7 +416,6 @@
 	});
 </script>
 
-<AppBar />
 <div class="w-full grow overflow-hidden" bind:this={target}></div>
 <div class="flex flex-row gap-8 p-8">
 	<p><button class="btn preset-filled-primary-500" onclick={downloadSTL}>download stl</button></p>

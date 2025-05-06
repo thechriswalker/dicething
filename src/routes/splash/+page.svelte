@@ -1,10 +1,9 @@
 <script lang="ts">
 	import { Github } from '@lucide/svelte';
-	import { PUBLIC_APP_REPO_URL, PUBLIC_APP_VERSION } from '$env/static/public';
+	import { PUBLIC_APP_HOSTNAME, PUBLIC_APP_REPO_URL, PUBLIC_APP_VERSION } from '$env/static/public';
 	import * as m from '$lib/paraglide/messages';
 	import Logo from '$lib/components/icons/Logo.svelte';
 	import LightSwitch from '$lib/components/light_switch/LightSwitch.svelte';
-	import { createBaseSceneAndRenderer } from '$lib/utils/scene';
 	import { Group, PerspectiveCamera, Scene, Vector2, Vector3, WebGLRenderer } from 'three';
 	import builtins, { blanks } from '$lib/fonts';
 	import { Builder } from '$lib/utils/builder';
@@ -57,7 +56,6 @@
 			model = pickRandomModel();
 			nextChange = setTimeout(changeDice, (1 + Math.random()) * 5000);
 		};
-		nextChange = setTimeout(changeDice, (1 + Math.random()) * 5000);
 
 		let font = $state(blanks);
 		builtins.germania_one.load().then((f) => (font = f));
@@ -127,6 +125,7 @@
 		}
 
 		onMount(() => {
+			nextChange = setTimeout(changeDice, (1 + Math.random()) * 5000);
 			if (cvs) {
 				// create a scene and renderer (we don't use the "baseRenderer and scene" as we want the control)
 				// and this is different to the usual requirements.
@@ -141,7 +140,7 @@
 	}
 </script>
 
-<div class="absolute h-screen w-screen overflow-hidden" bind:this={wrap}>
+<div class="absolute z-1 h-screen w-screen overflow-hidden" bind:this={wrap}>
 	<!-- these are both ignored, because this is a purely visual thing, and has no semantic meaning -->
 	<!-- svelte-ignore a11y_click_events_have_key_events -->
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -160,20 +159,18 @@
 			<p>{m['not_available.content']()}</p>
 		</div>
 
-		<div class="mt-4 flex flex-row justify-center gap-2">
-			<a href="/about" class="btn preset-filled-primary-500">{m['splash.about']()}</a>
-			<a href="/start" data-svelte-reload class="btn preset-filled-primary-500"
+		<div class="my-4 flex flex-row justify-center gap-2">
+			<a href={PUBLIC_APP_REPO_URL} class="btn btn-lg preset-filled-primary-500">
+				<Github class="icon-text" />
+
+				<smaller>
+					v{PUBLIC_APP_VERSION}
+				</smaller>
+			</a>
+			<!-- <a href={PUBLIC_APP_HOSTNAME} class="btn btn-lg preset-filled-primary-500"
 				>{m['splash.start']()} {m['splash.early_access']()}</a
-			>
+			> -->
 		</div>
-		<a
-			href={PUBLIC_APP_REPO_URL}
-			class="my-4 flex flex-row items-center gap-2 text-sm text-gray-500 hover:text-gray-700"
-			><Github />
-			<span>
-				v{PUBLIC_APP_VERSION}
-			</span>
-		</a>
 		<LightSwitch />
 	</div>
 </div>

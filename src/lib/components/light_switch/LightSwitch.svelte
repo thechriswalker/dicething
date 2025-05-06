@@ -13,11 +13,11 @@
 	let listener = () => {
 		mode = window.getLightDark();
 	};
+	onMount(() => {
+		window.addEventListener('light-dark', listener);
+		listener();
+	});
 	if (browser) {
-		onMount(() => {
-			window.addEventListener('light-dark', listener);
-			listener();
-		});
 		onDestroy(() => {
 			window.removeEventListener('light-dark', listener);
 		});
@@ -26,7 +26,6 @@
 		window.updateLightDark((e.value as any) || '');
 		mode = window.getLightDark();
 	}
-
 	let openState = $state(false);
 </script>
 
@@ -34,10 +33,11 @@
 	open={openState}
 	onOpenChange={(e) => (openState = e.open)}
 	triggerClasses="btn-icon preset-filled-surface-50-950"
+	zIndex="1000"
 >
 	{#snippet content()}
 		<Segment
-			background="preset-filled-surface-950-50 preset-outlined-surface-200-800"
+			background="preset-filled-surface-950-50 preset-outlined-surface-200-800 pointer-events-auto z-100"
 			indicatorBg="preset-filled-surface-50-950"
 			indicatorText="text-surface-contrast-50 dark:text-surface-contrast-950"
 			gap="gap-0"

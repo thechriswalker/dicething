@@ -3,6 +3,10 @@ import tailwindcss from '@tailwindcss/vite';
 import { svelteTesting } from '@testing-library/svelte/vite';
 import { sveltekit } from '@sveltejs/kit/vite';
 import { defineConfig } from 'vite';
+import crypto from 'node:crypto';
+
+// patch the global so paraglide doesn't bail.
+(globalThis as any).crypto = crypto;
 
 export default defineConfig({
 	plugins: [

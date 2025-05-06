@@ -78,8 +78,7 @@ if (browser) {
 		// if a legend set...
 	};
 
-	savedSets.push(...(await getListOfSets()));
-
+	getListOfSets().then(sets => savedSets.push(...sets)).catch(e => console.warn(e))
 	window.addEventListener('storage', storageListener);
 }
 export function getSavedSets() {
