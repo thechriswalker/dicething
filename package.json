@@ -7,6 +7,7 @@
 		"dev": "vite dev --port 55580 --host",
 		"dev:app": "BUILD_SPLASH_PAGE=false bun run dev",
 		"dev:splash": "BUILD_SPLASH_PAGE=true bun run dev",
+		"prebuild": "./scripts/git_info_to_dotenv.sh",
 		"build": "vite build",
 		"build:app": "BUILD_SPLASH_PAGE=false bun run build",
 		"build:splash": "BUILD_SPLASH_PAGE=true bun run build",
