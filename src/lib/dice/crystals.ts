@@ -1,4 +1,4 @@
-import type { DieModel, DieFaceModel } from '$lib/interfaces/dice';
+import type { DieModel, DieFaceModel, DiceParameter } from '$lib/interfaces/dice';
 import { Legend, pickForDoublesByIndex, pickForNumber } from '$lib/utils/legends';
 import { orientCoplanarVertices, rotateShapes } from '$lib/utils/shapes';
 import { BufferGeometry, Plane, Ray, Shape, Vector2, Vector3 } from 'three';
@@ -10,39 +10,30 @@ const defaultCapTwist = 0.5;
 
 const yAxis = new Vector3(0, 1, 0);
 
-const crystalParameters = [
+const crystalParameters: Array<DiceParameter> = [
 	{
-		id: 'height',
-		name: 'Body Length',
-		description: 'Length of the long edge of the body',
+		id: 'crystal_height',
 		defaultValue: defaultHeight,
 		min: 6,
 		max: 60,
 		step: 1
 	},
 	{
-		id: 'width',
-		name: 'Body Width',
-		description: 'Length of the short edge of the body',
+		id: 'crystal_width',
 		defaultValue: defaultWidth,
 		min: 6,
 		max: 60,
 		step: 0.5
 	},
 	{
-		id: 'cap',
-		name: 'Cap Height',
-		description: 'Height of the caps above the long edges of the body',
+		id: 'crystal_cap',
 		defaultValue: defaultCapHeight,
 		min: 1,
 		max: 30,
 		step: 0.2
 	},
 	{
-		id: 'twist',
-		name: 'Cap Twist',
-		description:
-			'Rotation of the cap with respect to the other faces. 0 is none, 0.5 is exactly half way',
+		id: 'crystal_twist',
 		defaultValue: defaultCapTwist,
 		min: 0,
 		max: 0.98,
@@ -63,12 +54,12 @@ function crystal(id: string, name: string, sides: number, tens = false): DieMode
 
 function build(sides: number, tens: boolean): DieModel['build'] {
 	return (params) => {
-		const x = params.width ?? defaultWidth;
+		const x = params.crystal_width ?? defaultWidth;
 		const x2 = x / 2;
-		const y = params.height ?? defaultHeight;
+		const y = params.crystal_height ?? defaultHeight;
 		const y2 = y / 2;
-		const rot = params.twist ?? defaultCapTwist;
-		const h = params.cap ?? defaultCapHeight;
+		const rot = params.crystal_twist ?? defaultCapTwist;
+		const h = params.crystal_cap ?? defaultCapHeight;
 		const isTwisted = rot !== 0;
 
 		// I think I need to construct this in 3-space and then project each face onto the plane +z on the origin.
@@ -118,7 +109,7 @@ function build(sides: number, tens: boolean): DieModel['build'] {
 			let ray = new Ray(top, direction);
 			const intersection = new Vector3();
 			ray.intersectPlane(plane, intersection);
-			console.log({ intersection });
+			// console.log({ intersection });
 			// now add an "-alpha" rotated version of the intersection
 			const intersection2 = new Vector3().copy(intersection).applyAxisAngle(yAxis, -alpha);
 
@@ -130,7 +121,7 @@ function build(sides: number, tens: boolean): DieModel['build'] {
 			plane = new Plane().setFromCoplanarPoints(intersection, top, intersection2);
 			const corner = new Vector3();
 			ray.intersectPlane(plane, corner);
-			console.log({ ray, corner, plane });
+			// console.log({ ray, corner, plane });
 
 			capFaceVertices3.push(intersection2, corner, intersection);
 

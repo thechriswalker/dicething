@@ -11,9 +11,7 @@ const defaultCaltropHeight = 16;
 
 const caltropParameters: Array<DiceParameter> = [
 	{
-		id: 'height',
-		name: 'Height',
-		description: 'Height of the caltrop.',
+		id: 'caltrop_height',
 		defaultValue: defaultCaltropHeight,
 		min: 6,
 		max: 60,
@@ -45,7 +43,7 @@ export const CaltropD4: DieModel = {
 	build(params) {
 		// the face is simple, but we still need some math.
 		// the height of the tetrahedron is a parameter.
-		const H = params.height ?? defaultCaltropHeight;
+		const H = params.caltrop_height ?? defaultCaltropHeight;
 
 		// so we can work out the edge length from that.
 		const e = (3 * H) / Math.sqrt(6);

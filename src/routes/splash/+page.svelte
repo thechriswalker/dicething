@@ -47,7 +47,7 @@
 		};
 
 		let model = $state(pickRandomModel());
-		let nextChange = -1;
+		let nextChange: NodeJS.Timeout = -1 as any;
 		changeDice = () => {
 			clearTimeout(nextChange);
 			if (stopRender) {
@@ -171,6 +171,6 @@
 				>{m['splash.start']()} {m['splash.early_access']()}</a
 			> -->
 		</div>
-		<LightSwitch />
+		<!-- <LightSwitch /> -->
 	</div>
 </div>

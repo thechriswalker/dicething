@@ -32,18 +32,14 @@ const defaultTrapezohderonHeight = 28;
 
 const trapezohedronParameters: Array<DiceParameter> = [
 	{
-		id: 'radius',
-		name: 'Radius',
-		description: 'distance from center axis to edge vertex',
+		id: 'trapezohedron_radius',
 		defaultValue: defaultTrapezohderonRadius,
 		min: 10,
 		max: 60,
 		step: 0.05
 	},
 	{
-		id: 'height',
-		name: 'Height',
-		description: 'distance from tip to tip',
+		id: 'trapezohedron_height',
 		defaultValue: defaultTrapezohderonHeight,
 		min: 10,
 		max: 60,
@@ -66,8 +62,8 @@ function trapezohedron(id: string, name: string, sides: number, tens = false): D
 		name,
 		parameters: trapezohedronParameters,
 		build(params) {
-			const h = (params.height ?? defaultTrapezohderonHeight) / 2;
-			const r = params.radius ?? defaultTrapezohderonRadius;
+			const h = (params.trapezohedron_height ?? defaultTrapezohderonHeight) / 2;
+			const r = params.trapezohedron_radius ?? defaultTrapezohderonRadius;
 
 			// the top and bottom vertices are easy
 			const top = new Vector3(0, h, 0);

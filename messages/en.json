@@ -53,5 +53,55 @@
 				}
 			}
 		]
+	},
+	"dice_parameters": {
+		"name": [
+			{
+				"declarations": [
+					"input id"
+				],
+				"selectors": [
+					"id"
+				],
+				"match": {
+					"id=caltrop_height": "Height",
+					"id=crystal_height": "Body Length",
+					"id=crystal_width": "Body Width",
+					"id=crystal_cap": "Cap Height",
+					"id=crystal_twist": "Cap Twist",
+					"id=polyhedron_size": "Face to Face",
+					"id=shard_height": "Body Length",
+					"id=shard_radius": "Body Radius",
+					"id=shard_cap": "Cap Height",
+					"id=shard_twist": "Cap Twist",
+					"id=trapezohedron_radius": "Radius",
+					"id=trapezohedron_height": "Height"
+				}
+			}
+		],
+		"description": [
+			{
+				"declarations": [
+					"input id"
+				],
+				"selectors": [
+					"id"
+				],
+				"match": {
+					"id=caltrop_height": "Height of the caltrop",
+					"id=crystal_height": "Length of the long edge of the body",
+					"id=crystal_width": "Length of the short edge of the body",
+					"id=crystal_cap": "Height of the caps above the long edges of the body",
+					"id=crystal_twist": "Rotation of the the cap with respect to the other faces",
+					"id=polyhedron_size": "Distance between opposite faces",
+					"id=shard_height": "Length of the long edge of the body",
+					"id=shard_radius": "Distance from center to vertex",
+					"id=shard_cap": "Height of the caps above the long edges of the body",
+					"id=shard_twist": "Rotation of the cap with respect to the other faces. 0 is none, 0.5 is exactly half way",
+					"id=trapezohedron_radius": "Distance from the center axis to the edge vertices",
+					"id=trapezohedron_height": "Distance from tip to tip"
+				}
+			}
+		]
 	}
 }

@@ -1,7 +1,7 @@
 // shards are basically trapezohedrons with
 // unbalanced lengths.
 // i.e. long edge for number faces and short cap for blanks.
-import type { DieModel, DieFaceModel } from '$lib/interfaces/dice';
+import type { DieModel, DieFaceModel, DiceParameter } from '$lib/interfaces/dice';
 import { Legend, pickForDoublesByIndex, pickForNumber } from '$lib/utils/legends';
 import { orientCoplanarVertices, rotateShapes, translateShapes } from '$lib/utils/shapes';
 import { BufferGeometry, Plane, Ray, Shape, Vector2, Vector3 } from 'three';
@@ -13,39 +13,31 @@ const defaultCapTwist = 0.2;
 
 const yAxis = new Vector3(0, 1, 0);
 
-const shardParameters = [
+const shardParameters: Array<DiceParameter> = [
 	{
-		id: 'height',
-		name: 'Body Length',
-		description: 'Length of the long edge of the body',
+		id: 'shard_height',
 		defaultValue: defaultHeight,
 		min: 6,
 		max: 60,
 		step: 1
 	},
 	{
-		id: 'radius',
-		name: 'Body Radius',
-		description: 'Distance from center to vertex',
+		id: 'shard_radius',
 		defaultValue: defaultRadius,
 		min: 6,
 		max: 60,
 		step: 0.5
 	},
 	{
-		id: 'cap',
-		name: 'Cap Height',
-		description: 'Height of the caps above the long edges of the body',
+		id: 'shard_cap',
+
 		defaultValue: defaultCapHeight,
 		min: 1,
 		max: 30,
 		step: 0.2
 	},
 	{
-		id: 'twist',
-		name: 'Cap Twist',
-		description:
-			'Rotation of the cap with respect to the other faces. 0 is none, 0.5 is exactly half way',
+		id: 'shard_twist',
 		defaultValue: defaultCapTwist,
 		min: 0,
 		max: 0.98,
@@ -66,10 +58,10 @@ function shard(id: string, name: string, sides: number, tens = false): DieModel 
 
 function build(sides: number, tens: boolean): DieModel['build'] {
 	return (params) => {
-		const r = params.radius ?? defaultRadius;
-		const y = params.height ?? defaultHeight;
-		const rot = params.twist ?? defaultCapTwist;
-		const h = params.cap ?? defaultCapHeight;
+		const r = params.shard_radius ?? defaultRadius;
+		const y = params.shard_height ?? defaultHeight;
+		const rot = params.shard_twist ?? defaultCapTwist;
+		const h = params.shard_cap ?? defaultCapHeight;
 		const isTwisted = rot !== 0;
 
 		// I think I need to construct this in 3-space and then project each face onto the plane +z on the origin.

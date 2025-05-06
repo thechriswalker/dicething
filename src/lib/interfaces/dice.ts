@@ -37,8 +37,6 @@ export type DieFaceModel = {
 
 export type DiceParameter = {
 	id: string; // stable name
-	name: string; // human/translatable name
-	description: string; // long description
 	// for a "range" input
 	defaultValue: number;
 	min: number;

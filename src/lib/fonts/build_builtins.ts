@@ -92,14 +92,14 @@ import { loadImmutableLegends, type LegendSet } from "$lib/utils/legends";
 const imports = {
   ${fontMeta
 		.map((x) => {
-			return `${x.varname}: ${x.import}`;
+			return `${x.varname}: () => import(${x.import}, {assert:{type:"json"}})`;
 		})
 		.join(',\n  ')}
 } as const;
 
 const deferredFontLoader = (fontname: keyof typeof imports) => {
 	const fn = async () => {
-		const data = await import(imports[${'`${fontname}`'}], {assert:{type:"json"}});
+		const data = await imports[fontname]();
 		return loadImmutableLegends(data);
 	}
 	let promise: ReturnType<typeof fn>;

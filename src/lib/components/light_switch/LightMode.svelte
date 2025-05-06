@@ -35,7 +35,6 @@
 						}
 						isDark = true;
 					} else {
-						console.log('system switch to light mode');
 						if (doc.contains('dark')) {
 							doc.remove('dark');
 						}
@@ -58,7 +57,6 @@
 		const listener = () => window.updateLightDark(localStorage.getItem('light-dark') ?? '');
 		matcher.addEventListener('change', listener);
 		window.addEventListener('storage', (ev) => {
-			console.log(ev);
 			if (ev.storageArea === localStorage && ev.key === 'light-dark') {
 				const mode = ev.newValue ?? '';
 				window.updateLightDark(mode, true);

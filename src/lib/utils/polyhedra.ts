@@ -16,9 +16,7 @@ const defaultF2F = 24;
 // they will all use the same configuration here.
 const polyhedronParameters: Array<DiceParameter> = [
 	{
-		id: 'size',
-		name: 'Face to Face',
-		description: 'Distance between opposite faces',
+		id: 'polyhedron_size',
 		min: 6,
 		max: 60,
 		step: 0.5,
@@ -36,14 +34,10 @@ const polyhedronParameters: Array<DiceParameter> = [
 
 export type PolyhedronFace = {
 	axis: Vector3 | Array<Vector3>; // axis of rotation
-	angle: number| Array<number>; // angle of rotation
+	angle: number | Array<number>; // angle of rotation
 	preRotation?: number; // degrees to rotate in the Z plane before movement (to enable faces to lie in different directions)
 };
 export type Shaper = (distance: number) => Shape;
-
-const xAxis = new Vector3(1, 0, 0);
-const yAxis = new Vector3(0, 1, 0);
-const zAxis = new Vector3(0, 0, 1);
 
 export function polyhedron(
 	id: string,
@@ -52,37 +46,37 @@ export function polyhedron(
 	shaper: Shaper
 ): DieModel {
 	// might as well only do this once.
-	const quats: Array<Quaternion | undefined> = sides.map(s => {
+	const quats: Array<Quaternion | undefined> = sides.map((s) => {
 		let quat: Quaternion | undefined = undefined;
-		if(s.angle) {
+		if (s.angle) {
 			if (!Array.isArray(s.angle)) {
-				quat = new Quaternion().setFromAxisAngle(s.axis as Vector3, s.angle)
+				quat = new Quaternion().setFromAxisAngle(s.axis as Vector3, s.angle);
 			} else {
 				const ax = s.axis as Array<Vector3>;
 				quat = new Quaternion().setFromAxisAngle(ax[0], s.angle[0]);
 				for (let i = 1; i < ax.length; i++) {
 					// modify the next axis in realtion to the last...
 					const nx = ax[i].clone().applyQuaternion(quat);
-					const q= new Quaternion().setFromAxisAngle(ax[i], s.angle[i])
+					const q = new Quaternion().setFromAxisAngle(ax[i], s.angle[i]);
 					quat = quat!.multiply(q);
 				}
 			}
 		}
 		return quat;
-	})
+	});
 
 	return {
 		id,
 		name,
 		parameters: polyhedronParameters,
 		build(params) {
-			const d = params.size ?? defaultF2F;
+			const d = params.polyhedron_size ?? defaultF2F;
 			const face = shaper(d);
 			return {
 				legendScaling: 1,
 				faceToFaceDistance: d,
 				faces: sides.map((s, i) => {
-					const quat = quats[i]
+					const quat = quats[i];
 					return {
 						isNumberFace: true, // they all are
 						shape: face,
@@ -105,6 +99,5 @@ export function polyhedron(
 		}
 	};
 }
-
 
 // icosahedron similarly complex, but just 8 more faces.

@@ -27,17 +27,23 @@ I have some other features in mind that I might add (Z-Stretch compensation, Aut
 
 This is a SvelteKit project and I use Bun as the runtime but others may work.
 
+The only unusual thing is that I share most of the code with 2 `routes/` folders. The reason is that I wanted a "splash page" as well as the app, but I want them to share theme/components/logic/$lib/ ... and making it a monorepo was too much.
+
+So instead I have 2 routes folders `routes/splash` and `routes/app` and the sveltekit config is changed dynamically depending on the presence of the `BUILD_SPASH_PAGE=true` environment variable. But we have `bun run dev:app` and `bun run dev:splash` to control that (as well as `bun run build:app` and `bun run build:splash`). They also build to 2 separate static folders that can be deployed wherever you want.
+
+For my instance that means `https://dicething.org/` and `https://app.dicething.org/`
+
+Basics:
+
 ```
 bun install
 bun run dev
 ```
 
-Thats basically it.
-
 A full static build can be produced with:
 
 ```
-bun run build
+bun run build:app # or build:splash
 ```
 
 ## Notes
