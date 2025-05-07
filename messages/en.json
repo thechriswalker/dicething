@@ -7,7 +7,7 @@
 	},
 	"not_available": {
 		"title": "DiceThing is not ready yet",
-		"content": "I'm working on it, but it's a slow process. Reach out for early access if you like sharp edges."
+		"content": "I'm working on it, but it's a slow process. Reach out via Github for early access if you like sharp edges."
 	},
 	"splash": {
 		"about": "About",

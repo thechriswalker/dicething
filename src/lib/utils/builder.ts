@@ -17,7 +17,7 @@ import { removeDuplicateTriangles } from './bad_edges';
 import { findBestLegendScalingFactor } from './shapes';
 import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
 import { LineSegments2 } from 'three/examples/jsm/lines/webgpu/LineSegments2.js';
-import { LineSegmentsGeometry } from 'three/examples/jsm/Addons.js';
+import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeometry.js';
 import { uuid } from './uuid';
 
 const _l1 = new LineMaterial({
@@ -62,7 +62,7 @@ export class Builder {
 		private legends: LegendSet,
 		// this is the dice ID, so we can find it in the scene, or at least uniquely identify parts of _this_ dice
 		private id = uuid()
-	) { }
+	) {}
 
 	setFaceOutline(index: number, visible: boolean) {
 		this.showFaceOutline[index] = visible;

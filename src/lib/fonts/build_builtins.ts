@@ -89,17 +89,9 @@ async function buildAll() {
 	let indexTemplate = `// AUTO-GENERATED FILE - DO NOT EDIT MANUALLY
 import { loadImmutableLegends, type LegendSet } from "$lib/utils/legends";
 
-const imports = {
-  ${fontMeta
-		.map((x) => {
-			return `${x.varname}: () => import(${x.import}, {assert:{type:"json"}})`;
-		})
-		.join(',\n  ')}
-} as const;
-
-const deferredFontLoader = (fontname: keyof typeof imports) => {
+const deferredFontLoader = (fontname: string) => {
 	const fn = async () => {
-		const data = await imports[fontname]();
+		const data = await import(${'`./generated/${fontname}.json`'});
 		return loadImmutableLegends(data);
 	}
 	let promise: ReturnType<typeof fn>;

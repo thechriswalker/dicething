@@ -10,7 +10,7 @@ const config = {
 	preprocess: vitePreprocess(),
 	kit: {
 		adapter: adapter({
-			fallback: isSplashPage ? undefined : 'app.html',
+			fallback: isSplashPage ? undefined : 'index.html',
 			pages: buildDir,
 			assets: buildDir
 		}),

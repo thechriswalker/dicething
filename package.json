@@ -21,7 +21,7 @@
 		"lint": "prettier --check . && eslint .",
 		"test:unit": "vitest",
 		"test": "npm run test:unit -- --run",
-		"build:legends": "vite-node --options.transformMode.ssr='/.*/' src/lib/fonts/build_builtins.ts"
+		"generate:fonts": "vite-node --options.transformMode.ssr='/.*/' src/lib/fonts/build_builtins.ts"
 	},
 	"devDependencies": {
 		"@eslint/compat": "^1.2.5",
