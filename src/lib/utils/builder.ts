@@ -7,7 +7,6 @@ import {
 	Mesh,
 	MeshBasicMaterial,
 	MeshNormalMaterial,
-	Shape,
 	type Object3D
 } from 'three';
 import { DefaultDivisions, engrave, isOutline, Part } from './engraving';
@@ -32,7 +31,7 @@ const _l2 = new LineMaterial({
 });
 
 const _m1 = new MeshNormalMaterial({ wireframe: !true });
-const _m2 = new MeshBasicMaterial({ color: 0x444444 });
+const _m2 = new MeshBasicMaterial({ color: 0x000000 });
 
 export class Builder {
 	private forceRerenderBlank = true;

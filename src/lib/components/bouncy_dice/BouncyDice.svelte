@@ -76,7 +76,7 @@
 		let boxLeft = 0;
 
 		let t = Date.now();
-
+		let anim: number;
 		function render() {
 			if (stopRender) {
 				return;
@@ -116,8 +116,21 @@
 			// maybe update the dice model or the font or something as it goes...
 			renderer.render(scene, camera);
 			// render again
-			requestAnimationFrame(render);
+			anim = requestAnimationFrame(render);
 		}
+
+		// need to subscribe to the page-visibility API, to see if our requestAnimationFrame happened.
+		// we might as well cancel the animation frame if we're not visible.
+		document.addEventListener('visibilitychange', () => {
+			if (document.hidden) {
+				if (anim) {
+					cancelAnimationFrame(anim);
+				}
+			} else {
+				t = Date.now();
+				anim = requestAnimationFrame(render);
+			}
+		});
 
 		onMount(() => {
 			nextChange = setTimeout(changeDice, (1 + Math.random()) * 5000);

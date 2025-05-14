@@ -13,8 +13,7 @@ import { getRGB } from './color';
 
 const defaultCameraPosition = new Vector3(0, 50, 80);
 
-// const darkBackground = new Color(0x222222);
-// const lightBackground = new Color(0xdddddd);
+export type SceneRenderer = ReturnType<typeof createBaseSceneAndRenderer>;
 
 export function createBaseSceneAndRenderer(
 	el: HTMLElement,
@@ -70,22 +69,46 @@ export function createBaseSceneAndRenderer(
 		}
 	});
 	observer.observe(el);
+	let anim = 0;
+	// also check the page visibility API to ensure we keep rendering after the page is "stopped"
+	const visibilityListener = () => {
+		if (disposed) {
+			return;
+		}
+		if (document.hidden) {
+			if (anim) {
+				cancelAnimationFrame(anim);
+			}
+		} else {
+			anim = requestAnimationFrame(render);
+		}
+	};
+
+	document.addEventListener('visibilitychange', visibilityListener);
+
 
 	let disposed = false;
+	const onDispose: Array<() => any> = [
+		() => observer.unobserve(el),
+		() => window.removeEventListener('light-dark', darkModeListener),
+		() => window.removeEventListener('visibilitychange', visibilityListener),
+	];
+
 	const dispose = () => {
+		for (let fn of onDispose) {
+			fn();
+		}
 		disposed = true;
-		observer.unobserve(el);
-		window.removeEventListener('light-dark', darkModeListener);
 		renderer.dispose();
 	};
-	let beforeRender = () => {};
+	let beforeRender = () => { };
 
 	function render() {
 		if (disposed) {
 			return;
 		}
 		beforeRender();
-		requestAnimationFrame(render);
+		anim = requestAnimationFrame(render);
 		controls.update();
 		renderer.render(scene, camera);
 	}
@@ -99,6 +122,9 @@ export function createBaseSceneAndRenderer(
 		render,
 		onBeforeRender(fn: () => void) {
 			beforeRender = fn;
+		},
+		onBeforeDispose(fn: () => any) {
+			onDispose.push(fn);
 		}
 	};
 }

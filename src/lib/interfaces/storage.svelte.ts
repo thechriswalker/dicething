@@ -4,6 +4,7 @@ import type { FaceParams } from './dice';
 import { loadMutableLegends, type LegendSet, type SerialisedLegendSet } from '$lib/utils/legends';
 import { blanks, isBuiltin, loadBuiltinById } from '$lib/fonts';
 import { browser } from '$app/environment';
+import { deferred } from '$lib/utils/deferred';
 
 const LOCALSTORAGE_PREFIX = 'dt:';
 
@@ -52,6 +53,11 @@ const reviver: Defined<Parameters<typeof JSON.parse>[1]> = (key, value) => {
 
 // we want to make these reactive
 let savedSets = $state<Array<DiceSet>>([]);
+let initialLoad = deferred();
+
+export async function waitForInitialLoad() {
+	await initialLoad.promise;
+}
 
 if (browser) {
 	const storageListener = async (ev: StorageEvent) => {
@@ -78,7 +84,12 @@ if (browser) {
 		// if a legend set...
 	};
 
-	getListOfSets().then(sets => savedSets.push(...sets)).catch(e => console.warn(e))
+	getListOfSets()
+		.then((sets) => {
+			savedSets.push(...sets);
+			initialLoad.resolve(undefined);
+		})
+		.catch((e) => console.warn(e));
 	window.addEventListener('storage', storageListener);
 }
 export function getSavedSets() {

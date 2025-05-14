@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Scene from '$lib/components/scene/Scene.svelte';
 	import dice from '$lib/dice';
 	import fonts, { blanks, type Builtin } from '$lib/fonts';
 	import type { FaceParams } from '$lib/interfaces/dice';
@@ -10,7 +11,7 @@
 		loadImmutableLegends,
 		type LegendSet
 	} from '$lib/utils/legends';
-	import { createBaseSceneAndRenderer } from '$lib/utils/scene';
+	import { type SceneRenderer } from '$lib/utils/scene';
 	import { Group, Mesh, MeshBasicMaterial, MeshNormalMaterial, type Object3D } from 'three';
 
 	//
@@ -18,8 +19,7 @@
 	// Create all the "legends" by extracting the shapes for each one.
 	// Engrave the shapes on to squares and  put the squares in a scene
 	//
-	let canvas: HTMLElement;
-	let scene: ReturnType<typeof createBaseSceneAndRenderer>;
+	let scene: SceneRenderer;
 	let legends: LegendSet = blanks;
 
 	let renders: Array<Object3D> = [];
@@ -63,7 +63,7 @@
 		}));
 		const build = (nextSet: LegendSet) => {
 			builder.changeLegends(nextSet);
-			builder.build({ size: 16 }, params);
+			builder.build({ polyhedron_size: 16 }, params);
 			const prev = bad[i];
 			if (prev) {
 				badGroup.remove(prev);
@@ -79,16 +79,29 @@
 		return build;
 	}
 
-	function renderAllLegends() {
-		Array.from({ length: Math.max(legends.length, Legend.CUSTOM_SYMBOLS_START) + 9 }).forEach(
-			(_, i) => {
-				if (!builders[i]) {
-					builders[i] = buildBuilder(i);
-				}
-				const builder = builders[i];
-				builder(legends);
+	let legendCount = $state(1);
+
+	$effect(() => {
+		renders.forEach((r, i) => {
+			if (i < legendCount) {
+				r.visible = true;
+			} else {
+				r.visible = false;
 			}
-		);
+		});
+		toggleMain();
+		toggleMain();
+	});
+
+	function renderAllLegends() {
+		legendCount = Math.max(legends.length, Legend.CUSTOM_SYMBOLS_START) + 9;
+		Array.from({ length: legendCount }).forEach((_, i) => {
+			if (!builders[i]) {
+				builders[i] = buildBuilder(i);
+			}
+			const builder = builders[i];
+			builder(legends);
+		});
 	}
 	renderAllLegends();
 
@@ -108,15 +121,13 @@
 		}
 	}
 
-	$effect(() => {
-		if (canvas) {
-			scene = createBaseSceneAndRenderer(canvas);
-			scene.scene.add(...renders);
-			scene.scene.add(badGroup);
-			scene.render();
-		}
+	let onSceneReady = (ctx: SceneRenderer) => {
+		scene = ctx;
+		scene.scene.add(...renders);
+		scene.scene.add(badGroup);
+		scene.render();
 		switchTo(fonts.tektur)();
-	});
+	};
 
 	async function filePicked(
 		ev: Event & {
@@ -141,35 +152,28 @@
 	}
 </script>
 
-<div>
-	<div class="cvs" bind:this={canvas}></div>
-	<p>
-		<button class="btn preset-filled-primary-500" onclick={toggleWireframe}
-			>toggle wireframes</button
-		>
-	</p>
-	<p>
-		<button class="btn preset-filled-primary-500" onclick={toggleMain}
-			>toggle bad triangles only</button
-		>
-	</p>
-	<p>Pick a font</p>
-	<ul>
-		{#each Object.entries(fonts) as [_, f]}
-			<li><button class="btn preset-filled-primary-500" onclick={switchTo(f)}>{f.name}</button></li>
-		{/each}
-	</ul>
-	<h2>Upload a font</h2>
-	<p><input onchange={filePicked} type="file" /></p>
+<div class="flex h-full flex-col">
+	<Scene class="w-full grow" sceneReady={onSceneReady} />
+	<div>
+		<p>
+			<button class="btn preset-filled-primary-500" onclick={toggleWireframe}
+				>toggle wireframes</button
+			>
+		</p>
+		<p>
+			<button class="btn preset-filled-primary-500" onclick={toggleMain}
+				>toggle bad triangles only</button
+			>
+		</p>
+		<p>Pick a font</p>
+		<ul>
+			{#each Object.entries(fonts) as [_, f]}
+				<li>
+					<button class="btn preset-filled-primary-500" onclick={switchTo(f)}>{f.name}</button>
+				</li>
+			{/each}
+		</ul>
+		<h2>Upload a font</h2>
+		<p><input onchange={filePicked} type="file" /></p>
+	</div>
 </div>
-
-<style>
-	.cvs {
-		width: 100%;
-		height: 768px;
-	}
-	p,
-	li {
-		margin: 0.5rem;
-	}
-</style>

@@ -2,7 +2,8 @@
 
 @import '@skeletonlabs/skeleton';
 @import '@skeletonlabs/skeleton/optional/presets';
-@import '@skeletonlabs/skeleton/themes/terminus';
+/* @import '@skeletonlabs/skeleton/themes/terminus'; */
+@import './theme.css';
 
 @source '../node_modules/@skeletonlabs/skeleton-svelte/dist';
 

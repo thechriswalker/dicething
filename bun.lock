@@ -3,12 +3,10 @@
   "workspaces": {
     "": {
       "name": "dicething-v3",
-      "dependencies": {
-        "@inlang/paraglide-js": "^2.0.0",
-      },
       "devDependencies": {
         "@eslint/compat": "^1.2.5",
         "@eslint/js": "^9.18.0",
+        "@inlang/paraglide-js": "^2.0.0",
         "@lucide/svelte": "^0.503.0",
         "@skeletonlabs/skeleton": "^3.1.3",
         "@skeletonlabs/skeleton-svelte": "^1.2.1",
@@ -19,6 +17,7 @@
         "@testing-library/jest-dom": "^6.6.3",
         "@testing-library/svelte": "^5.2.4",
         "@types/node": "^22.15.12",
+        "@types/opentype.js": "^1.3.8",
         "@types/three": "^0.176.0",
         "@types/xmldom": "^0.1.34",
         "bits-ui": "^1.4.3",
@@ -27,6 +26,7 @@
         "eslint-plugin-svelte": "^3.0.0",
         "globals": "^16.0.0",
         "jsdom": "^26.0.0",
+        "lucide-static": "^0.508.0",
         "opentype.js": "^1.3.4",
         "prettier": "^3.4.2",
         "prettier-plugin-svelte": "^3.3.3",
@@ -292,6 +292,8 @@
     "@types/json-schema": ["@types/json-schema@7.0.15", "", {}, "sha512-5+fP8P8MFNC+AyZCDxrB2pkZFPGzqQWUzpSeuuVLvm8VMcorNYavBqoFcxK8bQz4Qsbn4oUEEem4wDLfcysGHA=="],
 
     "@types/node": ["@types/node@22.15.12", "", { "dependencies": { "undici-types": "~6.21.0" } }, "sha512-K0fpC/ZVeb8G9rm7bH7vI0KAec4XHEhBam616nVJCV51bKzJ6oA3luG4WdKoaztxe70QaNjS/xBmcDLmr4PiGw=="],
+
+    "@types/opentype.js": ["@types/opentype.js@1.3.8", "", {}, "sha512-H6qeTp03jrknklSn4bpT1/9+1xCAEIU2CnjcWPkicJy8A1SKuthanbvoHYMiv79/2W3Xn1XE4gfSJFzt2U3JSw=="],
 
     "@types/stats.js": ["@types/stats.js@0.17.3", "", {}, "sha512-pXNfAD3KHOdif9EQXZ9deK82HVNaXP5ZIF5RP2QG6OQFNTaY2YIetfrE9t528vEreGQvEPRDDc8muaoYeK0SxQ=="],
 
@@ -670,6 +672,8 @@
     "loupe": ["loupe@3.1.3", "", {}, "sha512-kkIp7XSkP78ZxJEsSxW3712C6teJVoeHHwgo9zJ380de7IYyJ2ISlxojcH2pC5OFLewESmnRi/+XCDIEEVyoug=="],
 
     "lru-cache": ["lru-cache@10.4.3", "", {}, "sha512-JNAzZcXrCt42VGLuYz0zfAzDfAvJWW6AfYlDBQyDV5DClI2m5sAmK+OIO7s59XfsRsWHp02jAJrRadPRGTt6SQ=="],
+
+    "lucide-static": ["lucide-static@0.508.0", "", {}, "sha512-YflTbhlhtDxgxo/4dEOJ33TbBYBTdRgVKdL75Vpn4pm2kHNE96ZV4tHfNz0+2iL4SI4Ta+ES2J+dpBdX5UtN/g=="],
 
     "lz-string": ["lz-string@1.5.0", "", { "bin": { "lz-string": "bin/bin.js" } }, "sha512-h5bgJWpxJNswbU7qCrV0tIKQCaS3blPDrqKWx+QxzuzL1zGUzij9XCWLrSLsJPu5t+eWA/ycetzYAO5IOMcWAQ=="],
 

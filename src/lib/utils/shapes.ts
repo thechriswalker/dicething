@@ -70,6 +70,81 @@ function _isContainedAndMinDistanceToEdge(outer: Shape, inner: Array<Shape>): nu
 	return minDistance;
 }
 
+export function anyOuterContainsInner(outer: Shape, inner: Shape): boolean {
+	// need to to the line-crossing algo.
+	// we will do this in super rough divisions
+	const outerPoints = outer.getPoints(6);
+	if (outerPoints[0] === outerPoints[outerPoints.length - 1]) {
+		outerPoints.pop(); // remove duplicate start/end points
+	}
+	const innerPoints = inner.getPoints(6);
+	if (innerPoints[0] === innerPoints[innerPoints.length - 1]) {
+		innerPoints.pop(); // remove duplicate start/end points
+	}
+	for (let i = 0; i < outerPoints.length; i++) {
+		const v1 = outerPoints[i];
+		const v2 = outerPoints[(i + 1) % outerPoints.length];
+		for (let j = 0; j < innerPoints.length; j++) {
+			const v3 = innerPoints[j];
+			const v4 = innerPoints[(j + 1) % innerPoints.length];
+			if (intersect(v1, v2, v3, v4)) {
+				return false;
+			}
+		}
+	}
+	// no intersections, so is there a single point inside?
+	return anyInside(outerPoints, innerPoints);
+}
+
+function anyInside(outer: Array<Vector2>, inner: Array<Vector2>): boolean {
+	for (let { x, y } of inner) {
+		let inside = false;
+		for (let i = 0, j = outer.length - 1; i < outer.length; j = i++) {
+			let vi = outer[i];
+			let vj = outer[j];
+			const intersect =
+				vi.y > y != vj.y > y && x < ((vj.x - vi.x) * (y - vi.y)) / (vj.y - vi.y) + vi.x;
+			if (intersect) {
+				inside = !inside;
+			}
+		}
+		if (inside) {
+			return true;
+		}
+	}
+	return false;
+}
+
+function intersect(v1: Vector2, v2: Vector2, v3: Vector2, v4: Vector2): boolean {
+	// Check if none of the lines are of length 0
+	if ((v1.x === v2.x && v1.y === v2.y) || (v3.x === v4.x && v3.y === v4.y)) {
+		return false;
+	}
+
+	const denominator = (v4.y - v3.y) * (v2.x - v1.x) - (v4.x - v3.x) * (v2.y - v1.y);
+
+	// Lines are parallel
+	if (denominator === 0) {
+		return false;
+	}
+
+	let ua = ((v4.x - v3.x) * (v1.y - v3.y) - (v4.y - v3.y) * (v1.x - v3.x)) / denominator;
+	let ub = ((v2.x - v1.x) * (v1.y - v3.y) - (v2.y - v1.y) * (v1.x - v3.x)) / denominator;
+
+	// is the intersection along the segments
+	if (ua < 0 || ua > 1 || ub < 0 || ub > 1) {
+		return false;
+	}
+	// we only care about IF the intersect not where
+	return true;
+
+	// // Return a object with the x and y coordinates of the intersection
+	//   let x = x1 + ua * (x2 - x1)
+	//   let y = y1 + ua * (y2 - y1)
+
+	//   return {x, y}
+}
+
 // assumes bot line and point are relative to the origin.
 function distanceFromLineToPoint(line: Vector2, point: Vector2): number {
 	const dot = line.dot(point);

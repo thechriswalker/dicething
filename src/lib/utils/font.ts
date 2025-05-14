@@ -1,6 +1,6 @@
 // Create a legend set from a font.
 import { parse } from 'opentype.js';
-import { Curve, LineCurve, Vector2, type Shape } from 'three';
+import { Curve, LineCurve, QuadraticBezierCurve, Ray, Vector2, Vector3, type Shape } from 'three';
 import { SVGLoader } from 'three/examples/jsm/loaders/SVGLoader.js';
 import { centerShapes } from './shapes';
 import { shapeToJSON } from './to_json';
@@ -60,6 +60,31 @@ function preprocessPaths(s: Array<Curve<Vector2>>) {
 				s.splice(i, 1);
 				i--; // now pretend to go back one.
 			}
+		} else {
+			let line = straightLineIfStraight(c);
+			if (line) {
+				s[i] = line;
+			}
 		}
 	}
+}
+
+// for quadratic bezier curves, if they are actually straight, we can replace them we a LineCurve.
+function straightLineIfStraight(c: Curve<Vector2>): LineCurve | null {
+	if (c.type === 'QuadraticBezierCurve') {
+		const q = c as QuadraticBezierCurve;
+		// we will use the Ray in 3-space to model this as it provides distance to point functions.
+		const s3 = new Vector3(q.v0.x, q.v0.y, 0);
+		const d3 = s3
+			.clone()
+			.sub(new Vector3(q.v2.x, q.v2.y, 0))
+			.normalize();
+		const c3 = new Vector3(q.v1.x, q.v1.y, 0);
+		const r = new Ray(s3, d3);
+		if (r.distanceSqToPoint(c3) === 0) {
+			// control point is on point.
+			return new LineCurve(q.v0, q.v2);
+		}
+	}
+	return null;
 }

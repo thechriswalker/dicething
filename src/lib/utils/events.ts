@@ -1,3 +1,4 @@
+import { on } from 'svelte/events';
 import { Camera, Object3D, Raycaster, Vector2 } from 'three/webgpu';
 
 export function hoverEvents(
@@ -13,7 +14,7 @@ export function hoverEvents(
 		pointer.y = -(ev.clientY / el.clientHeight) * 2 + 1;
 		moved = true;
 	};
-	el.addEventListener('pointermove', mouseWatcher);
+	const removeListener = on(el, 'pointermove', mouseWatcher);
 
 	const raycaster = new Raycaster();
 
@@ -71,7 +72,7 @@ export function hoverEvents(
 	tick();
 
 	return () => {
-		el.removeEventListener('pointermove', mouseWatcher);
+		removeListener();
 		running = false;
 	};
 }

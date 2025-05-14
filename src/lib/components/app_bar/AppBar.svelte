@@ -1,13 +1,14 @@
 <script lang="ts">
 	import { AppBar } from '@skeletonlabs/skeleton-svelte';
 	import Logo from '../icons/Logo.svelte';
-	import type { Snippet } from 'svelte';
 	import { m } from '$lib/paraglide/messages';
 	import LightSwitch from '../light_switch/LightSwitch.svelte';
-	import { getMenuItems } from './AppBarMenu.svelte';
 	import Menu from '../menu/Menu.svelte';
 	/*
 		Menu?
+
+		I wanted to be able to set this from a child, via context... but I couldn't get it to
+		work reactively
 
 		File:
 			New Dice Set > (presets)
@@ -17,7 +18,6 @@
 			---
 			Export STL < disable if no set loaded
 	*/
-	let menuData = getMenuItems();
 </script>
 
 <AppBar>
@@ -30,5 +30,5 @@
 	{#snippet trail()}
 		<LightSwitch />
 	{/snippet}
-	<Menu  data={menuData} />
+	<Menu data={{}} />
 </AppBar>

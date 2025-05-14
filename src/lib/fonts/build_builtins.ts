@@ -1,10 +1,12 @@
 // we should be able to use filesystem calls here and $lib functions
 import { mkdir, readdir, readFile, unlink, writeFile } from 'node:fs/promises';
+import lucideMeta from './icons/lucide/info.json';
 
 import { createShapesFromFont } from '$lib/utils/font';
 import { dirname } from 'node:path';
 
 import { DOMParser } from 'xmldom';
+import type { Shape } from 'three';
 
 const builtinPrefix = 'builtin:';
 
@@ -16,12 +18,16 @@ async function createFontBasedLegends(
 	dst: string,
 	varname: string,
 	name: string,
-	strings?: Array<string>
+	strings?: Array<string>,
+	extraIcons?: Array<Array<Shape>>
 ) {
 	// load font from src.
 	const data = (await readFile(src)).buffer;
 
 	const shapes = createShapesFromFont(data, strings);
+	if (extraIcons) {
+		shapes.push(...extraIcons);
+	}
 	// write set to disk
 	await writeFile(
 		dst,
@@ -33,6 +39,26 @@ async function createFontBasedLegends(
 		{ encoding: 'utf8' }
 	);
 }
+
+const iconStrings = (
+	[
+		'dices',
+		'hexagon',
+		'box',
+		'cherry',
+		'croissant',
+		'eye',
+		'gem',
+		'ghost',
+		'skull',
+		'triangle',
+		'umbrella',
+		'zap'
+	] as const
+).map((x) => {
+	const u = lucideMeta[x].unicode.replace(/[^0-9]+/g, ''); // just the numbers
+	return String.fromCodePoint(parseInt(u));
+});
 
 const zero_to_ninety_nine = Array.from({ length: 100 }).map((_, i) => {
 	switch (i) {
@@ -47,6 +73,11 @@ const zero_to_ninety_nine = Array.from({ length: 100 }).map((_, i) => {
 
 async function buildAll() {
 	const baseDir = new URL(dirname(import.meta.url)).pathname;
+
+	const iconShapes = await createShapesFromFont(
+		(await readFile(baseDir + '/icons/lucide/lucide.ttf')).buffer,
+		iconStrings
+	);
 
 	const genSuffix = '/generated';
 
@@ -68,7 +99,7 @@ async function buildAll() {
 			.split('_')
 			.map((s) => s[0].toUpperCase() + s.slice(1))
 			.join(' ');
-		await createFontBasedLegends(src, dst, d, name);
+		await createFontBasedLegends(src, dst, d, name, undefined, iconShapes);
 		fontMeta.push({
 			varname: d,
 			name: JSON.stringify(name),

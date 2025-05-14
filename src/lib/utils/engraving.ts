@@ -5,9 +5,16 @@ import {
 	Path,
 	Shape,
 	ShapeGeometry,
+	ShapeUtils,
 	Vector2
 } from 'three';
-import { isContained, rotateShapes, scaleShapes, translateShapes } from './shapes';
+import {
+	anyOuterContainsInner,
+	isContained,
+	rotateShapes,
+	scaleShapes,
+	translateShapes
+} from './shapes';
 import type { FaceParams } from '$lib/interfaces/dice';
 
 export const DefaultDivisions = 12;
@@ -27,6 +34,8 @@ export function isOutline(p: Part) {
 }
 
 const outlineOffset = 0.01;
+
+let logged = false;
 
 export function engrave(
 	surface: Shape,
@@ -63,20 +72,66 @@ export function engrave(
 
 	// add the initial shape to the group.
 	const face = surface.clone();
-	const faceGroups = [face];
+	const faceGroups: Array<Shape> = [];
 	const internalPoints = [] as Array<Array<Vector2>>;
-
+	const areas = new WeakMap<Shape, number>();
+	areas.set(face, ShapeUtils.area(face.getPoints()));
+	symbols.sort((a, z) => {
+		const aa = ShapeUtils.area(a.getPoints());
+		const az = ShapeUtils.area(z.getPoints());
+		return az - aa;
+	});
+	console.log('-----------------------------------------');
+	console.log('num symbols: ', symbols.length);
 	for (const s of symbols) {
-		const reversedShape = s.getPoints(divisions).slice().reverse();
+		if (!logged) {
+			console.log(s);
+		}
+		// for each bit of the shape.
+		// the problem is when some bits are contained within others.
+		// so it the "reversed shape" (which is the outline)
+		// is inside the hole of a previous shape, we cannot simply
+		// add it as another "shape", as we don't fill in the holes.
+
+		// the "reversedShape" is a whole in the outer shape.
+		const reversedShape = s.getPoints(divisions).slice();
+		if (ShapeUtils.isClockWise(reversedShape)) {
+			reversedShape.reverse();
+		}
 		internalPoints.push(reversedShape);
+
+		// the invertedHoles are new Shapes in their own right.
 		const invertedHoles = s.getPointsHoles(divisions).map((hole) => {
-			const points = hole.slice().reverse();
+			const points = hole.slice();
+			if (!ShapeUtils.isClockWise(points)) {
+				points.reverse();
+			}
 			internalPoints.push(points);
-			return new Shape(points);
+			const s = new Shape(points);
+			areas.set(s, ShapeUtils.area(points));
+			return s;
 		});
-		face.holes.push(new Path(reversedShape));
+
+		// now we need to decide, is the "reversedShape" inside another hole?
+		// we need to find the "smallest" hole it fits in.
+		const inner = faceGroups.find((x) => {
+			const res = anyOuterContainsInner(x, s);
+			console.log('checking if', s, 'is contained in', x, 'result:', res);
+			return res;
+		});
+		if (inner) {
+			inner.holes.push(new Path(reversedShape));
+		} else {
+			face.holes.push(new Path(reversedShape));
+		}
 		faceGroups.push(...invertedHoles);
+		faceGroups.sort((a, z) => {
+			const aa = areas.get(a) ?? Infinity;
+			const az = areas.get(z) ?? Infinity;
+			return az - aa;
+		});
 	}
+	faceGroups.push(face);
 
 	const faceFront = new ShapeGeometry(faceGroups, divisions);
 	faceFront.userData = { diceThingPart: Part.Front };
@@ -86,6 +141,7 @@ export function engrave(
 		// we return the outline as well.
 		return [faceFront, faceOutline];
 	}
+	logged = true;
 
 	const faceBack = new ShapeGeometry(symbols, divisions);
 	faceBack.userData = { diceThingPart: Part.Engraved };
