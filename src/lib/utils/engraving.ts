@@ -81,8 +81,6 @@ export function engrave(
 		const az = ShapeUtils.area(z.getPoints());
 		return az - aa;
 	});
-	console.log('-----------------------------------------');
-	console.log('num symbols: ', symbols.length);
 	for (const s of symbols) {
 		if (!logged) {
 			console.log(s);
@@ -116,7 +114,7 @@ export function engrave(
 		// we need to find the "smallest" hole it fits in.
 		const inner = faceGroups.find((x) => {
 			const res = anyOuterContainsInner(x, s);
-			console.log('checking if', s, 'is contained in', x, 'result:', res);
+			//console.log('checking if', s, 'is contained in', x, 'result:', res);
 			return res;
 		});
 		if (inner) {

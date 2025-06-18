@@ -3,13 +3,7 @@ import type { Preset } from '$lib/interfaces/presets';
 import type { DiceSet } from '$lib/interfaces/storage.svelte';
 import { goFirstPreset } from '$lib/presets/go_first';
 import { uuid } from '$lib/utils/uuid';
-
-const classic: Preset = () => ({
-	// the 7 dice classic dnd set
-	dice: [],
-	legends: blanks,
-	name: 'New Classic Set'
-});
+import { classic } from './classic';
 
 const dicething: Preset = () => ({
 	dice: [],
@@ -30,6 +24,7 @@ const presets = {
 	scratch,
 	classic,
 	go_first
+
 } as const;
 
 export type PresetName = keyof typeof presets;

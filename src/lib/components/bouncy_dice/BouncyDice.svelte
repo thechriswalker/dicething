@@ -77,8 +77,10 @@
 
 		let t = Date.now();
 		let anim: number;
+		let visible = true;
+		let contextLost = false;
 		function render() {
-			if (stopRender) {
+			if (stopRender || !visible || contextLost) {
 				return;
 			}
 			const dt = (Date.now() - t) / 10;
@@ -122,7 +124,8 @@
 		// need to subscribe to the page-visibility API, to see if our requestAnimationFrame happened.
 		// we might as well cancel the animation frame if we're not visible.
 		document.addEventListener('visibilitychange', () => {
-			if (document.hidden) {
+			visible = !document.hidden;
+			if (!visible) {
 				if (anim) {
 					cancelAnimationFrame(anim);
 				}
@@ -138,9 +141,37 @@
 				// create a scene and renderer (we don't use the "baseRenderer and scene" as we want the control)
 				// and this is different to the usual requirements.
 				cvs.appendChild(renderer.domElement);
+				renderer.domElement.addEventListener(
+					'webglcontextlost',
+					function (event) {
+						event.preventDefault();
+						contextLost = true;
+						// animationID would have been set by your call to requestAnimationFrame
+						if (anim) {
+							cancelAnimationFrame(anim);
+						}
+					},
+					false
+				);
+
+				renderer.domElement.addEventListener(
+					'webglcontextrestored',
+					function (event) {
+						// Do something
+						contextLost = false;
+						if (visible) {
+							t = Date.now();
+							anim = requestAnimationFrame(render);
+						}
+					},
+					false
+				);
 				render();
 			}
 		});
+
+		window.triggerContextLoss = () => renderer.forceContextLoss();
+		window.triggerContextRestore = () => renderer.forceContextRestore();
 
 		onDestroy(() => {
 			stopRender = true;

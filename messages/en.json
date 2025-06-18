@@ -75,7 +75,8 @@
 					"id=shard_cap": "Cap Height",
 					"id=shard_twist": "Cap Twist",
 					"id=trapezohedron_radius": "Radius",
-					"id=trapezohedron_height": "Height"
+					"id=trapezohedron_height": "Height",
+					"id=engraving_depth": "Engraving Depth"
 				}
 			}
 		],
@@ -99,7 +100,8 @@
 					"id=shard_cap": "Height of the caps above the long edges of the body",
 					"id=shard_twist": "Rotation of the cap with respect to the other faces. 0 is none, 0.5 is exactly half way",
 					"id=trapezohedron_radius": "Distance from the center axis to the edge vertices",
-					"id=trapezohedron_height": "Distance from tip to tip"
+					"id=trapezohedron_height": "Distance from tip to tip",
+					"id=engraving_depth": "Depth of the legend engraving"
 				}
 			}
 		]

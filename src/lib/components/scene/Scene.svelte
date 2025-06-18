@@ -24,6 +24,8 @@
 		sceneReady(ctx);
 		return ctx.dispose;
 	});
+
+	// we havea problem that the canvas doesn't shrink. so making the screen smaller doesn't resize the scene.
 </script>
 
 <div class={[classes, borderClass, roundedClass]} bind:this={outerEl}></div>

@@ -59,6 +59,12 @@ export async function waitForInitialLoad() {
 	await initialLoad.promise;
 }
 
+export async function waitForSet(id: string): Promise<DiceSet | undefined> {
+	await waitForInitialLoad();
+	return savedSets.find((set) => set.id === id);
+}
+
+
 if (browser) {
 	const storageListener = async (ev: StorageEvent) => {
 		if (ev.storageArea !== localStorage) {

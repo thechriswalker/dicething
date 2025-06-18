@@ -55,4 +55,6 @@ const builtins = {
     voltaire_100: { name: "Voltaire (100)", load: deferredFontLoader("voltaire_100") } as Builtin,
 } as const;
 
+export const defaultFont = builtins.germania_one;
+
 export default builtins;

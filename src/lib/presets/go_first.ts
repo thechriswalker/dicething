@@ -31,7 +31,7 @@ export const goFirstPreset: Preset = async (opts: GoFirstOptions = {}) => {
 	const kind = opts.rhombic ? 'rhombic_d12' : 'dodecahedron_d12';
 	const parameters = { size: opts.size || defaultSize };
 	const legends = await builtins[opts.font ?? 'germania_one_100'].load();
-	const toFP = (i: number) => ({ legend: i + 1 });
+	const toFP = (i: number) => ({ legend: i });
 	return {
 		name: 'Go First Dice (4 Players)',
 		legends,

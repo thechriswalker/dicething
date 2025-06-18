@@ -60,8 +60,8 @@ export class Builder {
 		public model: DieModel,
 		private legends: LegendSet,
 		// this is the dice ID, so we can find it in the scene, or at least uniquely identify parts of _this_ dice
-		private id = uuid()
-	) {}
+		private id = uuid() as string
+	) { }
 
 	setFaceOutline(index: number, visible: boolean) {
 		this.showFaceOutline[index] = visible;
@@ -88,16 +88,12 @@ export class Builder {
 	}
 
 	changeLegends(set: LegendSet) {
+		if (set.id === this.legends.id) {
+			return;
+		}
 		this.legends = set;
 		this.recalculateLegendScaling();
 		this.forceRerenderFaces = true;
-	}
-
-	setEngravingDepth(d: number) {
-		if (d !== this.engravingDepth) {
-			this.engravingDepth = d;
-			this.forceRerenderFaces = true;
-		}
 	}
 
 	setFrontMaterial(mat: Material) {
@@ -151,7 +147,7 @@ export class Builder {
 				}
 				this.lastFaceParams[i] = newFaceParams;
 				this.faceObjects[i] = new Group();
-				this.buildFace(i, newFaceParams, false).forEach((g) => {
+				this.buildFace(i, dieParams.engraving_depth, newFaceParams, false).forEach((g) => {
 					g.userData.diceThingFace = i;
 					g.userData.diceThingId = this.id;
 					if (isOutline(g.userData.diceThingPart)) {
@@ -222,7 +218,7 @@ export class Builder {
 		for (let i = 0; i < this.faces.length; i++) {
 			const newFaceParams = simplifyFaceParams(faceParams[i], this.faces[i]);
 			// don't add these to the object.
-			const f = this.buildFace(i, newFaceParams, true);
+			const f = this.buildFace(i, dieParams.engraving_depth, newFaceParams, true);
 			f.forEach((g) => {
 				if (isOutline(g.userData.diceThingPart)) {
 					return; // skip outline pieces
@@ -242,7 +238,7 @@ export class Builder {
 		return new Mesh(deduped, _m1);
 	}
 
-	private buildFace(i: number, params: FaceParams, forExport = false): Array<BufferGeometry> {
+	private buildFace(i: number, engravingDepth: number, params: FaceParams, forExport = false): Array<BufferGeometry> {
 		// engrave face.
 		const face = this.faces[i];
 		const legend = this.legends.get(params.legend ?? face.defaultLegend);
@@ -255,7 +251,7 @@ export class Builder {
 				face.shape,
 				legend,
 				params,
-				this.engravingDepth + (params.extraDepth ?? 0),
+				engravingDepth + (params.extraDepth ?? 0),
 				forExport ? DefaultDivisions : 2 * DefaultDivisions // will need to "up" this to make a "high quality" render.
 			);
 		} catch (e) {
@@ -269,7 +265,7 @@ export class Builder {
 				face.shape,
 				[], // force to blank
 				params,
-				this.engravingDepth + (params.extraDepth ?? 0),
+				engravingDepth + (params.extraDepth ?? 0),
 				forExport ? DefaultDivisions : 2 * DefaultDivisions // will need to "up" this to make a "high quality" render.
 			);
 		}
@@ -330,6 +326,14 @@ function simplifyFaceParams(obj: FaceParams | undefined, face: DieFaceModel): Fa
 	return params;
 }
 
+const engravingParam: DiceParameter = {
+	id: 'engraving_depth',
+	defaultValue: 0.8,
+	min: 0.1,
+	max: 1.5,
+	step: 0.01
+};
+
 function simplifyDieParams(
 	obj: Record<string, number>,
 	params: Array<DiceParameter>
@@ -343,6 +347,14 @@ function simplifyDieParams(
 			}
 		}
 	});
+
+	// we also add the engraving depth.
+	if ("engraving_depth" in obj) {
+		const value = clampParam(obj.engraving_depth, engravingParam);
+		output.engraving_depth = value;
+	} else {
+		output.engraving_depth = engravingParam.defaultValue;
+	}
 	return output;
 }
 

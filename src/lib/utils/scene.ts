@@ -16,15 +16,14 @@ const defaultCameraPosition = new Vector3(0, 50, 80);
 export type SceneRenderer = ReturnType<typeof createBaseSceneAndRenderer>;
 
 export function createBaseSceneAndRenderer(
-	el: HTMLElement,
-	initialCameraPosition: Vector3 = defaultCameraPosition
+	el: HTMLElement, initialCameraPosition: Vector3 = defaultCameraPosition
 ) {
 	const scene = new Scene();
 	const renderer = new WebGLRenderer({ antialias: true });
 	renderer.setPixelRatio(window.devicePixelRatio);
 	renderer.setSize(el.clientWidth, el.clientHeight);
 	el.appendChild(renderer.domElement);
-
+	const resizeContainer = el.parentElement!;
 	function darkModeListener() {
 		const bgColorCss = window.getComputedStyle(document.body).getPropertyValue('background-color');
 		let rgb = getRGB(bgColorCss);
@@ -62,13 +61,21 @@ export function createBaseSceneAndRenderer(
 	camera.lookAt(new Vector3(0, 0, 0));
 
 	const observer = new ResizeObserver((entries) => {
-		if (entries.find((e) => e.target === el)) {
-			camera.aspect = el.clientWidth / el.clientHeight;
-			camera.updateProjectionMatrix();
-			renderer.setSize(el.clientWidth, el.clientHeight);
+		if (entries.find((e) => e.target === resizeContainer)) {
+			const cvs = renderer.domElement;
+			cvs.style.width = 'auto';
+			cvs.style.height = 'auto';
+			cvs.removeAttribute('width');
+			cvs.removeAttribute('height');
+			setTimeout(() => {
+				camera.aspect = el.clientWidth / el.clientHeight;
+				camera.updateProjectionMatrix();
+				renderer.setSize(el.clientWidth, el.clientHeight);
+			});
 		}
 	});
-	observer.observe(el);
+	//	observer.observe(el);
+	observer.observe(resizeContainer);
 	let anim = 0;
 	// also check the page visibility API to ensure we keep rendering after the page is "stopped"
 	const visibilityListener = () => {
@@ -89,7 +96,8 @@ export function createBaseSceneAndRenderer(
 
 	let disposed = false;
 	const onDispose: Array<() => any> = [
-		() => observer.unobserve(el),
+		//		() => observer.unobserve(el),
+		() => observer.unobserve(resizeContainer),
 		() => window.removeEventListener('light-dark', darkModeListener),
 		() => window.removeEventListener('visibilitychange', visibilityListener),
 	];

@@ -161,19 +161,21 @@ export type Builtin = {
 const builtins = {
 	blanks: { name: "Blanks", load: async () => blanks },
 ${fontMeta
-	.map((x) => {
-		return (
-			'    ' +
-			x.varname +
-			': { name: ' +
-			x.name +
-			', load: deferredFontLoader("' +
-			x.varname +
-			'") } as Builtin,'
-		);
-	})
-	.join('\n')}
+			.map((x) => {
+				return (
+					'    ' +
+					x.varname +
+					': { name: ' +
+					x.name +
+					', load: deferredFontLoader("' +
+					x.varname +
+					'") } as Builtin,'
+				);
+			})
+			.join('\n')}
 } as const;
+
+export const defaultFont = builtins.germania_one;
 
 export default builtins;
 `;
