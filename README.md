@@ -127,3 +127,9 @@ The first flow will be
 8. save set
 9. load new / start new
 10. export all as set.
+
+### Fonts
+
+Most issues come from font problems when converted to SVG paths for engraving.
+
+> Example: Josefin Sans Medium character 3 has 2 instances of paths overlapping. This is a big problem, and one I would like to solve.

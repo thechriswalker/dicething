@@ -16,6 +16,7 @@
 	import { hoverEvents } from '$lib/utils/events';
 	import { Legend, type LegendSet } from '$lib/utils/legends';
 	import Scene from '$lib/components/scene/Scene.svelte';
+	import Layout from '$lib/components/layout/Layout.svelte';
 
 	const builder = new Builder(dice.cube_d6, blanks);
 
@@ -157,24 +158,28 @@
 	};
 </script>
 
-<div class="flex h-full flex-col">
-	<Scene class="w-full grow" sceneReady={onSceneReady} />
-	<div class="flex flex-row gap-8 p-8">
-		<p><button class="btn preset-filled-primary-500" onclick={downloadSTL}>download stl</button></p>
-		<p><button class="btn preset-filled-primary-500" onclick={toggleGrid}>toggle grid</button></p>
-		<p><button class="btn preset-filled-primary-500" onclick={toggleMain}>toggle main</button></p>
-		<p><button class="btn preset-filled-primary-500" onclick={toggleBad}>toggle bad</button></p>
-		<p>
-			<button class="btn preset-filled-primary-500" onclick={toggleWireframe}
-				>toggle wireframe</button
-			>
-		</p>
-		<p>
-			<select onchange={(ev) => changeFont(fonts[ev.currentTarget.value as keyof typeof fonts])}>
-				{#each Object.entries(fonts) as [k, v]}
-					<option value={k}>{v.name}</option>
-				{/each}
-			</select>
-		</p>
+<Layout>
+	<div class="flex h-full flex-col">
+		<Scene class="w-full grow" sceneReady={onSceneReady} />
+		<div class="flex flex-row gap-8 p-8">
+			<p>
+				<button class="btn preset-filled-primary-500" onclick={downloadSTL}>download stl</button>
+			</p>
+			<p><button class="btn preset-filled-primary-500" onclick={toggleGrid}>toggle grid</button></p>
+			<p><button class="btn preset-filled-primary-500" onclick={toggleMain}>toggle main</button></p>
+			<p><button class="btn preset-filled-primary-500" onclick={toggleBad}>toggle bad</button></p>
+			<p>
+				<button class="btn preset-filled-primary-500" onclick={toggleWireframe}
+					>toggle wireframe</button
+				>
+			</p>
+			<p>
+				<select onchange={(ev) => changeFont(fonts[ev.currentTarget.value as keyof typeof fonts])}>
+					{#each Object.entries(fonts) as [k, v]}
+						<option value={k}>{v.name}</option>
+					{/each}
+				</select>
+			</p>
+		</div>
 	</div>
-</div>
+</Layout>

@@ -21,20 +21,7 @@ const caltropParameters: Array<DiceParameter> = [
 
 const origin = new Vector2(0, 0);
 
-const numbering = [
-	3, // 1
-	1, // 2
-	1, // 3
-	1, // 4
-	2, // 5
-	2, // 6
-	3, // 7
-	0, // 8
-	0, // 9
-	3, // 10
-	0, // 11
-	2 // 12
-];
+const numbering = [0, 3, 3, 3, 2, 2, 0, 1, 1, 0, 1, 2];
 
 export const CaltropD4: DieModel = {
 	id: 'caltrop_d4',

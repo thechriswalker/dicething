@@ -61,7 +61,7 @@ export class Builder {
 		private legends: LegendSet,
 		// this is the dice ID, so we can find it in the scene, or at least uniquely identify parts of _this_ dice
 		private id = uuid() as string
-	) { }
+	) {}
 
 	setFaceOutline(index: number, visible: boolean) {
 		this.showFaceOutline[index] = visible;
@@ -131,6 +131,7 @@ export class Builder {
 			this.face2face = x.faceToFaceDistance;
 			this.faces = x.faces;
 			this.recalculateLegendScaling();
+			this.diceGroup.remove(...this.faceObjects);
 			this.faceObjects.length = 0;
 			this.lastDieParams = dieParams;
 		}
@@ -238,7 +239,12 @@ export class Builder {
 		return new Mesh(deduped, _m1);
 	}
 
-	private buildFace(i: number, engravingDepth: number, params: FaceParams, forExport = false): Array<BufferGeometry> {
+	private buildFace(
+		i: number,
+		engravingDepth: number,
+		params: FaceParams,
+		forExport = false
+	): Array<BufferGeometry> {
 		// engrave face.
 		const face = this.faces[i];
 		const legend = this.legends.get(params.legend ?? face.defaultLegend);
@@ -349,7 +355,7 @@ function simplifyDieParams(
 	});
 
 	// we also add the engraving depth.
-	if ("engraving_depth" in obj) {
+	if ('engraving_depth' in obj) {
 		const value = clampParam(obj.engraving_depth, engravingParam);
 		output.engraving_depth = value;
 	} else {

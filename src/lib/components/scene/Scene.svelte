@@ -1,19 +1,21 @@
 <script lang="ts">
 	import { createBaseSceneAndRenderer, type SceneRenderer } from '$lib/utils/scene';
-	import { onMount } from 'svelte';
+	import { onMount, type Snippet } from 'svelte';
 
 	interface Props {
 		class?: string;
 		borderClass?: string;
 		roundedClass?: string;
 		sceneReady: (ctx: SceneRenderer) => void;
+		children?: Snippet;
 	}
 
 	let {
 		class: classes = '',
 		borderClass = 'border-surface-300-700 border-1',
 		roundedClass = 'rounded-lg',
-		sceneReady
+		sceneReady,
+		children
 	}: Props = $props();
 
 	let outerEl: HTMLDivElement;
@@ -28,4 +30,4 @@
 	// we havea problem that the canvas doesn't shrink. so making the screen smaller doesn't resize the scene.
 </script>
 
-<div class={[classes, borderClass, roundedClass]} bind:this={outerEl}></div>
+<div class={[classes, borderClass, roundedClass]} bind:this={outerEl}>{@render children?.()}</div>

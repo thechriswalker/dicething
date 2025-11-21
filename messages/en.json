@@ -49,7 +49,7 @@
 					"preset=go_first": "A set of 4d12 that always roll different numbers and have a equal chance of each die being first (and second, third, fourth).",
 					"preset=scratch": "Empty set so you can start from a blank slate",
 					"preset=classic": "The standard 7 D&D dice set with a caltrop D4. Sized around a 14mm D6",
-					"preset=dicething": "My personal picks. A larger than standard set with the shapes that I like (no caltops!)"
+					"preset=dicething": "My personal picks. A larger than standard set with the shapes that I like (no caltrops!)"
 				}
 			}
 		]
@@ -102,6 +102,37 @@
 					"id=trapezohedron_radius": "Distance from the center axis to the edge vertices",
 					"id=trapezohedron_height": "Distance from tip to tip",
 					"id=engraving_depth": "Depth of the legend engraving"
+				}
+			}
+		]
+	},
+	"dice": {
+		"name": [
+			{
+				"declarations": [
+					"input kind"
+				],
+				"selectors": [
+					"kind"
+				],
+				"match": {
+					"kind=cube_d6": "D6 Cube",
+					"kind=caltrop_d4": "D4 Caltrop",
+					"kind=crystal_d4": "D4 Crystal",
+					"kind=crystal_d6": "D6 Crystal",
+					"kind=crystal_d8": "D8 Crystal",
+					"kind=crystal_d10": "D10 Crystal",
+					"kind=crystal_d00": "D% Crystal",
+					"kind=crystal_d12": "D12 Crystal",
+					"kind=dodecahedron_d12": "D12 Dodecahedron",
+					"kind=icosahedron_d20": "D20 Icosahedron",
+					"kind=rhombic_d12": "D12 Rhombic",
+					"kind=rhombic_d6": "D6 Rhombic",
+					"kind=trapezohedron_d8": "D8 Trapezohedron",
+					"kind=trapezohedron_d10": "D10 Trapezohedron",
+					"kind=trapezohedron_d00": "D% Trapezohedron",
+					"kind=trapezohedron_d12": "D12 Trapezohedron",
+					"kind=shard_d4": "D4 Shard"
 				}
 			}
 		]

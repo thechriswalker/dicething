@@ -11,7 +11,7 @@ import type { DiceParameter, DieModel } from '$lib/interfaces/dice';
 import { pickForNumber } from '$lib/utils/legends';
 import { Quaternion, Shape, Vector2, Vector3, type BufferGeometry } from 'three';
 
-const defaultF2F = 24;
+const defaultF2F = 18;
 
 // they will all use the same configuration here.
 const polyhedronParameters: Array<DiceParameter> = [

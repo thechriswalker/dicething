@@ -3,7 +3,7 @@
 	import Logo from '../icons/Logo.svelte';
 	import { m } from '$lib/paraglide/messages';
 	import LightSwitch from '../light_switch/LightSwitch.svelte';
-	import Menu from '../menu/Menu.svelte';
+	import type { Snippet } from 'svelte';
 	/*
 		Menu?
 
@@ -18,17 +18,20 @@
 			---
 			Export STL < disable if no set loaded
 	*/
+	let { title, children }: { title: string; children?: Snippet } = $props();
 </script>
 
 <AppBar>
 	{#snippet lead()}
 		<div class="flex flex-row items-center justify-start gap-2">
 			<a href="/"><Logo /></a>
-			<h1 class="h4">{m['meta.app_name']()}</h1>
+			<h1 class="h4">
+				{m['meta.app_name']()}{#if title}: {title}{/if}
+			</h1>
 		</div>
 	{/snippet}
 	{#snippet trail()}
 		<LightSwitch />
 	{/snippet}
-	<Menu data={{}} />
+	{@render children?.()}
 </AppBar>

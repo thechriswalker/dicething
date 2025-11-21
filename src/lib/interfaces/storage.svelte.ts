@@ -29,8 +29,19 @@ export type Dice = {
 	face_parameters: Array<FaceParams>;
 };
 
+export function dieToJSON(die: Dice): string {
+	// this is actually the same...
+	return toJson(die);
+}
+export function dieFromJSON(json: string): Dice {
+	return JSON.parse(json, reviver) as Dice;
+}
+
 function diceSetToJSON(diceSet: DiceSetForStorage): string {
-	return JSON.stringify(diceSet, (key, value) => {
+	return toJson(diceSet);
+}
+function toJson(data: any): string {
+	return JSON.stringify(data, (key, value) => {
 		if (value instanceof Vector2) {
 			return { _: 'v2', x: value.x, y: value.y };
 		}
@@ -63,7 +74,6 @@ export async function waitForSet(id: string): Promise<DiceSet | undefined> {
 	await waitForInitialLoad();
 	return savedSets.find((set) => set.id === id);
 }
-
 
 if (browser) {
 	const storageListener = async (ev: StorageEvent) => {

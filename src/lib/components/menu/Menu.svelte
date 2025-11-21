@@ -84,7 +84,7 @@
 	{/if}
 {/snippet}
 
-<Menubar.Root class="flex h-full flex-row items-center justify-start gap-2">
+<Menubar.Root class="flex h-full flex-row items-center justify-end gap-2">
 	{#if menus.length}
 		{#each menus as title, i}
 			<Menubar.Menu>

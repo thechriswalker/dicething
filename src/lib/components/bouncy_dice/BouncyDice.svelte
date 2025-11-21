@@ -170,8 +170,9 @@
 			}
 		});
 
-		window.triggerContextLoss = () => renderer.forceContextLoss();
-		window.triggerContextRestore = () => renderer.forceContextRestore();
+		// for debugging context loss problems...
+		(window as any).triggerContextLoss = () => renderer.forceContextLoss();
+		(window as any).triggerContextRestore = () => renderer.forceContextRestore();
 
 		onDestroy(() => {
 			stopRender = true;

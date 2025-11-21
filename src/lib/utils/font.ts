@@ -67,6 +67,15 @@ function preprocessPaths(s: Array<Curve<Vector2>>) {
 			}
 		}
 	}
+	// for the path as a whole, we should check intersections with the other paths.
+	// adjacent path segements should have a single point in common, but otherwise
+	// they should not intersect. i.e. except for intersections at line ends, no
+	// intersections should happen. I think this is going to be a difficult problem to solve.
+	// at least difficult in a Big-O way. 
+	// There should be an algorithm for finding a tight hull around the objects
+	// ?? https://quadst.rip/poly-isect.html
+
+
 }
 
 // for quadratic bezier curves, if they are actually straight, we can replace them we a LineCurve.

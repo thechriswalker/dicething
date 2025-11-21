@@ -16,7 +16,8 @@ const defaultCameraPosition = new Vector3(0, 50, 80);
 export type SceneRenderer = ReturnType<typeof createBaseSceneAndRenderer>;
 
 export function createBaseSceneAndRenderer(
-	el: HTMLElement, initialCameraPosition: Vector3 = defaultCameraPosition
+	el: HTMLElement,
+	initialCameraPosition: Vector3 = defaultCameraPosition
 ) {
 	const scene = new Scene();
 	const renderer = new WebGLRenderer({ antialias: true });
@@ -93,13 +94,12 @@ export function createBaseSceneAndRenderer(
 
 	document.addEventListener('visibilitychange', visibilityListener);
 
-
 	let disposed = false;
 	const onDispose: Array<() => any> = [
 		//		() => observer.unobserve(el),
 		() => observer.unobserve(resizeContainer),
 		() => window.removeEventListener('light-dark', darkModeListener),
-		() => window.removeEventListener('visibilitychange', visibilityListener),
+		() => window.removeEventListener('visibilitychange', visibilityListener)
 	];
 
 	const dispose = () => {
@@ -109,7 +109,7 @@ export function createBaseSceneAndRenderer(
 		disposed = true;
 		renderer.dispose();
 	};
-	let beforeRender = () => { };
+	let beforeRender = () => {};
 
 	function render() {
 		if (disposed) {
@@ -138,7 +138,7 @@ export function createBaseSceneAndRenderer(
 }
 
 export function createGridHelper(divisions: number) {
-	const size = divisions; // each division is 1cm
+	const size = divisions; // each division is 1mm
 
 	const centerLineColor = 0xcccccc;
 	const gridLineColor = 0x666666;

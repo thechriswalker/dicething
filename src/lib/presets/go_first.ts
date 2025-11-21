@@ -24,7 +24,7 @@ export type GoFirstOptions = {
 	size?: number; // face to face distance
 };
 
-const defaultSize = 22;
+const defaultSize = 20;
 
 // this is parameterized, so maybe I can have preset with parameters?
 export const goFirstPreset: Preset = async (opts: GoFirstOptions = {}) => {

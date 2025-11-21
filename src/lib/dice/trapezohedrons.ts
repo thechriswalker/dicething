@@ -34,7 +34,7 @@ const trapezohedronParameters: Array<DiceParameter> = [
 	{
 		id: 'trapezohedron_radius',
 		defaultValue: defaultTrapezohderonRadius,
-		min: 10,
+		min: 6,
 		max: 60,
 		step: 0.05
 	},
@@ -70,7 +70,7 @@ function trapezohedron(id: string, name: string, sides: number, tens = false): D
 			const bot = new Vector3(0, -h, 0);
 
 			// the angle of each "ray" is
-			const tipAngle = Math.atan(r / h);
+			//const tipAngle = Math.atan(r / h);
 			// this is the angle looking down for each segment.
 			const baseAngle = (2 * Math.PI) / halfSides;
 
@@ -119,7 +119,7 @@ function trapezohedron(id: string, name: string, sides: number, tens = false): D
 			const info = orientCoplanarVertices(faceVertice3);
 
 			return {
-				faceToFaceDistance: 1,
+				faceToFaceDistance: info.offset.length(),
 				faces: Array.from({ length: sides }, (v, i) => {
 					return {
 						isNumberFace: true,
