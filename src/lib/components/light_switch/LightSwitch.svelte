@@ -47,13 +47,13 @@
 			onValueChange={handleValueChange}
 		>
 			<Segment.Item classes="btn-icon px-2 mx-0" value="light">
-				<LightIcon size="16" />
+				<LightIcon size="18" />
 			</Segment.Item>
 			<Segment.Item classes="btn-icon px-2 mx-0" value="system">
-				<SystemIcon size="16" />
+				<SystemIcon size="18" />
 			</Segment.Item>
 			<Segment.Item classes="btn-icon px-2 mx-0" value="dark">
-				<DarkIcon size="16" />
+				<DarkIcon size="18" />
 			</Segment.Item>
 		</Segment>
 	{/snippet}

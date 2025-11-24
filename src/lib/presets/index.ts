@@ -5,6 +5,7 @@ import { goFirstPreset } from '$lib/presets/go_first';
 import { uuid } from '$lib/utils/uuid';
 import { classic } from './classic';
 import { dicethingPreset } from './dicething';
+import { everythingPreset } from './everything';
 
 const dicething: Preset = dicethingPreset;
 
@@ -16,11 +17,14 @@ const scratch: Preset = () => ({
 	name: 'New Dice Set'
 });
 
+const everything: Preset = everythingPreset;
+
 const presets = {
 	dicething,
 	scratch,
 	classic,
-	go_first
+	go_first,
+	everything,
 } as const;
 
 export type PresetName = keyof typeof presets;

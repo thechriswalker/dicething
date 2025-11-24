@@ -1,5 +1,5 @@
 import type { Legend } from '$lib/utils/legends';
-import type { BufferGeometry, Shape, Vector2 } from 'three';
+import type { BufferGeometry, Camera, Shape, Vector2 } from 'three';
 
 export type DieModel = {
 	id: string; // stable name for serialisation
@@ -33,6 +33,12 @@ export type DieFaceModel = {
 	// a function to orient an origin-centered, +Z-facing mesh from the
 	// shape (might be engraved) to the correct position in 3D.
 	orient(geo: BufferGeometry): void;
+	// move a camera to a position facing the face, the right way up.
+	// assuming the camera is already facing the x-y plane in a default way.
+	// (given we know the die is "centered" on the origin, this should be simply
+	// a rotation of the camera around that origin)
+	// This is very similar to "orient", but not quite the same.
+	pointCamera?(camera: Camera): void;
 };
 
 export type DiceParameter = {

@@ -26,12 +26,13 @@
 		<div class="flex flex-row items-center justify-start gap-2">
 			<a href="/"><Logo /></a>
 			<h1 class="h4">
-				{m['meta.app_name']()}{#if title}: {title}{/if}
+				{m['meta.app_name']()}
 			</h1>
 		</div>
 	{/snippet}
 	{#snippet trail()}
+		{@render children?.()}
 		<LightSwitch />
 	{/snippet}
-	{@render children?.()}
+	<h2 class="h4">{title}</h2>
 </AppBar>

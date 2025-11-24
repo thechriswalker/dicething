@@ -3,11 +3,16 @@ import {
 	Color,
 	DirectionalLight,
 	GridHelper,
+	Object3D,
 	PerspectiveCamera,
 	Scene,
+	Vector2,
 	Vector3,
 	WebGLRenderer
 } from 'three';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { OutlinePass } from 'three/addons/postprocessing/OutlinePass.js';
 import { TrackballControls } from 'three/examples/jsm/controls/TrackballControls.js';
 import { getRGB } from './color';
 
@@ -61,6 +66,17 @@ export function createBaseSceneAndRenderer(
 
 	camera.lookAt(new Vector3(0, 0, 0));
 
+	const composer = new EffectComposer(renderer);
+	const renderPass = new RenderPass(scene, camera);
+	composer.addPass(renderPass);
+	const outlinePass = new OutlinePass(new Vector2(el.clientWidth, el.clientHeight), scene, camera);
+	composer.addPass(outlinePass);
+	outlinePass.edgeStrength = 2;
+	outlinePass.edgeGlow = 2;
+	outlinePass.edgeThickness = 1;
+	outlinePass.visibleEdgeColor = new Color(1, 1, 1);
+	outlinePass.hiddenEdgeColor = new Color(0.5, 0.5, 0.5);
+
 	const observer = new ResizeObserver((entries) => {
 		if (entries.find((e) => e.target === resizeContainer)) {
 			const cvs = renderer.domElement;
@@ -72,6 +88,7 @@ export function createBaseSceneAndRenderer(
 				camera.aspect = el.clientWidth / el.clientHeight;
 				camera.updateProjectionMatrix();
 				renderer.setSize(el.clientWidth, el.clientHeight);
+				composer.setSize(el.clientWidth, el.clientHeight);
 			});
 		}
 	});
@@ -118,7 +135,7 @@ export function createBaseSceneAndRenderer(
 		beforeRender();
 		anim = requestAnimationFrame(render);
 		controls.update();
-		renderer.render(scene, camera);
+		composer.render();
 	}
 
 	return {
@@ -128,6 +145,9 @@ export function createBaseSceneAndRenderer(
 		controls,
 		renderer,
 		render,
+		setSelectedItems(selectedItems: Array<Object3D>) {
+			outlinePass.selectedObjects = selectedItems;
+		},
 		onBeforeRender(fn: () => void) {
 			beforeRender = fn;
 		},

@@ -1,31 +1,52 @@
 import { on } from 'svelte/events';
-import { Camera, Object3D, Raycaster, Vector2 } from 'three/webgpu';
+import { Camera, Object3D, Raycaster, Vector2, Mesh } from 'three';
 
-export function hoverEvents(
+export function hoverAndClickEvents(
 	el: HTMLElement,
 	camera: Camera,
 	object: Object3D,
-	handler: (ev: SceneMouseEvent) => void
+	hoverHandler: (ev: SceneMouseEvent) => void = () => {},
+	clickHandler: (ev: SceneMouseEvent) => void = () => {}
 ): () => void {
 	const pointer = new Vector2();
 	let moved = false;
 	const mouseWatcher = (ev: PointerEvent) => {
-		pointer.x = (ev.clientX / el.clientWidth) * 2 - 1;
-		pointer.y = -(ev.clientY / el.clientHeight) * 2 + 1;
+		pointer.x = (ev.offsetX / el.clientWidth) * 2 - 1;
+		pointer.y = -(ev.offsetY / el.clientHeight) * 2 + 1;
 		moved = true;
 	};
-	const removeListener = on(el, 'pointermove', mouseWatcher);
-
+	const mouseMove = on(el, 'pointermove', mouseWatcher);
+	// we can't just use "click" as the semantics are pressed and released in the same dom element
+	// but we want click to be a short click, as a long press is used for camera controls.
+	let clickTimer = 0;
+	const clickThreshold = 300; // ms
+	const mouseDown = on(el, 'pointerdown', (ev: MouseEvent) => {
+		clickTimer = Date.now();
+	});
+	const mouseUp = on(el, 'pointerup', (ev: MouseEvent) => {
+		if (Date.now() - clickTimer < clickThreshold) {
+			const res = getIntersection(pointer);
+			if (res) {
+				clickHandler(res);
+			}
+		}
+		clickTimer = 0;
+	});
+	const removeListeners = () => {
+		mouseDown();
+		mouseUp();
+		mouseMove();
+	};
 	const raycaster = new Raycaster();
 
 	const getIntersection = (v: Vector2): SceneMouseEvent | null => {
 		raycaster.setFromCamera(v, camera);
-		const intersections = raycaster.intersectObject(object);
+		const intersections = raycaster.intersectObject(object, true);
 		//console.log(v, intersections);
 		// get the first intersection with a "named" object.
 		for (let i = 0; i < intersections.length; i++) {
 			const o = intersections[i].object;
-			if ('diceThingId' in o.userData) {
+			if ((o as Mesh).isMesh && 'diceThingId' in o.userData) {
 				return { dice: o.userData.diceThingId, face: o.userData.diceThingFace };
 			}
 		}
@@ -47,21 +68,21 @@ export function hoverEvents(
 		if (next === null) {
 			// "use" the "last" to emit a -1 face on the last dice we saw.
 			if (last !== null && last.dice) {
-				handler({ dice: last.dice, face: -1 });
+				hoverHandler({ dice: last.dice, face: -1 });
 			}
 			last = null;
 		} else {
 			if (last === null) {
 				// just emit
-				handler(next);
+				hoverHandler(next);
 			} else {
 				// has the "dice" changed, if so, emit both the "-1" for the old dice and the event for the new dice
 				if (last.dice !== next.dice) {
-					handler({ dice: last.dice, face: -1 });
-					handler(next);
+					hoverHandler({ dice: last.dice, face: -1 });
+					hoverHandler(next);
 				} else if (last.face !== next.face) {
 					// new face on the same die.
-					handler(next);
+					hoverHandler(next);
 				}
 			}
 			last = next;
@@ -72,7 +93,7 @@ export function hoverEvents(
 	tick();
 
 	return () => {
-		removeListener();
+		removeListeners();
 		running = false;
 	};
 }
@@ -87,3 +108,14 @@ export type SceneMouseEvent = {
 	dice: string;
 	face: number;
 };
+
+function clickEvents(
+	el: HTMLElement,
+	camera: Camera,
+	object: Object3D,
+	handler: (ev: SceneMouseEvent) => void
+): () => void {
+	return () => {
+		//
+	};
+}

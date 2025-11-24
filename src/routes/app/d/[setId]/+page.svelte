@@ -6,25 +6,26 @@
 	import Menu from '$lib/components/menu/Menu.svelte';
 	import Scene from '$lib/components/scene/Scene.svelte';
 	import dice from '$lib/dice';
-	import type { DiceParameter } from '$lib/interfaces/dice';
 	import { waitForSet, type DiceSet } from '$lib/interfaces/storage.svelte';
 	import { m } from '$lib/paraglide/messages';
 	import { Builder } from '$lib/utils/builder';
+	import { hoverAndClickEvents } from '$lib/utils/events';
 	import { createGridHelper, type SceneRenderer } from '$lib/utils/scene';
 	import { event } from '$lib/utils/use_event';
 	import {
 		FileBoxIcon,
 		FileCode2,
 		FileType,
+		Focus,
 		Grid3X3,
-		MonitorUp,
 		PlusIcon,
 		Settings,
 		XIcon
 	} from '@lucide/svelte';
+	import { Slider } from '@skeletonlabs/skeleton-svelte';
 	import { Button } from 'bits-ui';
 	import { onMount } from 'svelte';
-	import { Vector3 } from 'three';
+	import { Object3D, Vector3 } from 'three';
 
 	let { setId } = page.params;
 	let dieId = $derived(page.url.searchParams.get('die') ?? '');
@@ -83,7 +84,7 @@
 		// use it to set up the scene window, but not
 		// to use the reactiveProps directly.
 		ctx = _ctx;
-		const camPos = new Vector3(0, 20, 30);
+		const camPos = new Vector3(0, 10, 40);
 		ctx.camera.position.copy(camPos);
 		const camZoom = ctx.camera.zoom;
 		const camRot = ctx.camera.rotation.clone();
@@ -96,6 +97,39 @@
 		ctx.scene.add(gridHelper);
 		ctx.render();
 	};
+
+	let lastHover = $state(-1);
+	$effect(() => {
+		if (ctx && currentBuilder) {
+			return hoverAndClickEvents(
+				ctx.renderer.domElement,
+				ctx.camera,
+				currentBuilder.diceGroup,
+				(ev) => {
+					highlightFaces(ev.face);
+				},
+				(ev) => {
+					if (ev.dice === dieId) {
+						if (selectedFace !== ev.face) {
+							selectedFace = ev.face;
+							lookAtFace(selectedFace);
+						}
+					}
+				}
+			);
+		}
+	});
+
+	function lookAtFace(idx: number) {
+		console.log('looking at face:', idx);
+		resetCamera();
+		const face = currentBuilder?.getFaces()[idx];
+		const camera = ctx?.camera;
+		if (camera && face) {
+			face.pointCamera?.(camera); // we should get the model to do this work.
+			ctx?.controls.update();
+		}
+	}
 
 	// we have a few things to worry about here.
 	// - legends - builtin or customised. if customised, we need to save it with the set.
@@ -122,6 +156,8 @@
 	const diceBuilders = new Map<string, Builder>();
 	let renderedDice = $state('');
 	let face2face = $state<string | number>('-');
+	let approxVolume = $state<string | number>('-');
+	let currentBuilder = $state<Builder | undefined>(undefined);
 
 	let init = false;
 	$effect(() => {
@@ -143,8 +179,10 @@
 					console.log('rendering in init', d.id);
 					builder.build({ ...d.parameters }, d.face_parameters.slice());
 					face2face = builder.getFace2FaceDistance();
+					approxVolume = builder.getApproximateVolume();
 					ctx.scene.add(builder.diceGroup);
 					renderedDice = d.id;
+					currentBuilder = builder;
 				}
 			}
 		}
@@ -158,6 +196,7 @@
 					ctx.scene.remove(builder.diceGroup);
 				}
 				renderedDice = dieId;
+				currentBuilder = undefined;
 			} else {
 				if (dieId !== renderedDice && ctx) {
 					const builder = diceBuilders.get(renderedDice);
@@ -165,6 +204,7 @@
 						ctx.scene.remove(builder.diceGroup);
 					}
 					renderedDice = '';
+					currentBuilder = undefined;
 				}
 				const builder = diceBuilders.get(dieId);
 				if (builder && ctx) {
@@ -172,17 +212,23 @@
 					console.log('rendering on change', dieId, ctx.scene);
 					builder.build({ ...d.parameters }, d.face_parameters.slice());
 					face2face = builder.getFace2FaceDistance();
-					if (dieId != renderedDice) {
+					approxVolume = builder.getApproximateVolume();
+					const updated = dieId != renderedDice;
+					renderedDice = dieId;
+					currentBuilder = builder;
+					selectedFace = 0;
+					if (updated) {
+						console.log('dice changed');
 						resetCamera();
 						ctx.scene.add(builder.diceGroup);
+						setTimeout(() => highlightFaces());
 					}
-					renderedDice = dieId;
 				}
 			}
 		}
 	});
 
-	const gridHelper = createGridHelper(100);
+	const gridHelper = createGridHelper(50);
 	let gridVisible = $state(true);
 	function toggleGridHelper() {
 		if (gridVisible) {
@@ -202,6 +248,15 @@
 			return x;
 		}
 		return nf.format(x);
+	}
+	let selectedFace = $state(-1);
+	$effect(() => {
+		highlightFaces();
+	});
+
+	function highlightFaces(hoveredFace = -1) {
+		const faces = Array.from(new Set([selectedFace, hoveredFace])).filter((x) => x > -1);
+		ctx?.setSelectedItems(faces.flatMap((x) => currentBuilder?.getOutlineObjects(x) ?? []));
 	}
 </script>
 
@@ -254,7 +309,7 @@
 				<!-- svelte-ignore a11y_click_events_have_key_events, a11y_interactive_supports_focus -->
 				<div
 					role="button"
-					class={'hover:border-primary-500 group hover:shadow-primary-500 relative size-16 cursor-pointer rounded-md border hover:shadow-md ' +
+					class={'transition-duration-100 hover:border-primary-500 group hover:shadow-primary-500 relative size-16 cursor-pointer rounded-md border transition-transform ease-in-out hover:scale-120 hover:shadow-md ' +
 						(die.id === dieId
 							? 'border-primary-500 shadow-primary-500 hover:border-primary-500 group hover:shadow-primary-500 shadow-md'
 							: '')}
@@ -290,8 +345,8 @@
 						class="btn-icon preset-filled-primary-500"
 						title="RESET_CAMERA"
 						onclick={() => {
-							resetCamera();
-						}}><MonitorUp /></Button.Root
+							lookAtFace(selectedFace);
+						}}><Focus /></Button.Root
 					>
 				</li>
 				<li>
@@ -309,13 +364,19 @@
 					{@const die = setData.dice!.find((x) => x.id === dieId)}
 					{#if die}
 						{@const params = dice[die.kind].parameters}
+						{@const faces = currentBuilder?.getFaces()}
+						{@const firstBlank = faces?.findIndex((x) => !x.isNumberFace) ?? -1}
 						<div class="card preset-tonal-surface w-72 p-4">
-							<p class="preset-typo-subtitle">{m['dice.name']({ kind: die.kind })}</p>
+							<p class="preset-typo-subtitle text-center">{m['dice.name']({ kind: die.kind })}</p>
+							<p>
+								Approximate Volume: {numberFormat(approxVolume)}
+							</p>
 							{#if params.every((x) => x.id !== 'polyhedron_size')}
 								<p>
-									Face-to-Face distance: {numberFormat(face2face)}
+									{m['dice_parameters.face_to_face_distance']()}: {numberFormat(face2face)}
 								</p>
-							{/if}{#each params as p}
+							{/if}
+							{#each params as p}
 								{@const currentValue = die.parameters[p.id] ?? p.defaultValue}
 								<label
 									id="parameter-{p.id}"
@@ -323,16 +384,54 @@
 									title={m['dice_parameters.description']({ id: p.id })}
 								>
 									{m['dice_parameters.name']({ id: p.id })}: ({currentValue}):
-									<input
-										type="range"
+									<!-- Bits UI Slider component! -->
+
+									<Slider
+										classes="py-2 my-2 "
+										meterBg="bg-primary-500"
+										thumbBg="bg-primary-500"
+										value={[currentValue]}
+										onValueChange={(e) => (die.parameters[p.id] = e.value[0])}
 										min={p.min}
 										max={p.max}
-										defaultValue={currentValue}
-										bind:value={die.parameters[p.id]}
 										step={p.step}
-									/>
+									></Slider>
 								</label>
 							{/each}
+							<label class="mt-4 flex flex-col">
+								<p class="preset-typo-subtitle text-center">{m['dice.current_face']()}</p>
+								<select
+									class="select"
+									onchange={(e) => {
+										selectedFace = Number(e.target!.value);
+										if (selectedFace !== -1) {
+											lookAtFace(selectedFace);
+										}
+									}}
+								>
+									<option value={-1}>-</option>
+									{#each currentBuilder?.getFaces() as face, i}
+										{#if face.isNumberFace}
+											<option value={i} selected={i === selectedFace}>Face {i + 1}</option>
+										{:else}
+											<option value={i} selected={i === selectedFace}
+												>Blank {i + 1 - firstBlank}</option
+											>
+										{/if}
+									{/each}
+								</select>
+							</label>
+							<!-- 
+								face params are specific:
+
+								legend
+								scale: 0-2
+								rotation: -Pi - Pi
+								extraDepth: 0-1 // for engraving
+								offset Vector2 (i.e. x,y) from center. might be better to have a component for this
+								that we bind to the faceparams
+						
+							-->
 						</div>
 					{/if}
 				{/if}

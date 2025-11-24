@@ -7,13 +7,15 @@ import {
 	Mesh,
 	MeshBasicMaterial,
 	MeshNormalMaterial,
+	Vector3,
+	Plane,
 	type Object3D
 } from 'three';
 import { DefaultDivisions, engrave, isOutline, Part } from './engraving';
 import { debugLegendName, Legend, type LegendSet } from './legends';
 import { mergeGeometries, mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { removeDuplicateTriangles } from './bad_edges';
-import { findBestLegendScalingFactor } from './shapes';
+import { findBestLegendScalingFactor, getAreaOfShapeAtOrigin } from './shapes';
 import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
 import { LineSegments2 } from 'three/examples/jsm/lines/webgpu/LineSegments2.js';
 import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeometry.js';
@@ -63,13 +65,59 @@ export class Builder {
 		private id = uuid() as string
 	) {}
 
+	public getFaces(): ReadonlyArray<DieFaceModel> {
+		return this.faces;
+	}
+
 	setFaceOutline(index: number, visible: boolean) {
 		this.showFaceOutline[index] = visible;
 		this.faceObjects[index].children.forEach((m) => {
 			if (isOutline(m.userData.diceThingPart)) {
-				m.visible = visible;
+				m.visible = false;
 			}
 		});
+	}
+	setAllFaceOutlines(visible: boolean) {
+		for (let i = 0; i < this.faces.length; i++) {
+			this.setFaceOutline(i, visible);
+		}
+	}
+
+	getOutlineObjects(index: number): Array<Object3D> {
+		const objs: Array<Object3D> = [];
+		this.faceObjects[index]?.children.forEach((m) => {
+			if (m.userData.diceThingPart === Part.Front) {
+				objs.push(m);
+			}
+		});
+		return objs;
+	}
+
+	public getApproximateVolume(): number {
+		// we should cache this value as it only depends on
+		// the die parameters, not the face ones (we ignore engraved material)
+		// so the volume is the sum of the volumes of the pryamids from the faces
+		// to the origin.
+		// the volume of a pryamid is the base area x 1/3 x perpendicular height.
+		// so we can find the perpendicular height of the face to the origin
+		// by constructing a taking one normal from the face, constructing a plane
+		// and then finding the distance from the origin to the plane.
+		const volume = this.faces.reduce((sum, f, i) => {
+			const area = getAreaOfShapeAtOrigin(f.shape);
+			const obj = this.faceObjects[i].children.find((m) => {
+				return (m as Mesh).isMesh && m.userData.diceThingPart === Part.Front;
+			}) as Mesh;
+			const position = obj.geometry.getAttribute('position');
+			const plane = new Plane().setFromCoplanarPoints(
+				new Vector3(position.getX(0), position.getY(0), position.getZ(0)),
+				new Vector3(position.getX(1), position.getY(1), position.getZ(1)),
+				new Vector3(position.getX(2), position.getY(2), position.getZ(2))
+			);
+			const height = plane.distanceToPoint(new Vector3(0, 0, 0));
+			return sum + (area * height) / 3;
+		}, 0);
+
+		return volume;
 	}
 
 	private setFaceOutlines() {

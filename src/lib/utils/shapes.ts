@@ -10,6 +10,7 @@ import {
 	Quaternion,
 	Shape,
 	SplineCurve,
+	Triangle,
 	Vector2,
 	Vector3
 } from 'three';
@@ -467,4 +468,20 @@ export function findBestLegendScalingFactor(shape: Shape, legends: Array<Shape>)
 	}
 	//console.log({ final_distance: minDistanceToEdge, scale });
 	return scale;
+}
+
+// find the area of a shape that is centered on the origin (like all our face shapes are)
+const _t = new Triangle();
+const _v1 = new Vector3();
+const _v2 = new Vector3();
+const _o3 = new Vector3(0, 0, 0);
+export function getAreaOfShapeAtOrigin(shape: Shape): number {
+	const points = shape.getPoints();
+	return points.reduce((total, point, idx) => {
+		const p1 = points[idx + 1] || points[0];
+		_v1.set(point.x, point.y, 0);
+		_v2.set(p1.x, p1.y, 0);
+		_t.set(_o3, _v1, _v2);
+		return total + _t.getArea();
+	}, 0);
 }

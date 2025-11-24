@@ -1,10 +1,11 @@
 import dice from '$lib/dice';
-import { blanks, defaultFont } from '$lib/fonts';
 import type { Dice } from '$lib/interfaces/storage.svelte';
 import { PerspectiveCamera, Scene, Vector2, Vector3, WebGLRenderer } from 'three';
 import { Builder } from './builder';
 import { deferred } from './deferred';
 import { loadImmutableLegends, type SerialisedLegendSet } from './legends';
+import { createGridHelper } from './scene';
+import { vectorRotateX, vectorRotateY, vectorRotateZ } from './3d';
 
 type Defined<T> = T extends undefined ? never : T;
 
@@ -28,9 +29,7 @@ function getRenderFunction() {
 		const renderer = new WebGLRenderer({ antialias: true, alpha: true, canvas: canvas });
 		renderer.setPixelRatio(1);
 		// renderer.setSize(boxSize, boxSize);
-		const camera = new PerspectiveCamera(30, 1, 1, 500);
-		camera.position.set(0, 0, 80);
-		camera.lookAt(new Vector3(0, 0, 0));
+
 		render = function (d: Dice, l: SerialisedLegendSet): Promise<string> {
 			const deferral = deferred<string>();
 			queue = queue.then(async () => {
@@ -39,6 +38,13 @@ function getRenderFunction() {
 					const builder = new Builder(dice[d.kind], legends, d.id);
 					builder.build(d.parameters, d.face_parameters);
 					scene.add(builder.diceGroup);
+					const largeFace = builder.getFaces().findLast(x => x.isNumberFace);
+					console.log(d.kind, "=>", largeFace)
+
+					const camera = new PerspectiveCamera(30, 1, 1, 500);
+					camera.position.set(0, 0, 60);
+					largeFace?.pointCamera?.(camera);
+					camera.lookAt(new Vector3(0, 0, 0));
 					renderer.render(scene, camera);
 					scene.remove(builder.diceGroup);
 					const blob = await (renderer.domElement as unknown as OffscreenCanvas).convertToBlob();
@@ -58,6 +64,11 @@ self.onmessage = function (event) {
 	if ((event.data.msg = 'die-preview')) {
 		const d = JSON.parse(event.data.die, reviver);
 		const l = JSON.parse(event.data.legends);
-		getRenderFunction()(d, l).then((url) => postMessage({ id: d.id, url }));
+		getRenderFunction()(d, l).then((url) => {
+			console.log("worker:send", { id: d.id, url })
+			postMessage({ id: d.id, url })
+		}).catch(err => {
+			console.error("worker:error rendering die!", err)
+		})
 	}
 };

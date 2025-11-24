@@ -55,6 +55,7 @@
 		]
 	},
 	"dice_parameters": {
+		"face_to_face_distance": "Face-to-face distance",
 		"name": [
 			{
 				"declarations": [
@@ -107,6 +108,7 @@
 		]
 	},
 	"dice": {
+		"current_face": "Current Face",
 		"name": [
 			{
 				"declarations": [

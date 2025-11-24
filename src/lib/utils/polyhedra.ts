@@ -9,20 +9,22 @@
 
 import type { DiceParameter, DieModel } from '$lib/interfaces/dice';
 import { pickForNumber } from '$lib/utils/legends';
-import { Quaternion, Shape, Vector2, Vector3, type BufferGeometry } from 'three';
+import { Quaternion, Shape, Vector2, Vector3, type BufferGeometry, type Camera } from 'three';
+import { vectorRotateZ } from './3d';
 
 const defaultF2F = 18;
 
-// they will all use the same configuration here.
-const polyhedronParameters: Array<DiceParameter> = [
-	{
-		id: 'polyhedron_size',
-		min: 6,
-		max: 60,
-		step: 0.5,
-		defaultValue: defaultF2F
-	}
-];
+export const defaultParameters = (): Array<DiceParameter> => {
+	return [
+		{
+			id: 'polyhedron_size',
+			min: 6,
+			max: 60,
+			step: 0.5,
+			defaultValue: defaultF2F
+		}
+	];
+};
 
 // lets see if we can define these by "Shape" (all faces the same)
 // and orientation info? That way we can probably use this for a cube
@@ -43,7 +45,8 @@ export function polyhedron(
 	id: string,
 	name: string,
 	sides: Array<PolyhedronFace>,
-	shaper: Shaper
+	shaper: Shaper,
+	parameters: Array<DiceParameter> = defaultParameters()
 ): DieModel {
 	// might as well only do this once.
 	const quats: Array<Quaternion | undefined> = sides.map((s) => {
@@ -68,7 +71,7 @@ export function polyhedron(
 	return {
 		id,
 		name,
-		parameters: polyhedronParameters,
+		parameters,
 		build(params) {
 			const d = params.polyhedron_size ?? defaultF2F;
 			const face = shaper(d);
@@ -91,6 +94,17 @@ export function polyhedron(
 							// any other rotation?
 							if (quat) {
 								geo.applyQuaternion(quat);
+							}
+						},
+						pointCamera(cam: Camera): void {
+							if (s.preRotation) {
+								vectorRotateZ(cam.position, s.preRotation);
+								vectorRotateZ(cam.up, s.preRotation);
+								cam.up = cam.up.normalize();
+							}
+							if (quat) {
+								cam.position.applyQuaternion(quat);
+								cam.up = cam.up.applyQuaternion(quat).normalize();
 							}
 						}
 					};

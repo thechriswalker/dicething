@@ -73,7 +73,8 @@ function preprocessPaths(s: Array<Curve<Vector2>>) {
 	// intersections should happen. I think this is going to be a difficult problem to solve.
 	// at least difficult in a Big-O way. 
 	// There should be an algorithm for finding a tight hull around the objects
-	// ?? https://quadst.rip/poly-isect.html
+	// ?? https://quadst.rip/poly-isect.html gives us "unmess" which I have vendored a copy of as an example (it doesn't existing online any more)
+	// It expects straight lines, but we work on the "intersect" part of the algorithm I might be able to convert it to an arbitrary path one...?
 
 
 }

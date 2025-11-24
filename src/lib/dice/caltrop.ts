@@ -3,9 +3,10 @@
 // That might make it more difficult to customise, but I don't care...
 
 import type { DiceParameter, DieModel } from '$lib/interfaces/dice';
+import { vectorRotateX, vectorRotateY, vectorRotateZ } from '$lib/utils/3d';
 import { pickForNumber } from '$lib/utils/legends';
 import { centerShapes } from '$lib/utils/shapes';
-import { Shape, Vector2 } from 'three';
+import { Shape, Vector2, Camera } from 'three';
 
 const defaultCaltropHeight = 16;
 
@@ -120,10 +121,53 @@ export const CaltropD4: DieModel = {
 						// TBH we shold probably have all dice sitting on the xz plane,
 						// so when we render them all together it looks like the are all sat flush.
 						geo.translate(0, H / 2, 0);
+					},
+					pointCamera(cam: Camera) {
+						switch (n) {
+							case 0:
+								// no roation
+								break;
+							case 1:
+								vectorRotateZ(cam.position, 2 * sixtyDeg);
+								vectorRotateZ(cam.up, 2 * sixtyDeg);
+								break;
+							case 2:
+								vectorRotateZ(cam.position, -2 * sixtyDeg);
+								vectorRotateZ(cam.up, -2 * sixtyDeg);
+								break;
+						}
+						switch (f) {
+							case 0:
+								// forward face.
+								vectorRotateX(cam.position, -offsetAngle);
+								vectorRotateX(cam.up, -offsetAngle);
+								break;
+							case 1:
+								// left face.
+								vectorRotateX(cam.position, -offsetAngle);
+								vectorRotateX(cam.up, -offsetAngle);
+								vectorRotateY(cam.position, -2 * sixtyDeg);
+								vectorRotateY(cam.up, -2 * sixtyDeg);
+								break;
+							case 2:
+								// right face.
+								vectorRotateX(cam.position, -offsetAngle);
+								vectorRotateX(cam.up, -offsetAngle);
+								vectorRotateY(cam.position, 2 * sixtyDeg);
+								vectorRotateY(cam.up, 2 * sixtyDeg);
+							case 3:
+								// bottom face
+								vectorRotateX(cam.position, Math.PI / 2);
+								vectorRotateX(cam.up, Math.PI / 2);
+								vectorRotateY(cam.position, Math.PI);
+								vectorRotateY(cam.up, Math.PI);
+								break;
+						}
+						cam.up = cam.up.normalize();
 					}
 				};
 			}),
-			faceToFaceDistance: h
+			faceToFaceDistance: H
 		};
 	}
 };

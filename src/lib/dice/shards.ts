@@ -2,9 +2,10 @@
 // unbalanced lengths.
 // i.e. long edge for number faces and short cap for blanks.
 import type { DieModel, DieFaceModel, DiceParameter } from '$lib/interfaces/dice';
+import { vectorRotateY, vectorRotateZ } from '$lib/utils/3d';
 import { Legend, pickForDoublesByIndex, pickForNumber } from '$lib/utils/legends';
 import { orientCoplanarVertices, rotateShapes, translateShapes } from '$lib/utils/shapes';
-import { BufferGeometry, Plane, Ray, Shape, Vector2, Vector3 } from 'three';
+import { BufferGeometry, Plane, Ray, Camera, Vector2, Vector3 } from 'three';
 
 const defaultHeight = 24;
 const defaultRadius = 8;
@@ -143,53 +144,10 @@ function build(sides: number, tens: boolean): DieModel['build'] {
 			// if a "tens" dice, rotate the numbers 90deg by default
 			[face] = rotateShapes(Math.PI / 2, face);
 		}
-		const yRotation = (i: number, obj: BufferGeometry) => {
-			// rotate based on index.
-			if (i == 0) {
-				return;
-			}
-			let n = i + 1;
-			// some logic around i.
-			let even = false;
-			if (n % 2 == 0) {
-				// even number.
-				// they are placed opposite their odd couterpart.
-				even = true;
-				// using the sides+1 total rule.
-				// the number this should be opposite is sides - n+1
-				n = sides - n + 1;
-			}
 
-			// find odd number position
-			// we position the odd numbers evenly
-			// here n = 3 => sign = -1, x = 1
-			//      n = 5 => sign = 1, x = 1
-			//      n = 7 => sign = -1, x = 2
-			//      n = 9 => sign = 1, x = 2
-			//      n = 11 => sign = -1, x = 3, ...etc
-			const u = (n - 1) / 2;
-			const sign = 2 * (u % 2) - 1; // is this odd or even, which infers left or right. this is 1 or -1
-			// (n-1)/2 1,2,3,4
-			//         1,0,1,0
-			//         2 2 4 4
-			const x = (u + (u % 2)) / 2;
-
-			// 3 is alpha*1,
-			// 5 is alpha*1,
-			// 7 = 2*alpha,
-			// 9 = 2*alpha
-			let rotation = sign * alpha * x;
-			// if we are actually even rotate an extra 180
-			if (even) {
-				rotation += sign * Math.PI;
-			}
-
-			obj.rotateY(rotation);
-		};
-
-		console.log('face', face.getPoints());
 		// the number faces, in numerical order.
 		const faces: Array<DieFaceModel> = Array.from({ length: sides }).map((_, i) => {
+			const yRot = yRotation(i, sides, alpha);
 			return {
 				isNumberFace: true,
 				shape: face,
@@ -201,9 +159,20 @@ function build(sides: number, tens: boolean): DieModel['build'] {
 					geo.translate(0, -yOffset, 0);
 					geo.applyQuaternion(numFaceInfo.quat);
 					geo.translate(numFaceInfo.offset.x, numFaceInfo.offset.y, numFaceInfo.offset.z);
-					yRotation(i, geo);
+					geo.rotateY(yRot);
 					// but now potentially rotated around the yAxis basis on the position we want them
 					geo.translate(0, (y - h) / 2, 0);
+				},
+				pointCamera(cam: Camera) {
+					if (tens) {
+						vectorRotateZ(cam.position, -Math.PI / 2)
+						vectorRotateZ(cam.up, -Math.PI / 2)
+					}
+					cam.position.applyQuaternion(numFaceInfo.quat)
+					cam.up.applyQuaternion(numFaceInfo.quat)
+					vectorRotateY(cam.position, yRot)
+					vectorRotateY(cam.up, yRot)
+					cam.up = cam.up.normalize()
 				}
 			};
 		});
@@ -217,6 +186,7 @@ function build(sides: number, tens: boolean): DieModel['build'] {
 		};
 
 		for (let i = 0; i < sides; i++) {
+			const yRot = yRotation(i, sides, alpha);
 			faces.push({
 				isNumberFace: false,
 				shape: capFaceInfo.shape,
@@ -224,7 +194,13 @@ function build(sides: number, tens: boolean): DieModel['build'] {
 				// top
 				orient(obj) {
 					capBasicOrient(obj);
-					yRotation(i, obj);
+					obj.rotateY(yRot);
+				},
+				pointCamera(cam: Camera) {
+					cam.position.applyQuaternion(capFaceInfo.quat);
+					cam.up.applyQuaternion(capFaceInfo.quat);
+					vectorRotateY(cam.position, yRot)
+					cam.up = cam.up.normalize()
 				}
 			});
 		}
@@ -235,4 +211,48 @@ function build(sides: number, tens: boolean): DieModel['build'] {
 			faces
 		};
 	};
+}
+
+function yRotation(i: number, sides: number, alpha: number): number {
+	// rotate based on index.
+	if (i == 0) {
+		return 0;
+	}
+	let n = i + 1;
+	// some logic around i.
+	let even = false;
+	if (n % 2 == 0) {
+		// even number.
+		// they are placed opposite their odd couterpart.
+		even = true;
+		// using the sides+1 total rule.
+		// the number this should be opposite is sides - n+1
+		n = sides - n + 1;
+	}
+
+	// find odd number position
+	// we position the odd numbers evenly
+	// here n = 3 => sign = -1, x = 1
+	//      n = 5 => sign = 1, x = 1
+	//      n = 7 => sign = -1, x = 2
+	//      n = 9 => sign = 1, x = 2
+	//      n = 11 => sign = -1, x = 3, ...etc
+	const u = (n - 1) / 2;
+	const sign = 2 * (u % 2) - 1; // is this odd or even, which infers left or right. this is 1 or -1
+	// (n-1)/2 1,2,3,4
+	//         1,0,1,0
+	//         2 2 4 4
+	const x = (u + (u % 2)) / 2;
+
+	// 3 is alpha*1,
+	// 5 is alpha*1,
+	// 7 = 2*alpha,
+	// 9 = 2*alpha
+	let rotation = sign * alpha * x;
+	// if we are actually even rotate an extra 180
+	if (even) {
+		rotation += sign * Math.PI;
+	}
+	return rotation
+
 }

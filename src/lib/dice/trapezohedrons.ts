@@ -2,9 +2,10 @@
 // but they also include the "rhombic" D6
 
 import type { DiceParameter, DieModel } from '$lib/interfaces/dice';
+import { vectorRotateX, vectorRotateY } from '$lib/utils/3d';
 import { pickForDoublesByIndex, pickForNumber } from '$lib/utils/legends';
 import { orientCoplanarVertices } from '$lib/utils/shapes';
-import { Plane, Ray, Vector3 } from 'three';
+import { Plane, Ray, Vector3, type Camera } from 'three';
 
 // they are constructed by creating a 2 pyramids and inverting one, then intersecting them
 // twist depending on the odd/even nature of the number of faces on each half
@@ -131,42 +132,23 @@ function trapezohedron(id: string, name: string, sides: number, tens = false): D
 							// even numbers the same but flipped 180 on x
 							geo.applyQuaternion(info.quat);
 							geo.translate(info.offset.x, info.offset.y, info.offset.z);
-
-							let n = i + 1;
-							// some logic around i.
-							let even = false;
-							if (n % 2 == 0) {
-								// even number.
-								// they are placed opposite their odd couterpart.
-								even = true;
-								// using the sides+1 total rule.
-								// the number this should be opposite is sides - n+1
-								n = sides - n + 1;
-							}
-
-							// find odd number position
-							// we position the odd numbers evenly
-							// here n = 3 => sign = -1, x = 1
-							//      n = 5 => sign = 1, x = 1
-							//      n = 7 => sign = -1, x = 2
-							//      n = 9 => sign = 1, x = 2
-							//      n = 11 => sign = -1, x = 3, ...etc
-							const u = (n - 1) / 2;
-							const sign = 2 * (u % 2) - 1; // is this odd or even, which infers left or right. this is 1 or -1
-							// (n-1)/2 1,2,3,4
-							//         1,0,1,0
-							//         2 2 4 4
-							const x = (u + (u % 2)) / 2;
-
-							// 3 is alpha*1,
-							// 5 is alpha*1,
-							// 7 = 2*alpha,
-							// 9 = 2*alpha
-							let rotation = sign * baseAngle * x;
-							if (even) {
+							const { y, xflip } = xyRot(i, sides, baseAngle)
+							if (xflip) {
 								geo.rotateX(Math.PI); // flip it on x-axis
 							}
-							geo.rotateY(rotation);
+							geo.rotateY(y);
+						},
+						pointCamera(cam: Camera): void {
+							cam.position.applyQuaternion(info.quat);
+							cam.up = cam.up.applyQuaternion(info.quat)
+							const { y, xflip } = xyRot(i, sides, baseAngle)
+							if (xflip) {
+								vectorRotateX(cam.position, Math.PI); // flip it on x-axis
+								vectorRotateX(cam.up, Math.PI);
+							}
+							vectorRotateY(cam.position, y);
+							vectorRotateY(cam.up, y);
+							cam.up = cam.up.normalize();
 						}
 					};
 				})
@@ -174,6 +156,43 @@ function trapezohedron(id: string, name: string, sides: number, tens = false): D
 		}
 	};
 }
+
+function xyRot(i: number, sides: number, baseAngle: number): { y: number, xflip: boolean } {
+	let n = i + 1;
+	// some logic around i.
+	let even = false;
+	if (n % 2 == 0) {
+		// even number.
+		// they are placed opposite their odd couterpart.
+		even = true;
+		// using the sides+1 total rule.
+		// the number this should be opposite is sides - n+1
+		n = sides - n + 1;
+	}
+
+	// find odd number position
+	// we position the odd numbers evenly
+	// here n = 3 => sign = -1, x = 1
+	//      n = 5 => sign = 1, x = 1
+	//      n = 7 => sign = -1, x = 2
+	//      n = 9 => sign = 1, x = 2
+	//      n = 11 => sign = -1, x = 3, ...etc
+	const u = (n - 1) / 2;
+	const sign = 2 * (u % 2) - 1; // is this odd or even, which infers left or right. this is 1 or -1
+	// (n-1)/2 1,2,3,4
+	//         1,0,1,0
+	//         2 2 4 4
+	const x = (u + (u % 2)) / 2;
+
+	// 3 is alpha*1,
+	// 5 is alpha*1,
+	// 7 = 2*alpha,
+	// 9 = 2*alpha
+	let rotation = sign * baseAngle * x;
+	return { y: rotation, xflip: even }
+
+}
+
 
 export const RhombicD6 = trapezohedron('rhombic_d6', 'Rhombic D6', 6);
 export const TrapezohedronD8 = trapezohedron('trapezohedron_d8', 'D8 Trapezohedron', 8);
