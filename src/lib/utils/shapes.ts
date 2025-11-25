@@ -44,7 +44,9 @@ function _isContainedAndMinDistanceToEdge(outer: Shape, inner: Array<Shape>): nu
 		let [pos, neg] = [false, false];
 		for (let s of inner) {
 			// we lower this for speed vs. accuracy
-			for (let p of s.getPoints(12)) {
+			// we add the origin to force a point on the inside of the outer shape.
+			// this way, we can detect a "fully outside" shape.
+			for (let p of s.getPoints(12).concat(origin)) {
 				// is p on the right?
 				_a.copy(p);
 				_a.sub(outerPoints[i]);
@@ -147,6 +149,9 @@ function intersect(v1: Vector2, v2: Vector2, v3: Vector2, v4: Vector2): boolean 
 }
 
 // assumes bot line and point are relative to the origin.
+// we also work out the distance from the distance from the origin of
+// the line and crosses the origin and the point and the given line.
+// this way we can work out if the point is "outside the origin."
 function distanceFromLineToPoint(line: Vector2, point: Vector2): number {
 	const dot = line.dot(point);
 	const d2 = line.lengthSq();

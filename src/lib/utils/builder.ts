@@ -1,7 +1,6 @@
 import type { DiceParameter, DieFaceModel, DieModel, FaceParams } from '$lib/interfaces/dice';
 import {
 	BufferGeometry,
-	EdgesGeometry,
 	Group,
 	Material,
 	Mesh,
@@ -9,38 +8,26 @@ import {
 	MeshNormalMaterial,
 	Vector3,
 	Plane,
-	type Object3D
+	type Object3D,
+	Vector2
 } from 'three';
-import { DefaultDivisions, engrave, isOutline, Part } from './engraving';
+import { DefaultDivisions, engrave, Part } from './engraving';
 import { debugLegendName, Legend, type LegendSet } from './legends';
 import { mergeGeometries, mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { removeDuplicateTriangles } from './bad_edges';
 import { findBestLegendScalingFactor, getAreaOfShapeAtOrigin } from './shapes';
-import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
-import { LineSegments2 } from 'three/examples/jsm/lines/webgpu/LineSegments2.js';
-import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeometry.js';
 import { uuid } from './uuid';
-
-const _l1 = new LineMaterial({
-	color: 0x000000,
-	linewidth: 0.1,
-	worldUnits: true
-});
-const _l2 = new LineMaterial({
-	color: 0xff6666,
-	linewidth: 0.1,
-	worldUnits: true
-});
 
 const _m1 = new MeshNormalMaterial({ wireframe: !true });
 const _m2 = new MeshBasicMaterial({ color: 0x000000 });
+const _m3 = new MeshBasicMaterial({ color: 0xff0000 });
 
 export class Builder {
 	private forceRerenderBlank = true;
 	private forceRerenderFaces = true;
 	private lastDieParams: Record<string, number> = {};
 	private face2face: number = 0;
-	private currentLegendScaling: number = 1;
+	public currentLegendScaling: number = 1;
 	private faces: Array<DieFaceModel> = [];
 	private faceObjects: Array<Object3D> = [];
 	private lastFaceParams: Array<FaceParams> = [];
@@ -49,12 +36,10 @@ export class Builder {
 	// these two default to mesh normal
 	private frontMaterial: Material = _m1;
 	private wallMaterial: Material = _m1;
-	private faceOutlineMaterial: LineMaterial = _l1;
-	private symbolOutlineMaterial: LineMaterial = _l2;
-	private showFaceOutline: Array<boolean> = [];
 
 	// this to a flat grey
 	private engraveMaterial: Material = _m2;
+	private errorMaterial: Material = _m3;
 
 	public readonly diceGroup = new Group();
 
@@ -69,20 +54,7 @@ export class Builder {
 		return this.faces;
 	}
 
-	setFaceOutline(index: number, visible: boolean) {
-		this.showFaceOutline[index] = visible;
-		this.faceObjects[index].children.forEach((m) => {
-			if (isOutline(m.userData.diceThingPart)) {
-				m.visible = false;
-			}
-		});
-	}
-	setAllFaceOutlines(visible: boolean) {
-		for (let i = 0; i < this.faces.length; i++) {
-			this.setFaceOutline(i, visible);
-		}
-	}
-
+	// just get the front section of the face.
 	getOutlineObjects(index: number): Array<Object3D> {
 		const objs: Array<Object3D> = [];
 		this.faceObjects[index]?.children.forEach((m) => {
@@ -118,17 +90,6 @@ export class Builder {
 		}, 0);
 
 		return volume;
-	}
-
-	private setFaceOutlines() {
-		this.faceObjects.forEach((g, i) => {
-			const visible = this.showFaceOutline[i];
-			g.children.forEach((m) => {
-				if (isOutline(m.userData.diceThingPart)) {
-					m.visible = visible;
-				}
-			});
-		});
 	}
 
 	getFace2FaceDistance(): number {
@@ -199,21 +160,8 @@ export class Builder {
 				this.buildFace(i, dieParams.engraving_depth, newFaceParams, false).forEach((g) => {
 					g.userData.diceThingFace = i;
 					g.userData.diceThingId = this.id;
-					if (isOutline(g.userData.diceThingPart)) {
-						// we do things a little differently
-						// we need to make a "line segments"
-						const m =
-							g.userData.diceThingPart === Part.FaceOutline
-								? this.faceOutlineMaterial
-								: this.symbolOutlineMaterial;
-						const seggeo = new LineSegmentsGeometry().fromEdgesGeometry(g as EdgesGeometry);
-						const seg2 = new LineSegments2(seggeo, m as any);
-						seg2.userData = { ...g.userData };
-						seg2.visible = !!this.showFaceOutline[i];
-						this.faceObjects[i].add(seg2);
-						return;
-					}
 					let m: Material;
+					let visible = true;
 					switch (g.userData.diceThingPart) {
 						case Part.Engraved:
 							m = this.engraveMaterial;
@@ -222,11 +170,20 @@ export class Builder {
 							m = this.wallMaterial;
 							break;
 						case Part.Front:
-						default:
 							m = this.frontMaterial;
+							break;
+						case Part.Symbol:
+							m = this.errorMaterial;
+							visible = !g.userData.diceThingSymbolOK;
+							break;
+						default:
+							console.error('unknown part?', g);
+							m = this.frontMaterial;
+							break;
 					}
 					const mesh = new Mesh(g, m);
 					mesh.userData = { ...g.userData };
+					mesh.visible = visible;
 					this.faceObjects[i].add(mesh);
 				});
 				this.diceGroup.add(this.faceObjects[i]);
@@ -269,9 +226,6 @@ export class Builder {
 			// don't add these to the object.
 			const f = this.buildFace(i, dieParams.engraving_depth, newFaceParams, true);
 			f.forEach((g) => {
-				if (isOutline(g.userData.diceThingPart)) {
-					return; // skip outline pieces
-				}
 				// ensure we can merge them
 				if (g.index) {
 					g = g.toNonIndexed();
@@ -296,7 +250,7 @@ export class Builder {
 		// engrave face.
 		const face = this.faces[i];
 		const legend = this.legends.get(params.legend ?? face.defaultLegend);
-		if (!params.scale || params.scale !== 1) {
+		if (!params.scale) {
 			params.scale = this.currentLegendScaling;
 		}
 		let output: Array<BufferGeometry>;
@@ -336,16 +290,14 @@ function faceParamsNotEqual(prev: FaceParams, next: FaceParams, face: DieFaceMod
 		prev.scale !== next.scale ||
 		prev.rotation !== next.rotation ||
 		next.extraDepth !== prev.extraDepth;
-	if (!simples) {
-		return false;
+	// if simples is true, something is not equal
+	if (simples) {
+		return true;
 	}
-	if ('offset' in prev !== 'offset' in next) {
-		return false;
-	}
-	if (prev.offset && !prev.offset.equals(next.offset!)) {
-		return false;
-	}
-	return true;
+	// offsets default to 0,0
+	const prevOffset = prev.offset ?? new Vector2(0, 0);
+	const nextOffset = next.offset ?? new Vector2(0, 0);
+	return !prevOffset.equals(nextOffset);
 }
 
 function simplifyFaceParams(obj: FaceParams | undefined, face: DieFaceModel): FaceParams {
@@ -374,13 +326,13 @@ function simplifyFaceParams(obj: FaceParams | undefined, face: DieFaceModel): Fa
 			params.rotation = r;
 		}
 	}
-	if (obj.scale && obj.scale !== 1) {
+	if (obj.scale) {
 		params.scale = obj.scale;
 	}
 	return params;
 }
 
-const engravingParam: DiceParameter = {
+export const engravingParam: DiceParameter = {
 	id: 'engraving_depth',
 	defaultValue: 0.8,
 	min: 0.1,

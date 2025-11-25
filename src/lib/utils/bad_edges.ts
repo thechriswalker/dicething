@@ -12,7 +12,6 @@ import {
 	type TypedArray
 } from 'three';
 import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { isOutline } from './engraving';
 
 // each triangle edge should be connected to EXACTLY 2 triangles.
 type Triangle = {
@@ -59,10 +58,6 @@ export function findAllBadTriangles(...obj: Array<Object3D>) {
 			return;
 		}
 		if ((o as Mesh).isMesh) {
-			if (isOutline(o.userData.diceThingPart)) {
-				return;
-			}
-
 			let g = (o as Mesh).geometry;
 			if (g.index !== null) {
 				g = g.toNonIndexed();

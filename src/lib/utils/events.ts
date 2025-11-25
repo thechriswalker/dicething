@@ -5,8 +5,8 @@ export function hoverAndClickEvents(
 	el: HTMLElement,
 	camera: Camera,
 	object: Object3D,
-	hoverHandler: (ev: SceneMouseEvent) => void = () => {},
-	clickHandler: (ev: SceneMouseEvent) => void = () => {}
+	hoverHandler: (ev: SceneMouseHoverEvent) => void = () => {},
+	clickHandler: (ev: SceneMouseClickEvent) => void = () => {}
 ): () => void {
 	const pointer = new Vector2();
 	let moved = false;
@@ -16,6 +16,12 @@ export function hoverAndClickEvents(
 		moved = true;
 	};
 	const mouseMove = on(el, 'pointermove', mouseWatcher);
+	const mouseLeave = on(el, 'pointerleave', () => {
+		if (last && last.dice !== null && last.face !== -1) {
+			hoverHandler({ dice: last.dice, face: -1 });
+			last = null;
+		}
+	});
 	// we can't just use "click" as the semantics are pressed and released in the same dom element
 	// but we want click to be a short click, as a long press is used for camera controls.
 	let clickTimer = 0;
@@ -27,7 +33,13 @@ export function hoverAndClickEvents(
 		if (Date.now() - clickTimer < clickThreshold) {
 			const res = getIntersection(pointer);
 			if (res) {
-				clickHandler(res);
+				clickHandler({
+					...res,
+					_shift: ev.shiftKey,
+					_alt: ev.altKey,
+					_ctrl: ev.ctrlKey,
+					_meta: ev.metaKey
+				});
 			}
 		}
 		clickTimer = 0;
@@ -36,10 +48,11 @@ export function hoverAndClickEvents(
 		mouseDown();
 		mouseUp();
 		mouseMove();
+		mouseLeave();
 	};
 	const raycaster = new Raycaster();
 
-	const getIntersection = (v: Vector2): SceneMouseEvent | null => {
+	const getIntersection = (v: Vector2): SceneMouseHoverEvent | null => {
 		raycaster.setFromCamera(v, camera);
 		const intersections = raycaster.intersectObject(object, true);
 		//console.log(v, intersections);
@@ -54,7 +67,7 @@ export function hoverAndClickEvents(
 	};
 	// ideally we would hook into the render loop, but because this is external, we have to make our own loop.
 	let running = true;
-	let last: SceneMouseEvent | null = null;
+	let last: SceneMouseHoverEvent | null = null;
 	const tick = () => {
 		if (!running) {
 			return;
@@ -104,18 +117,13 @@ export function hoverAndClickEvents(
 // so for example, our common case will be a "Group" from the builder object.
 // and we need to find the face, which will be marked in userData.
 
-export type SceneMouseEvent = {
+export type SceneMouseHoverEvent = {
 	dice: string;
 	face: number;
 };
-
-function clickEvents(
-	el: HTMLElement,
-	camera: Camera,
-	object: Object3D,
-	handler: (ev: SceneMouseEvent) => void
-): () => void {
-	return () => {
-		//
-	};
-}
+export type SceneMouseClickEvent = SceneMouseHoverEvent & {
+	_alt: Boolean;
+	_shift: Boolean;
+	_ctrl: Boolean;
+	_meta: Boolean;
+};

@@ -6,10 +6,11 @@
 	import Menu from '$lib/components/menu/Menu.svelte';
 	import Scene from '$lib/components/scene/Scene.svelte';
 	import dice from '$lib/dice';
-	import { waitForSet, type DiceSet } from '$lib/interfaces/storage.svelte';
+	import { dieToJSON, waitForSet, type DiceSet } from '$lib/interfaces/storage.svelte';
 	import { m } from '$lib/paraglide/messages';
-	import { Builder } from '$lib/utils/builder';
+	import { Builder, engravingParam } from '$lib/utils/builder';
 	import { hoverAndClickEvents } from '$lib/utils/events';
+	import { debugLegendName, Legend } from '$lib/utils/legends';
 	import { createGridHelper, type SceneRenderer } from '$lib/utils/scene';
 	import { event } from '$lib/utils/use_event';
 	import {
@@ -25,7 +26,8 @@
 	import { Slider } from '@skeletonlabs/skeleton-svelte';
 	import { Button } from 'bits-ui';
 	import { onMount } from 'svelte';
-	import { Object3D, Vector3 } from 'three';
+	import { Object3D, Vector2, Vector3 } from 'three';
+	import { degToRad, radToDeg } from 'three/src/math/MathUtils.js';
 
 	let { setId } = page.params;
 	let dieId = $derived(page.url.searchParams.get('die') ?? '');
@@ -98,7 +100,6 @@
 		ctx.render();
 	};
 
-	let lastHover = $state(-1);
 	$effect(() => {
 		if (ctx && currentBuilder) {
 			return hoverAndClickEvents(
@@ -106,7 +107,7 @@
 				ctx.camera,
 				currentBuilder.diceGroup,
 				(ev) => {
-					highlightFaces(ev.face);
+					ctx?.setSecondarySeletedItems(currentBuilder?.getOutlineObjects(ev.face) ?? []);
 				},
 				(ev) => {
 					if (ev.dice === dieId) {
@@ -211,18 +212,19 @@
 					const d = setData?.dice.find((x) => x.id === dieId)!;
 					console.log('rendering on change', dieId, ctx.scene);
 					builder.build({ ...d.parameters }, d.face_parameters.slice());
+					console.log(dieToJSON(d));
 					face2face = builder.getFace2FaceDistance();
 					approxVolume = builder.getApproximateVolume();
 					const updated = dieId != renderedDice;
 					renderedDice = dieId;
 					currentBuilder = builder;
-					selectedFace = 0;
 					if (updated) {
+						selectedFace = 0;
 						console.log('dice changed');
 						resetCamera();
 						ctx.scene.add(builder.diceGroup);
-						setTimeout(() => highlightFaces());
 					}
+					setTimeout(() => highlightSelectedFace());
 				}
 			}
 		}
@@ -249,14 +251,15 @@
 		}
 		return nf.format(x);
 	}
-	let selectedFace = $state(-1);
+	let selectedFace = $state(0);
+
 	$effect(() => {
-		highlightFaces();
+		//highlightFaces();
+		highlightSelectedFace();
 	});
 
-	function highlightFaces(hoveredFace = -1) {
-		const faces = Array.from(new Set([selectedFace, hoveredFace])).filter((x) => x > -1);
-		ctx?.setSelectedItems(faces.flatMap((x) => currentBuilder?.getOutlineObjects(x) ?? []));
+	function highlightSelectedFace() {
+		ctx?.setPrimarySelectedItems(currentBuilder?.getOutlineObjects(selectedFace) ?? []);
 	}
 </script>
 
@@ -398,12 +401,33 @@
 									></Slider>
 								</label>
 							{/each}
+							<label
+								id="parameter-{engravingParam.id}"
+								class="flex flex-col"
+								title={m['dice_parameters.description']({ id: engravingParam.id })}
+							>
+								{m['dice_parameters.name']({ id: engravingParam.id })}: ({die.parameters[
+									engravingParam.id
+								] ?? engravingParam.defaultValue}):
+								<!-- Bits UI Slider component! -->
+
+								<Slider
+									classes="py-2 my-2 "
+									meterBg="bg-primary-500"
+									thumbBg="bg-primary-500"
+									value={[die.parameters[engravingParam.id] ?? engravingParam.defaultValue]}
+									onValueChange={(e) => (die.parameters[engravingParam.id] = e.value[0])}
+									min={engravingParam.min}
+									max={engravingParam.max}
+									step={engravingParam.step}
+								></Slider>
+							</label>
 							<label class="mt-4 flex flex-col">
 								<p class="preset-typo-subtitle text-center">{m['dice.current_face']()}</p>
 								<select
 									class="select"
 									onchange={(e) => {
-										selectedFace = Number(e.target!.value);
+										selectedFace = Number((e.target as any).value);
 										if (selectedFace !== -1) {
 											lookAtFace(selectedFace);
 										}
@@ -421,7 +445,8 @@
 									{/each}
 								</select>
 							</label>
-							<!-- 
+							{#if selectedFace !== -1}
+								<!-- 
 								face params are specific:
 
 								legend
@@ -432,6 +457,123 @@
 								that we bind to the faceparams
 						
 							-->
+								<label class="flex flex-col">
+									<!-- >{
+									//m['face_params.legend']()
+									} -->
+									Legend
+									<select
+										onchange={(e) => {
+											//
+											const nextLegend = (e.target as any).value as Legend;
+											const params = die.face_parameters[selectedFace] ?? {};
+											params.legend = nextLegend;
+											die.face_parameters[selectedFace] = params;
+										}}
+									>
+										<option value={Legend.BLANK}>BLANK</option>
+										{#each setData.legends as l}
+											<option
+												value={l}
+												selected={l ===
+													(die.face_parameters[selectedFace]?.legend ??
+														currentBuilder?.getFaces()[selectedFace]?.defaultLegend)}
+												>{debugLegendName(l)}</option
+											>
+										{/each}
+									</select>
+								</label>
+								<label class="flex flex-col"
+									>scale ({die.face_parameters[selectedFace]?.scale ??
+										currentBuilder?.currentLegendScaling ??
+										1})
+									<Slider
+										classes="py-2 my-2 "
+										meterBg="bg-primary-500"
+										thumbBg="bg-primary-500"
+										value={[
+											die.face_parameters[selectedFace]?.scale ??
+												currentBuilder?.currentLegendScaling ??
+												1
+										]}
+										onValueChange={(e) => {
+											const nextScale = e.value[0];
+											const params = die.face_parameters[selectedFace] ?? {};
+											params.scale = nextScale;
+											die.face_parameters[selectedFace] = params;
+										}}
+										min={0.1}
+										max={5.0}
+										step={0.01}
+									></Slider>
+								</label>
+								<label class="flex flex-col"
+									>offset-x ({(
+										die.face_parameters[selectedFace]?.offset ?? new Vector2(0, 0)
+									).x.toFixed(2)})
+									<Slider
+										classes="py-2 my-2 "
+										meterBg="bg-primary-500"
+										thumbBg="bg-primary-500"
+										value={[(die.face_parameters[selectedFace]?.offset ?? new Vector2(0, 0)).x]}
+										onValueChange={(e) => {
+											const nextOffset = e.value[0];
+											const params = die.face_parameters[selectedFace] ?? {};
+											if (params.offset) {
+												params.offset = params.offset.clone().setX(nextOffset);
+											} else {
+												params.offset = new Vector2(nextOffset, 0);
+											}
+											die.face_parameters[selectedFace] = params;
+										}}
+										min={-20}
+										max={20}
+										step={0.1}
+									></Slider>
+								</label>
+							{/if}
+							<label class="flex flex-col"
+								>offset-y ({(
+									die.face_parameters[selectedFace]?.offset ?? new Vector2(0, 0)
+								).y.toFixed(2)})
+								<Slider
+									classes="py-2 my-2 "
+									meterBg="bg-primary-500"
+									thumbBg="bg-primary-500"
+									value={[(die.face_parameters[selectedFace]?.offset ?? new Vector2(0, 0)).y]}
+									onValueChange={(e) => {
+										const nextOffset = e.value[0];
+										const params = die.face_parameters[selectedFace] ?? {};
+										if (params.offset) {
+											params.offset = params.offset.clone().setY(nextOffset);
+										} else {
+											params.offset = new Vector2(0, nextOffset);
+										}
+										die.face_parameters[selectedFace] = params;
+									}}
+									min={-20}
+									max={20}
+									step={0.1}
+								></Slider>
+							</label>
+							<label class="flex flex-col"
+								>rotation ({radToDeg(die.face_parameters[selectedFace]?.rotation ?? 0).toFixed(2)})
+								<Slider
+									classes="py-2 my-2 "
+									meterBg="bg-primary-500"
+									thumbBg="bg-primary-500"
+									value={[radToDeg(die.face_parameters[selectedFace]?.rotation ?? 0)]}
+									onValueChange={(e) => {
+										const nextOffset = e.value[0];
+										const params = die.face_parameters[selectedFace] ?? {};
+										params.rotation = degToRad(nextOffset);
+										die.face_parameters[selectedFace] = params;
+									}}
+									min={-180}
+									max={180}
+									step={0.1}
+								></Slider>
+							</label>
 						</div>
 					{/if}
 				{/if}

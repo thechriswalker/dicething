@@ -1,26 +1,43 @@
 // Create a legend set from a font.
-import { parse } from 'opentype.js';
+import { parse, type RenderOptions } from 'opentype.js';
 import { Curve, LineCurve, QuadraticBezierCurve, Ray, Vector2, Vector3, type Shape } from 'three';
 import { SVGLoader } from 'three/examples/jsm/loaders/SVGLoader.js';
 import { centerShapes } from './shapes';
 import { shapeToJSON } from './to_json';
 
 // these are in the same order as the "Legend" enum values
-const defaultStrings =
-	'0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 6. 9. 30 40 50 60 70 80 90 00'.split(' ');
+const defaultStrings: Array<FontString> =
+	'0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 6. 9. 30 40 50 60 70 80 90 00'
+		.split(' ')
+		.map((s) => {
+			const o: FontString = { text: s };
+			switch (s) {
+				case '6.':
+				case '9.':
+					o.renderOptions = { letterSpacing: -0.1 };
+					break;
+				default:
+				//nothing
+			}
+			return o;
+		});
+
+export type FontString = {
+	text: string;
+	renderOptions?: RenderOptions;
+};
 
 const _svg = new SVGLoader();
 
 export function createShapesFromFont(
 	fontData: ArrayBufferLike,
-	strings: Array<string> = defaultStrings
+	strings: Array<FontString> = defaultStrings
 ) {
 	const font = parse(fontData);
 
 	const legendShapes: Array<Array<Shape>> = strings.map((s) => {
-		const paths = font.getPaths(s, 0, 0, 10, {
-			kerning: true
-		});
+		const opts = { kerning: true, ...(s.renderOptions || {}) };
+		const paths = font.getPaths(s.text, 0, 0, 10, opts);
 		// This is a massive inefficient hack, but it works...
 		// We pregenerate these anyway...
 		const svgText = `<svg width="30" height="20" viewBox="0 0 20 20"><g transform="rotate(180) scale(-1,1)">${paths
@@ -71,12 +88,10 @@ function preprocessPaths(s: Array<Curve<Vector2>>) {
 	// adjacent path segements should have a single point in common, but otherwise
 	// they should not intersect. i.e. except for intersections at line ends, no
 	// intersections should happen. I think this is going to be a difficult problem to solve.
-	// at least difficult in a Big-O way. 
+	// at least difficult in a Big-O way.
 	// There should be an algorithm for finding a tight hull around the objects
 	// ?? https://quadst.rip/poly-isect.html gives us "unmess" which I have vendored a copy of as an example (it doesn't existing online any more)
 	// It expects straight lines, but we work on the "intersect" part of the algorithm I might be able to convert it to an arbitrary path one...?
-
-
 }
 
 // for quadratic bezier curves, if they are actually straight, we can replace them we a LineCurve.

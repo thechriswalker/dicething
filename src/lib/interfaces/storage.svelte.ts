@@ -56,7 +56,7 @@ function diceSetFromJSON(json: string): DiceSetForStorage {
 type Defined<T> = T extends undefined ? never : T;
 
 const reviver: Defined<Parameters<typeof JSON.parse>[1]> = (key, value) => {
-	if (typeof value === 'object' && value._ === 'v2') {
+	if (typeof value === 'object' && value && value._ === 'v2') {
 		return new Vector2(value.x, value.y);
 	}
 	return value;

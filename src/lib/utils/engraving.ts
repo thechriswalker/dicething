@@ -22,20 +22,11 @@ export const DefaultDivisions = 12;
 export type SymbolOrientation = Pick<FaceParams, 'offset' | 'rotation' | 'scale'>;
 
 export enum Part {
-	Front = 'front',
-	Walls = 'walls',
-	Engraved = 'engraved',
-	FaceOutline = 'face_outline',
-	SymbolOutline = 'symbol_outline'
+	Front = 'front', // main face of the dice with a hole for the symbol
+	Walls = 'walls', // the engraved walls
+	Engraved = 'engraved', // the back of the symbol
+	Symbol = 'symbol' // a hidden part used to show how the symbol "doesn't fit"
 }
-
-export function isOutline(p: Part) {
-	return p === Part.FaceOutline || p === Part.SymbolOutline;
-}
-
-const outlineOffset = 0.01;
-
-let logged = false;
 
 export function engrave(
 	surface: Shape,
@@ -61,14 +52,7 @@ export function engrave(
 		symbols = translateShapes(orientation.offset, ...symbols);
 	}
 
-	if (!isContained(surface, symbols)) {
-		throw new Error('symbols out of bounds');
-	}
-
-	// face outline is BEFORE we engrave.
-	const faceOutline = new EdgesGeometry(new ShapeGeometry(surface));
-	faceOutline.userData = { diceThingPart: Part.FaceOutline };
-	faceOutline.translate(0, 0, outlineOffset);
+	const canEngraveSymbol = isContained(surface, symbols);
 
 	// add the initial shape to the group.
 	const face = surface.clone();
@@ -81,53 +65,52 @@ export function engrave(
 		const az = ShapeUtils.area(z.getPoints());
 		return az - aa;
 	});
-	for (const s of symbols) {
-		if (!logged) {
-			console.log(s);
-		}
-		// for each bit of the shape.
-		// the problem is when some bits are contained within others.
-		// so it the "reversed shape" (which is the outline)
-		// is inside the hole of a previous shape, we cannot simply
-		// add it as another "shape", as we don't fill in the holes.
+	if (canEngraveSymbol) {
+		for (const s of symbols) {
+			// for each bit of the shape.
+			// the problem is when some bits are contained within others.
+			// so it the "reversed shape" (which is the outline)
+			// is inside the hole of a previous shape, we cannot simply
+			// add it as another "shape", as we don't fill in the holes.
 
-		// the "reversedShape" is a whole in the outer shape.
-		const reversedShape = s.getPoints(divisions).slice();
-		if (ShapeUtils.isClockWise(reversedShape)) {
-			reversedShape.reverse();
-		}
-		internalPoints.push(reversedShape);
-
-		// the invertedHoles are new Shapes in their own right.
-		const invertedHoles = s.getPointsHoles(divisions).map((hole) => {
-			const points = hole.slice();
-			if (!ShapeUtils.isClockWise(points)) {
-				points.reverse();
+			// the "reversedShape" is a whole in the outer shape.
+			const reversedShape = s.getPoints(divisions).slice();
+			if (ShapeUtils.isClockWise(reversedShape)) {
+				reversedShape.reverse();
 			}
-			internalPoints.push(points);
-			const s = new Shape(points);
-			areas.set(s, ShapeUtils.area(points));
-			return s;
-		});
+			internalPoints.push(reversedShape);
 
-		// now we need to decide, is the "reversedShape" inside another hole?
-		// we need to find the "smallest" hole it fits in.
-		const inner = faceGroups.find((x) => {
-			const res = anyOuterContainsInner(x, s);
-			//console.log('checking if', s, 'is contained in', x, 'result:', res);
-			return res;
-		});
-		if (inner) {
-			inner.holes.push(new Path(reversedShape));
-		} else {
-			face.holes.push(new Path(reversedShape));
+			// the invertedHoles are new Shapes in their own right.
+			const invertedHoles = s.getPointsHoles(divisions).map((hole) => {
+				const points = hole.slice();
+				if (!ShapeUtils.isClockWise(points)) {
+					points.reverse();
+				}
+				internalPoints.push(points);
+				const s = new Shape(points);
+				areas.set(s, ShapeUtils.area(points));
+				return s;
+			});
+
+			// now we need to decide, is the "reversedShape" inside another hole?
+			// we need to find the "smallest" hole it fits in.
+			const inner = faceGroups.find((x) => {
+				const res = anyOuterContainsInner(x, s);
+				//console.log('checking if', s, 'is contained in', x, 'result:', res);
+				return res;
+			});
+			if (inner) {
+				inner.holes.push(new Path(reversedShape));
+			} else {
+				face.holes.push(new Path(reversedShape));
+			}
+			faceGroups.push(...invertedHoles);
+			faceGroups.sort((a, z) => {
+				const aa = areas.get(a) ?? Infinity;
+				const az = areas.get(z) ?? Infinity;
+				return az - aa;
+			});
 		}
-		faceGroups.push(...invertedHoles);
-		faceGroups.sort((a, z) => {
-			const aa = areas.get(a) ?? Infinity;
-			const az = areas.get(z) ?? Infinity;
-			return az - aa;
-		});
 	}
 	faceGroups.push(face);
 
@@ -135,21 +118,22 @@ export function engrave(
 	faceFront.userData = { diceThingPart: Part.Front };
 
 	if (symbols.length === 0) {
-		// if no symbols, then faceFront is the whole thing.
-		// we return the outline as well.
-		return [faceFront, faceOutline];
+		// if no symbols, then faceFront is the whole thing, no engraving at all
+		return [faceFront];
 	}
-	logged = true;
 
+	const symbolOutline = new ShapeGeometry(symbols, divisions);
+	symbolOutline.userData = { diceThingPart: Part.Symbol, diceThingSymbolOK: canEngraveSymbol };
+	symbolOutline.translate(0, 0, 0.1); // move it forwards so we can see it clearly
+
+	if (!canEngraveSymbol) {
+		return [faceFront, symbolOutline];
+	}
+
+	// engrave it.
 	const faceBack = new ShapeGeometry(symbols, divisions);
 	faceBack.userData = { diceThingPart: Part.Engraved };
 
-	const symbolOutline = new EdgesGeometry(faceBack); // before we move it!
-	symbolOutline.userData = { diceThingPart: Part.SymbolOutline };
-	// translate the outline slightly, to ensure visibility
-	symbolOutline.translate(0, 0, outlineOffset);
-
-	// engrave it.
 	faceBack.translate(0, 0, -depth);
 
 	// the walls as an array of triangles.
@@ -185,5 +169,5 @@ export function engrave(
 	wallGeo.computeVertexNormals(); // I use mesh normal material, so this is useful
 	wallGeo.userData = { diceThingPart: Part.Walls };
 
-	return [wallGeo, faceBack, faceFront, faceOutline, symbolOutline];
+	return [wallGeo, faceBack, faceFront];
 }

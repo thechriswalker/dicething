@@ -161,7 +161,7 @@ export type LegendSet = {
 	readonly length: number;
 	get(l: Legend): Array<Shape>;
 	toJSON(): SerialisedLegendSet;
-};
+} & Iterable<Legend>;
 
 export type SerialisedLegendSet = {
 	id: string;
@@ -220,6 +220,12 @@ export function loadImmutableLegends(s: SerialisedLegendSet): ImmutableLegendSet
 		},
 		toJSON() {
 			return s;
+		},
+		*[Symbol.iterator]() {
+			const l = data.length;
+			for (let i = 0; i < l; i++) {
+				yield i;
+			}
 		}
 	};
 }
@@ -263,6 +269,12 @@ export function loadMutableLegends(s: SerialisedLegendSet): MutableLegendSet {
 				name: set.name,
 				shapes: data
 			};
+		},
+		*[Symbol.iterator]() {
+			const l = data.length;
+			for (let i = 0; i < l; i++) {
+				yield i;
+			}
 		}
 	};
 	return set;

@@ -69,13 +69,29 @@ export function createBaseSceneAndRenderer(
 	const composer = new EffectComposer(renderer);
 	const renderPass = new RenderPass(scene, camera);
 	composer.addPass(renderPass);
-	const outlinePass = new OutlinePass(new Vector2(el.clientWidth, el.clientHeight), scene, camera);
-	composer.addPass(outlinePass);
-	outlinePass.edgeStrength = 2;
-	outlinePass.edgeGlow = 2;
-	outlinePass.edgeThickness = 1;
-	outlinePass.visibleEdgeColor = new Color(1, 1, 1);
-	outlinePass.hiddenEdgeColor = new Color(0.5, 0.5, 0.5);
+	const primaryOutlinePass = new OutlinePass(
+		new Vector2(el.clientWidth, el.clientHeight),
+		scene,
+		camera
+	);
+	composer.addPass(primaryOutlinePass);
+	primaryOutlinePass.edgeStrength = 4;
+	primaryOutlinePass.edgeGlow = 1;
+	primaryOutlinePass.edgeThickness = 2;
+	primaryOutlinePass.visibleEdgeColor = new Color(0xffffff);
+	primaryOutlinePass.hiddenEdgeColor = new Color(0x666666);
+	const secondaryOutlinePass = new OutlinePass(
+		new Vector2(el.clientWidth, el.clientHeight),
+		scene,
+		camera
+	);
+	composer.addPass(secondaryOutlinePass);
+	secondaryOutlinePass.edgeStrength = 4;
+	secondaryOutlinePass.edgeGlow = 1;
+	secondaryOutlinePass.edgeThickness = 4;
+	secondaryOutlinePass.pulsePeriod = 3;
+	secondaryOutlinePass.visibleEdgeColor = new Color(0x00caca);
+	secondaryOutlinePass.hiddenEdgeColor = new Color(0x00caca);
 
 	const observer = new ResizeObserver((entries) => {
 		if (entries.find((e) => e.target === resizeContainer)) {
@@ -145,8 +161,11 @@ export function createBaseSceneAndRenderer(
 		controls,
 		renderer,
 		render,
-		setSelectedItems(selectedItems: Array<Object3D>) {
-			outlinePass.selectedObjects = selectedItems;
+		setPrimarySelectedItems(selectedItems: Array<Object3D>) {
+			primaryOutlinePass.selectedObjects = selectedItems;
+		},
+		setSecondarySeletedItems(selectedItems: Array<Object3D>) {
+			secondaryOutlinePass.selectedObjects = selectedItems;
 		},
 		onBeforeRender(fn: () => void) {
 			beforeRender = fn;

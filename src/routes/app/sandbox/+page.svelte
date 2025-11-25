@@ -13,7 +13,7 @@
 	} from '$lib/utils/scene';
 	import { AxesHelper, MeshBasicMaterial, MeshNormalMaterial, Vector2 } from 'three';
 	import { STLExporter } from 'three/examples/jsm/exporters/STLExporter.js';
-	import { hoverEvents } from '$lib/utils/events';
+	import { hoverAndClickEvents } from '$lib/utils/events';
 	import { Legend, type LegendSet } from '$lib/utils/legends';
 	import Scene from '$lib/components/scene/Scene.svelte';
 	import Layout from '$lib/components/layout/Layout.svelte';
@@ -71,7 +71,7 @@
 		const data = exporter.parse(out, { binary: true });
 		const link = document.createElement('a');
 		link.download = 'test.stl';
-		link.href = URL.createObjectURL(new Blob([data], { type: 'model/stl' }));
+		link.href = URL.createObjectURL(new Blob([data as any], { type: 'model/stl' }));
 		link.style.display = 'none';
 		document.body.appendChild(link);
 		link.click();
@@ -144,15 +144,9 @@
 		toggleMain();
 		scene.render();
 
-		hoverEvents(scene.renderer.domElement, scene.camera, merged, (ev) => {
+		hoverAndClickEvents(scene.renderer.domElement, scene.camera, merged, (ev) => {
 			if (ev.face !== hoverFace) {
-				if (hoverFace !== -1) {
-					builder.setFaceOutline(hoverFace, false);
-				}
-				hoverFace = ev.face;
-				if (hoverFace !== -1) {
-					builder.setFaceOutline(hoverFace, true);
-				}
+				scene.setSecondarySeletedItems(builder.getOutlineObjects(ev.face) ?? []);
 			}
 		});
 	};

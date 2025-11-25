@@ -10,7 +10,7 @@ import { vectorRotateX, vectorRotateY, vectorRotateZ } from './3d';
 type Defined<T> = T extends undefined ? never : T;
 
 const reviver: Defined<Parameters<typeof JSON.parse>[1]> = (key, value) => {
-	if (typeof value === 'object' && value._ === 'v2') {
+	if (typeof value === 'object' && value && value._ === 'v2') {
 		return new Vector2(value.x, value.y);
 	}
 	return value;
@@ -38,8 +38,8 @@ function getRenderFunction() {
 					const builder = new Builder(dice[d.kind], legends, d.id);
 					builder.build(d.parameters, d.face_parameters);
 					scene.add(builder.diceGroup);
-					const largeFace = builder.getFaces().findLast(x => x.isNumberFace);
-					console.log(d.kind, "=>", largeFace)
+					const largeFace = builder.getFaces().findLast((x) => x.isNumberFace);
+					console.log(d.kind, '=>', largeFace);
 
 					const camera = new PerspectiveCamera(30, 1, 1, 500);
 					camera.position.set(0, 0, 60);
@@ -64,11 +64,13 @@ self.onmessage = function (event) {
 	if ((event.data.msg = 'die-preview')) {
 		const d = JSON.parse(event.data.die, reviver);
 		const l = JSON.parse(event.data.legends);
-		getRenderFunction()(d, l).then((url) => {
-			console.log("worker:send", { id: d.id, url })
-			postMessage({ id: d.id, url })
-		}).catch(err => {
-			console.error("worker:error rendering die!", err)
-		})
+		getRenderFunction()(d, l)
+			.then((url) => {
+				console.log('worker:send', { id: d.id, url });
+				postMessage({ id: d.id, url });
+			})
+			.catch((err) => {
+				console.error('worker:error rendering die!', err);
+			});
 	}
 };

@@ -2,7 +2,7 @@
 import { mkdir, readdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import lucideMeta from './icons/lucide/info.json';
 
-import { createShapesFromFont } from '$lib/utils/font';
+import { createShapesFromFont, type FontString } from '$lib/utils/font';
 import { dirname } from 'node:path';
 
 import { DOMParser } from 'xmldom';
@@ -18,7 +18,7 @@ async function createFontBasedLegends(
 	dst: string,
 	varname: string,
 	name: string,
-	strings?: Array<string>,
+	strings?: Array<FontString>,
 	extraIcons?: Array<Array<Shape>>
 ) {
 	// load font from src.
@@ -40,6 +40,16 @@ async function createFontBasedLegends(
 	);
 }
 
+// The lucide icons are line based and not best for this purpose.
+// I should really custom make some SVGs to use for this.
+// Icons I want are:
+// - the logo - whatever that ends up? maybe a hexagon?
+// - skull
+// - heart (these 2 for deathsave dice)
+// - hexagon
+// - cube
+//
+// I'll leave these in for now as they are useful for testing.
 const iconStrings = (
 	[
 		'dices',
@@ -49,6 +59,7 @@ const iconStrings = (
 		'croissant',
 		'eye',
 		'gem',
+		'heart',
 		'ghost',
 		'skull',
 		'triangle',
@@ -57,17 +68,16 @@ const iconStrings = (
 	] as const
 ).map((x) => {
 	const u = lucideMeta[x].unicode.replace(/[^0-9]+/g, ''); // just the numbers
-	return String.fromCodePoint(parseInt(u));
+	return { text: String.fromCodePoint(parseInt(u)) };
 });
 
-const zero_to_ninety_nine = Array.from({ length: 100 }).map((_, i) => {
+const zero_to_ninety_nine: Array<FontString> = Array.from({ length: 100 }).map((_, i) => {
 	switch (i) {
 		case 6:
-			return '6.';
 		case 9:
-			return '9.';
+			return { text: `${i}.`, renderOptions: { letterSpacing: -0.1 } };
 		default:
-			return i.toString();
+			return { text: i.toString() };
 	}
 });
 
@@ -161,18 +171,18 @@ export type Builtin = {
 const builtins = {
 	blanks: { name: "Blanks", load: async () => blanks },
 ${fontMeta
-			.map((x) => {
-				return (
-					'    ' +
-					x.varname +
-					': { name: ' +
-					x.name +
-					', load: deferredFontLoader("' +
-					x.varname +
-					'") } as Builtin,'
-				);
-			})
-			.join('\n')}
+	.map((x) => {
+		return (
+			'    ' +
+			x.varname +
+			': { name: ' +
+			x.name +
+			', load: deferredFontLoader("' +
+			x.varname +
+			'") } as Builtin,'
+		);
+	})
+	.join('\n')}
 } as const;
 
 export const defaultFont = builtins.germania_one;
