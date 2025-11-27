@@ -9,7 +9,8 @@ import {
 	Vector3,
 	Plane,
 	type Object3D,
-	Vector2
+	Vector2,
+	DoubleSide
 } from 'three';
 import { DefaultDivisions, engrave, Part } from './engraving';
 import { debugLegendName, Legend, type LegendSet } from './legends';
@@ -20,7 +21,7 @@ import { uuid } from './uuid';
 
 const _m1 = new MeshNormalMaterial({ wireframe: !true });
 const _m2 = new MeshBasicMaterial({ color: 0x000000 });
-const _m3 = new MeshBasicMaterial({ color: 0xff0000 });
+const _m3 = new MeshBasicMaterial({ color: 0xff0000, side: DoubleSide });
 
 export class Builder {
 	private forceRerenderBlank = true;
@@ -48,7 +49,9 @@ export class Builder {
 		private legends: LegendSet,
 		// this is the dice ID, so we can find it in the scene, or at least uniquely identify parts of _this_ dice
 		private id = uuid() as string
-	) {}
+	) {
+		console.warn('Builder instantiated for', this.model.id, this.id);
+	}
 
 	public getFaces(): ReadonlyArray<DieFaceModel> {
 		return this.faces;
@@ -140,8 +143,6 @@ export class Builder {
 			this.face2face = x.faceToFaceDistance;
 			this.faces = x.faces;
 			this.recalculateLegendScaling();
-			this.diceGroup.remove(...this.faceObjects);
-			this.faceObjects.length = 0;
 			this.lastDieParams = dieParams;
 		}
 		for (let i = 0; i < this.faces.length; i++) {
@@ -152,11 +153,15 @@ export class Builder {
 				faceParamsNotEqual(this.lastFaceParams[i], newFaceParams, this.faces[i])
 			) {
 				// need to rebuild
-				if (this.faceObjects[i]) {
-					this.diceGroup.remove(this.faceObjects[i]);
+				if (!this.faceObjects[i]) {
+					this.faceObjects[i] = new Group();
+					this.faceObjects[i].userData.diceThingFace = i;
+					this.faceObjects[i].userData.diceThingId = this.id;
+					this.diceGroup.add(this.faceObjects[i]);
+				} else {
+					this.faceObjects[i].remove(...this.faceObjects[i].children);
 				}
 				this.lastFaceParams[i] = newFaceParams;
-				this.faceObjects[i] = new Group();
 				this.buildFace(i, dieParams.engraving_depth, newFaceParams, false).forEach((g) => {
 					g.userData.diceThingFace = i;
 					g.userData.diceThingId = this.id;
@@ -186,7 +191,6 @@ export class Builder {
 					mesh.visible = visible;
 					this.faceObjects[i].add(mesh);
 				});
-				this.diceGroup.add(this.faceObjects[i]);
 			}
 		}
 		this.forceRerenderBlank = false;
@@ -197,7 +201,13 @@ export class Builder {
 		let scaling = 1;
 		const face = this.faces.find((x) => x.isNumberFace);
 		if (face) {
+			// get the legends we want, and find the biggest.
+			// we will size against that.
+			// faces.map -> face parameters.legend ?? face.defaultLegend -> getBiggest(legends)
+
+			// stick with 00 for now...
 			const shapes = this.legends.get(Legend.DOUBLE_ZERO); // probably the widest/squarest shape.
+			// find the biggest! we will punt that to the legend loader/generator...
 			if (shapes.length > 0) {
 				// we have a face and a non-blank symbol.
 				scaling = findBestLegendScalingFactor(face.shape, shapes);
@@ -216,7 +226,7 @@ export class Builder {
 			this.face2face = x.faceToFaceDistance;
 			this.recalculateLegendScaling();
 			this.faces = x.faces;
-			this.faceObjects.length = 0;
+			this.faceObjects.forEach((g) => g.children?.forEach((c) => g.remove(c)));
 			this.lastDieParams = dieParams;
 		}
 		this.forceRerenderBlank = false;
@@ -277,7 +287,8 @@ export class Builder {
 				forExport ? DefaultDivisions : 2 * DefaultDivisions // will need to "up" this to make a "high quality" render.
 			);
 		}
-		output.forEach((g) => face.orient(g));
+
+		output.forEach((g) => face.transform?.applyToGeometry(g));
 		return output;
 	}
 }

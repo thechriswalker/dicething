@@ -2,7 +2,7 @@
 // but they also include the "rhombic" D6
 
 import type { DiceParameter, DieModel } from '$lib/interfaces/dice';
-import { vectorRotateX, vectorRotateY } from '$lib/utils/3d';
+import { Transform, vectorRotateX, vectorRotateY } from '$lib/utils/3d';
 import { pickForDoublesByIndex, pickForNumber } from '$lib/utils/legends';
 import { orientCoplanarVertices } from '$lib/utils/shapes';
 import { Plane, Ray, Vector3, type Camera } from 'three';
@@ -48,6 +48,7 @@ const trapezohedronParameters: Array<DiceParameter> = [
 	}
 ];
 
+const xAxis = new Vector3(1, 0, 0);
 const yAxis = new Vector3(0, 1, 0);
 
 function trapezohedron(id: string, name: string, sides: number, tens = false): DieModel {
@@ -120,36 +121,23 @@ function trapezohedron(id: string, name: string, sides: number, tens = false): D
 			const info = orientCoplanarVertices(faceVertice3);
 
 			return {
-				faceToFaceDistance: info.offset.length(),
+				faceToFaceDistance: info.offset.length() * 2,
 				faces: Array.from({ length: sides }, (v, i) => {
+
+					const transform = new Transform()
+						.rotate(info.quat)
+						.translate(info.offset)
+					const { y, xflip } = xyRot(i, sides, baseAngle);
+					if (xflip) {
+						transform.rotateByAxisAngle(xAxis, Math.PI)
+					}
+					transform.rotateByAxisAngle(yAxis, y)
+
 					return {
 						isNumberFace: true,
 						defaultLegend: tens ? pickForDoublesByIndex(i) : pickForNumber(i, sides),
 						shape: info.shape,
-						orient(geo) {
-							// now rotate and/or flip.
-							// odd numbers on top. in our left/right swatch.
-							// even numbers the same but flipped 180 on x
-							geo.applyQuaternion(info.quat);
-							geo.translate(info.offset.x, info.offset.y, info.offset.z);
-							const { y, xflip } = xyRot(i, sides, baseAngle)
-							if (xflip) {
-								geo.rotateX(Math.PI); // flip it on x-axis
-							}
-							geo.rotateY(y);
-						},
-						pointCamera(cam: Camera): void {
-							cam.position.applyQuaternion(info.quat);
-							cam.up = cam.up.applyQuaternion(info.quat)
-							const { y, xflip } = xyRot(i, sides, baseAngle)
-							if (xflip) {
-								vectorRotateX(cam.position, Math.PI); // flip it on x-axis
-								vectorRotateX(cam.up, Math.PI);
-							}
-							vectorRotateY(cam.position, y);
-							vectorRotateY(cam.up, y);
-							cam.up = cam.up.normalize();
-						}
+						transform,
 					};
 				})
 			};
@@ -157,7 +145,7 @@ function trapezohedron(id: string, name: string, sides: number, tens = false): D
 	};
 }
 
-function xyRot(i: number, sides: number, baseAngle: number): { y: number, xflip: boolean } {
+function xyRot(i: number, sides: number, baseAngle: number): { y: number; xflip: boolean } {
 	let n = i + 1;
 	// some logic around i.
 	let even = false;
@@ -189,10 +177,8 @@ function xyRot(i: number, sides: number, baseAngle: number): { y: number, xflip:
 	// 7 = 2*alpha,
 	// 9 = 2*alpha
 	let rotation = sign * baseAngle * x;
-	return { y: rotation, xflip: even }
-
+	return { y: rotation, xflip: even };
 }
-
 
 export const RhombicD6 = trapezohedron('rhombic_d6', 'Rhombic D6', 6);
 export const TrapezohedronD8 = trapezohedron('trapezohedron_d8', 'D8 Trapezohedron', 8);

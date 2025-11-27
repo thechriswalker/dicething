@@ -10,7 +10,7 @@
 import type { DiceParameter, DieModel } from '$lib/interfaces/dice';
 import { pickForNumber } from '$lib/utils/legends';
 import { Quaternion, Shape, Vector2, Vector3, type BufferGeometry, type Camera } from 'three';
-import { vectorRotateZ } from './3d';
+import { Transform, vectorRotateZ } from './3d';
 
 const defaultF2F = 18;
 
@@ -41,6 +41,8 @@ export type PolyhedronFace = {
 };
 export type Shaper = (distance: number) => Shape;
 
+const zaxis = new Vector3(0, 0, 1);
+
 export function polyhedron(
 	id: string,
 	name: string,
@@ -49,24 +51,32 @@ export function polyhedron(
 	parameters: Array<DiceParameter> = defaultParameters()
 ): DieModel {
 	// might as well only do this once.
-	const quats: Array<Quaternion | undefined> = sides.map((s) => {
-		let quat: Quaternion | undefined = undefined;
+	const _q = new Quaternion();
+	const quats: Array<Quaternion> = sides.map((s) => {
+		let quat: Quaternion = new Quaternion().identity();
+
 		if (s.angle) {
 			if (!Array.isArray(s.angle)) {
-				quat = new Quaternion().setFromAxisAngle(s.axis as Vector3, s.angle);
+				_q.setFromAxisAngle(s.axis as Vector3, s.angle);
+				quat = quat.multiply(_q);
 			} else {
 				const ax = s.axis as Array<Vector3>;
-				quat = new Quaternion().setFromAxisAngle(ax[0], s.angle[0]);
-				for (let i = 1; i < ax.length; i++) {
+				for (let i = 0; i < ax.length; i++) {
 					// modify the next axis in realtion to the last...
-					const nx = ax[i].clone().applyQuaternion(quat);
-					const q = new Quaternion().setFromAxisAngle(ax[i], s.angle[i]);
-					quat = quat!.multiply(q);
+					_q.setFromAxisAngle(ax[i], s.angle[i]);
+					quat = quat.multiply(_q);
 				}
 			}
 		}
+		if (s.preRotation) {
+			_q.setFromAxisAngle(zaxis, s.preRotation);
+			quat = quat.multiply(_q);
+		}
 		return quat;
 	});
+
+
+
 
 	return {
 		id,
@@ -75,38 +85,20 @@ export function polyhedron(
 		build(params) {
 			const d = params.polyhedron_size ?? defaultF2F;
 			const face = shaper(d);
+
 			return {
 				legendScaling: 1,
 				faceToFaceDistance: d,
 				faces: sides.map((s, i) => {
-					const quat = quats[i];
+					const transform = new Transform()
+						.translateBy(0, 0, d / 2)
+						.rotate(quats[i])
+					const quat = transform.rotation;
 					return {
 						isNumberFace: true, // they all are
 						shape: face,
 						defaultLegend: pickForNumber(i, sides.length),
-						orient(geo) {
-							// push it out in Z by half the face to face distance
-							geo.translate(0, 0, d / 2);
-							// do we need to rotate around Z?
-							if (s.preRotation) {
-								geo.rotateZ(s.preRotation);
-							}
-							// any other rotation?
-							if (quat) {
-								geo.applyQuaternion(quat);
-							}
-						},
-						pointCamera(cam: Camera): void {
-							if (s.preRotation) {
-								vectorRotateZ(cam.position, s.preRotation);
-								vectorRotateZ(cam.up, s.preRotation);
-								cam.up = cam.up.normalize();
-							}
-							if (quat) {
-								cam.position.applyQuaternion(quat);
-								cam.up = cam.up.applyQuaternion(quat).normalize();
-							}
-						}
+						transform,
 					};
 				})
 			};

@@ -33,7 +33,10 @@
 					"preset=go_first": "Go First Dice (4 Players)",
 					"preset=scratch": "Start from Scratch",
 					"preset=classic": "Classic 7 Dice D&D Set",
-					"preset=dicething": "DiceThing Custom 7"
+					"preset=dicething": "DiceThing Custom 7",
+					"preset=everything": "One of everything",
+					"preset=chris": "Chris' Dice Set",
+					"preset=mine": "Chris' 9 Dice Set"
 				}
 			}
 		],
@@ -49,7 +52,10 @@
 					"preset=go_first": "A set of 4d12 that always roll different numbers and have a equal chance of each die being first (and second, third, fourth).",
 					"preset=scratch": "Empty set so you can start from a blank slate",
 					"preset=classic": "The standard 7 D&D dice set with a caltrop D4. Sized around a 14mm D6",
-					"preset=dicething": "My personal picks. A larger than standard set with the shapes that I like (no caltrops!)"
+					"preset=dicething": "A larger than standard set with the shapes that I like (no caltrops!)",
+					"preset=chris": "Chris' own custom layout based on the DiceThing 7 sizes",
+					"preset=everything": "One of every dice shape in this app",
+					"preset=mine": "Chris' own custom set with 2 D6 and 2 D20"
 				}
 			}
 		]

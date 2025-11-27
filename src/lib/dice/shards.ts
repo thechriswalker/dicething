@@ -2,7 +2,7 @@
 // unbalanced lengths.
 // i.e. long edge for number faces and short cap for blanks.
 import type { DieModel, DieFaceModel, DiceParameter } from '$lib/interfaces/dice';
-import { vectorRotateY, vectorRotateZ } from '$lib/utils/3d';
+import { Transform, vectorRotateY, vectorRotateZ } from '$lib/utils/3d';
 import { Legend, pickForDoublesByIndex, pickForNumber } from '$lib/utils/legends';
 import { orientCoplanarVertices, rotateShapes, translateShapes } from '$lib/utils/shapes';
 import { BufferGeometry, Plane, Ray, Camera, Vector2, Vector3 } from 'three';
@@ -56,6 +56,8 @@ export const ShardD00 = shard('shard_d00', 'D% Shard', 10, true);
 function shard(id: string, name: string, sides: number, tens = false): DieModel {
 	return { id, name, parameters: shardParameters, build: build(sides, tens) };
 }
+
+const zAxis = new Vector3(0, 0, 1);
 
 function build(sides: number, tens: boolean): DieModel['build'] {
 	return (params) => {
@@ -148,60 +150,38 @@ function build(sides: number, tens: boolean): DieModel['build'] {
 		// the number faces, in numerical order.
 		const faces: Array<DieFaceModel> = Array.from({ length: sides }).map((_, i) => {
 			const yRot = yRotation(i, sides, alpha);
+			const transform = new Transform();
+			if (tens) {
+				transform.rotateByAxisAngle(zAxis, -Math.PI / 2)
+			}
+			transform.translateBy(0, -yOffset, 0)
+				.rotate(numFaceInfo.quat)
+				.translate(numFaceInfo.offset)
+				.rotateByAxisAngle(yAxis, yRot)
+				.translateBy(0, (y - h) / 2, 0)
 			return {
 				isNumberFace: true,
 				shape: face,
 				defaultLegend: tens ? pickForDoublesByIndex(i) : pickForNumber(i, sides),
-				orient(geo) {
-					if (tens) {
-						geo.rotateZ(-Math.PI / 2);
-					}
-					geo.translate(0, -yOffset, 0);
-					geo.applyQuaternion(numFaceInfo.quat);
-					geo.translate(numFaceInfo.offset.x, numFaceInfo.offset.y, numFaceInfo.offset.z);
-					geo.rotateY(yRot);
-					// but now potentially rotated around the yAxis basis on the position we want them
-					geo.translate(0, (y - h) / 2, 0);
-				},
-				pointCamera(cam: Camera) {
-					if (tens) {
-						vectorRotateZ(cam.position, -Math.PI / 2)
-						vectorRotateZ(cam.up, -Math.PI / 2)
-					}
-					cam.position.applyQuaternion(numFaceInfo.quat)
-					cam.up.applyQuaternion(numFaceInfo.quat)
-					vectorRotateY(cam.position, yRot)
-					vectorRotateY(cam.up, yRot)
-					cam.up = cam.up.normalize()
-				}
+				transform
 			};
 		});
 
-		// now we add the cap faces. two for each side, oriented differently
-		const capBasicOrient = (obj: BufferGeometry) => {
-			// move "start position"
-			obj.applyQuaternion(capFaceInfo.quat);
-			obj.translate(capFaceInfo.offset.x, capFaceInfo.offset.y, capFaceInfo.offset.z);
-			obj.translate(0, (y - h) / 2, 0);
-		};
-
 		for (let i = 0; i < sides; i++) {
 			const yRot = yRotation(i, sides, alpha);
+			const transform = new Transform()
+				.rotate(capFaceInfo.quat)
+				.translate(capFaceInfo.offset)
+				.translateBy(0, (y - h) / 2, 0)
+				.rotateByAxisAngle(yAxis, yRot)
+
 			faces.push({
 				isNumberFace: false,
 				shape: capFaceInfo.shape,
 				defaultLegend: Legend.BLANK,
 				// top
-				orient(obj) {
-					capBasicOrient(obj);
-					obj.rotateY(yRot);
-				},
-				pointCamera(cam: Camera) {
-					cam.position.applyQuaternion(capFaceInfo.quat);
-					cam.up.applyQuaternion(capFaceInfo.quat);
-					vectorRotateY(cam.position, yRot)
-					cam.up = cam.up.normalize()
-				}
+				transform
+
 			});
 		}
 

@@ -1,15 +1,18 @@
 import type { DieModel, DieFaceModel, DiceParameter } from '$lib/interfaces/dice';
-import { vectorRotateX, vectorRotateY, vectorRotateZ, type Rotatable } from '$lib/utils/3d';
+import { Transform, vectorRotateX, vectorRotateY, vectorRotateZ, type Rotatable } from '$lib/utils/3d';
 import { Legend, pickForDoublesByIndex, pickForNumber } from '$lib/utils/legends';
 import { orientCoplanarVertices, rotateShapes } from '$lib/utils/shapes';
-import { BufferGeometry, Plane, Ray, Shape, Vector2, Vector3, Camera } from 'three';
+import { BufferGeometry, Plane, Ray, Shape, Vector2, Vector3, Camera, Quaternion } from 'three';
 
 const defaultHeight = 16;
 const defaultWidth = 8;
 const defaultCapHeight = 4;
 const defaultCapTwist = 0.5;
 
+const xAxis = new Vector3(1, 0, 0);
 const yAxis = new Vector3(0, 1, 0);
+const negYaxis = new Vector3(0, -1, 0);
+const zAxis = new Vector3(0, 0, 1);
 
 const crystalParameters: Array<DiceParameter> = [
 	{
@@ -87,6 +90,8 @@ function build(sides: number, tens: boolean): DieModel['build'] {
 			new Vector3(0, h + y2, 0) // cap at x=0, z=0 y= half height+cap height
 		];
 
+		let rotationZero = xAxis;
+
 		if (isTwisted) {
 			// we need to add in the extra points on the number faces, and the
 			// blank faces are more complicated (quadrilaterals not triangles.)
@@ -114,6 +119,10 @@ function build(sides: number, tens: boolean): DieModel['build'] {
 			// now add an "-alpha" rotated version of the intersection
 			const intersection2 = new Vector3().copy(intersection).applyAxisAngle(yAxis, -alpha);
 
+			// the rotation basis for our model, is now a the line across this plane. between the intersection points.
+			// i.e. the line intersection1 -> intersection 2 then moved to the origin.
+			// this is the vector intersection1, intersection2 and the origin.
+			rotationZero.copy(intersection.clone().sub(intersection2).normalize());
 			// the "actual" corner needs to be on the plane of the triangle though (so may not be)
 			// cap is already in the array, so we add the insection point and then the corner.
 			// so I will do another ray intersection.
@@ -163,87 +172,44 @@ function build(sides: number, tens: boolean): DieModel['build'] {
 
 		// the number faces, in numerical order.
 		const faces: Array<DieFaceModel> = Array.from({ length: sides }).map((_, i) => {
-			const yRot = yRotation(i, sides, alpha)
+			const yRot = yRotation(i, sides, alpha);
+			const transform = new Transform()
+			if (tens) {
+				transform.rotateByAxisAngle(zAxis, -Math.PI / 2)
+			}
+			transform.translateBy(0, 0, d)
+			transform.rotateByAxisAngle(yAxis, yRot)
+
 			return {
 				isNumberFace: true,
 				shape: face,
 				defaultLegend: tens ? pickForDoublesByIndex(i) : pickForNumber(i, sides),
-				orient(geo) {
-					if (tens) {
-						geo.rotateZ(-Math.PI / 2);
-					}
-					// these need to be pushed out
-					geo.translate(0, 0, d);
-					geo.rotateY(yRot);
-					// but now potentially rotated around the yAxis basis on the position we want them
-				},
-				pointCamera(cam: Camera): void {
-					// all the barrels have the same rotation, so we just need to move the camera around
-					// the y axis.
-
-					if (tens) {
-						vectorRotateZ(cam.position, -Math.PI / 2)
-						vectorRotateZ(cam.up, -Math.PI / 2)
-					}
-					if (yRot) {
-						vectorRotateY(cam.position, yRot);
-						vectorRotateY(cam.up, yRot);
-						cam.up = cam.up.normalize()
-					}
-				}
+				transform,
 			};
 		});
 
-		// now we add the cap faces. two for each side, oriented differently
-		const capBasicOrient = (obj: BufferGeometry) => {
-			// move "start position"
-			obj.applyQuaternion(capFaceInfo.quat);
-			obj.translate(capFaceInfo.offset.x, capFaceInfo.offset.y, capFaceInfo.offset.z);
-		};
-
 		for (let i = 0; i < sides; i++) {
 			const yRot = yRotation(i, sides, alpha);
+			const topTransform = new Transform()
+				.rotate(capFaceInfo.quat)
+				.translate(capFaceInfo.offset)
+				.rotateByAxisAngle(yAxis, yRot)
+
+
+			const bottomTransform = topTransform.clone().rotateByAxisAngle(zAxis, Math.PI);
+
 			faces.push(
 				{
 					isNumberFace: false,
 					shape: capFaceInfo.shape,
 					defaultLegend: Legend.BLANK,
-					// top
-					orient(obj) {
-						capBasicOrient(obj);
-						obj.rotateY(yRot);
-					},
-					pointCamera(cam: Camera) {
-						cam.position.applyQuaternion(capFaceInfo.quat)
-						cam.up.applyQuaternion(capFaceInfo.quat)
-						if (yRot) {
-							vectorRotateY(cam.position, yRot);
-							vectorRotateY(cam.up, yRot);
-						}
-						cam.up = cam.up.normalize()
-					}
+					transform: topTransform,
 				},
 				{
 					isNumberFace: false,
 					shape: capFaceInfo.shape,
 					defaultLegend: Legend.BLANK,
-					// top
-					orient(obj) {
-						capBasicOrient(obj);
-						obj.rotateY(yRot);
-						obj.rotateX(Math.PI);
-					},
-					pointCamera(cam: Camera) {
-						cam.position.applyQuaternion(capFaceInfo.quat)
-						cam.up.applyQuaternion(capFaceInfo.quat)
-						if (yRot) {
-							vectorRotateY(cam.position, yRot);
-							vectorRotateY(cam.up, yRot);
-						}
-						vectorRotateX(cam.position, Math.PI)
-						vectorRotateX(cam.up, Math.PI)
-						cam.up = cam.up.normalize()
-					}
+					transform: bottomTransform
 				}
 			);
 		}
@@ -255,7 +221,6 @@ function build(sides: number, tens: boolean): DieModel['build'] {
 		};
 	};
 }
-
 
 const yRotation = (i: number, sides: number, alpha: number): number => {
 	// rotate based on index.

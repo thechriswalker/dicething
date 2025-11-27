@@ -6,6 +6,7 @@ import { uuid } from '$lib/utils/uuid';
 import { classic } from './classic';
 import { dicethingPreset } from './dicething';
 import { everythingPreset } from './everything';
+import { myPreset } from './mine';
 
 const dicething: Preset = dicethingPreset;
 
@@ -19,12 +20,15 @@ const scratch: Preset = () => ({
 
 const everything: Preset = everythingPreset;
 
+const mine: Preset = myPreset;
+
 const presets = {
 	dicething,
 	scratch,
 	classic,
 	go_first,
 	everything,
+	mine
 } as const;
 
 export type PresetName = keyof typeof presets;

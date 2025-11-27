@@ -51,7 +51,7 @@ export function createBaseSceneAndRenderer(
 
 	//const controls = new OrbitControls(camera, renderer.domElement);
 	const controls = new TrackballControls(camera, renderer.domElement);
-	controls.panSpeed = 10;
+	controls.panSpeed = 2;
 	controls.rotateSpeed = 10;
 
 	scene.add(new AmbientLight(0x444444, 3));

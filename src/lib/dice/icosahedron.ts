@@ -30,7 +30,6 @@ const d20_shape: Shaper = (d) => {
 };
 
 const xAxis = new Vector3(1, 0, 0);
-const yAxis = new Vector3(0, 1, 0);
 
 const rAxis = new Vector3(1, -Math.tan(Math.PI / 3), 0).normalize();
 const lAxis = new Vector3(-1, -Math.tan(Math.PI / 3), 0).normalize();

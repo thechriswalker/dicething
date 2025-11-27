@@ -6,7 +6,13 @@ DiceThing is a tools for creating custom dice models suitable for printing.
 
 It is highly inspired by [DiceMaker](https://ankhe.itch.io/dicemaker) which is a fantastic tool, but not open source, so we cannot build on it and make improvements or add features.
 
+Half-way through building this I found [DiceGen](https://dicegen.com/) which is also similar but opinionated in different ways. I haven't looked through the code for that one much (it is open source :heart:) and I think the font-handling is superior. I wonder if I can use a full CSG style approach to improve the pipeline of `font -> paths -> outline`, as currently fonts with paths that self-intersect cause rendering issues (see Josefine Sans character 3)
+
 This project also aims to be completely web-based, for a zero-install experience. Web technologies are quite capable of handling the 3D modelling required for this.
+
+## Screenshot
+
+![Screenshot](images/dicething-ui.png)
 
 ## Features
 
@@ -71,9 +77,14 @@ The UI section will need a whole lot more...
   - [ ] Caltrop D4 (as 12 faces both on tips and edges, and with only 4 faces)
     - [x] With 12 faces on tips
     - [ ] With 12 faces on edges
-    - [ ] With 4 faces
+    - [ ] With 4 faces (for custom stuff)
+    - [ ] Truncated? i.e. legends on tips?
+  - [ ] Coin D2 - a short cylinder
+    - [ ] Regular Polygon
+    - [ ] Circle (I probably have to keep these separate)
 - [x] Legend Engraving
   - [x] auto-fit legends by default
+    - [ ] auto custom scale per-face-per-legend (i.e. a D20 wants numbers as large as possible on each face, not consistent on each face) - maybe an "oncreate" option?
   - [x] customisable scale/rotation/translation
   - [x] per-face engraving depth
   - [x] per-face legend override
@@ -82,25 +93,31 @@ The UI section will need a whole lot more...
   - [x] customisable materials for faces/engravings
   - [x] per-face render cache with invalidation
   - [ ] offscreen canvas rendering
+    - [x] in worker for preview images
+    - [ ] for main scene (might be more trouble than it's worth at the moment, need to test on slower machines...)
   - [x] STL output and geometry preprocessing
   - [x] Bad manifold detection and edge fixing (not 100%, some errors don't cause problems, but it is a warning)
   - [ ] multiple dice scene for rendering full sets.
-  - [ ] mouse pointer integration (for click detection/handling)
+  - [x] mouse pointer integration (for click detection/handling)
 - [ ] Blanks / Platformms
   - [ ] generate a die with blanks at a given "inset" from the source parameters
   - [ ] generate platforms automatically from the number faces (custom face shape needed for caltrop)
   - [ ] make blank/platform generation configurable.
   - [ ] how to make the output accessible to the renderer
 - [ ] Save / Load JSON
-  - [ ] create a serialisation format (JSON, but a schema)
+  - [x] create a serialisation format (JSON, but a schema)
   - [ ] save
-  - [ ] load
-  - [ ] identify whether use of (say) indexedDB would be a good fit for our data
+  - [x] load
+  - [x] identify whether use of (say) indexedDB would be a good fit for our data
+    - [x] localStorage is fine
 - [ ] Legend Creation
   - [x] Load fonts from TTF
   - [x] proprocess font shapes for easily fixable issues
   - [x] create a save/load-able LegendSet from a font and a set of strings to use for each legend
   - [x] find and create legends sets for a few fonts so we have some in-builtin options
+  - [ ] Add (simple) SVG i.e just paths with fill, not strokes.
+  - [ ] Add "symbol from font by text" with letter spacing
+  - [ ] Add "line under symbol" for 6/9 marked symbols - hopefully without breaking the centering?
   - [ ] Add "lucide" icons as legends - potrace? or from font lucide is available as a font...
   - [ ] Add custom legend from image. that needs potrace working on a canvas. possibly with some knobs to turn...
         Maybe a disclaimer that for best results provide an SVG pre-converted from "stoke to path" with inkscape instructions.
@@ -128,8 +145,33 @@ The first flow will be
 9. load new / start new
 10. export all as set.
 
+- [x] new set from preset
+- [x] load saved set
+- [ ] import JSON
+- [ ] set view
+  - [x] previews of die
+  - [x] main selected die view
+  - [x] edit singel die parameters
+  - [ ] close die parameter draw (for space)
+  - [ ] save changes!
+  - [ ] title edit
+  - [ ] legend editor (component)
+    - [ ] font loader - character set picker
+  - [ ] legend picker (component) - i.e. pick a symbol from the current set - a select box alike
+  - [ ] set menu
+    - [ ] combine legends/export/lightswitch into a single menu
+    - [ ] export options (component)
+      - [ ] toSTL options i.e. auto blanks
+      - [ ] toJSON ? are there options?
+
 ### Fonts
 
 Most issues come from font problems when converted to SVG paths for engraving.
 
 > Example: Josefin Sans Medium character 3 has 2 instances of paths overlapping. This is a big problem, and one I would like to solve.
+
+## Notes
+
+I quite want to animate the explode feature....
+I guess the I shouldn't translate the geometry of the faces, but rather the meshes themselves...
+Then I can animate/orient the meshes separately from the builder.

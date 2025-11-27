@@ -11,7 +11,7 @@
 		createGridHelper,
 		type SceneRenderer
 	} from '$lib/utils/scene';
-	import { AxesHelper, MeshBasicMaterial, MeshNormalMaterial, Vector2 } from 'three';
+	import { AxesHelper, DoubleSide, MeshBasicMaterial, MeshNormalMaterial, Vector2 } from 'three';
 	import { STLExporter } from 'three/examples/jsm/exporters/STLExporter.js';
 	import { hoverAndClickEvents } from '$lib/utils/events';
 	import { Legend, type LegendSet } from '$lib/utils/legends';
@@ -27,9 +27,10 @@
 		return out;
 	}
 	const dieParams: Record<string, number> = {
-		polyhedron_size: 16
+		polyhedron_size: 16,
+		crystal_twist: 0
 	};
-	const legend = 74 as Legend; // Legend.CUSTOM_SYMBOLS_START + 7;
+	const legend = undefined as Legend | undefined; // Legend.CUSTOM_SYMBOLS_START + 7;
 
 	const faceParams: Array<FaceParams> = [
 		{ legend },
@@ -116,7 +117,7 @@
 	}
 
 	let showWireframe = false;
-	const m1 = new MeshNormalMaterial({ wireframe: showWireframe });
+	const m1 = new MeshNormalMaterial({ wireframe: showWireframe, side: DoubleSide });
 	const m2 = new MeshBasicMaterial({ color: 0x444444, wireframe: showWireframe });
 	function toggleWireframe() {
 		showWireframe = !showWireframe;
@@ -139,6 +140,9 @@
 		scene = ctx;
 		const axesHelper = new AxesHelper(50);
 		scene.scene.add(axesHelper);
+
+		scene.camera.position.set(0, 10, 30);
+		scene.camera.zoom = 1.5;
 
 		toggleGrid();
 		toggleMain();

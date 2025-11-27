@@ -14,11 +14,13 @@
 	import { createGridHelper, type SceneRenderer } from '$lib/utils/scene';
 	import { event } from '$lib/utils/use_event';
 	import {
+		Box,
 		FileBoxIcon,
 		FileCode2,
 		FileType,
 		Focus,
 		Grid3X3,
+		LayoutGrid,
 		PlusIcon,
 		Settings,
 		XIcon
@@ -81,18 +83,33 @@
 	// svelte-ignore non_reactive_update
 	let resetCamera = () => {};
 
+	const camInitialPos = new Vector3(0, 10, 40);
+
+	$effect(() => {
+		if (explodeMode) {
+			camInitialPos.set(0, 0, 100);
+			if (ctx) {
+				ctx.controls.noRotate = true;
+			}
+		} else {
+			camInitialPos.set(0, 10, 40);
+			if (ctx) {
+				ctx.controls.noRotate = false;
+			}
+		}
+	});
+
 	const sceneReady = (_ctx: SceneRenderer) => {
 		// this is only called on Scene mount, and not reactive
 		// use it to set up the scene window, but not
 		// to use the reactiveProps directly.
 		ctx = _ctx;
-		const camPos = new Vector3(0, 10, 40);
-		ctx.camera.position.copy(camPos);
+		ctx.camera.position.copy(camInitialPos);
 		const camZoom = ctx.camera.zoom;
 		const camRot = ctx.camera.rotation.clone();
 		resetCamera = () => {
 			_ctx.controls.reset();
-			_ctx.camera.position.copy(camPos);
+			_ctx.camera.position.copy(camInitialPos);
 			_ctx.camera.zoom = camZoom;
 			_ctx.camera.rotation.copy(camRot);
 		};
@@ -124,11 +141,13 @@
 	function lookAtFace(idx: number) {
 		console.log('looking at face:', idx);
 		resetCamera();
-		const face = currentBuilder?.getFaces()[idx];
-		const camera = ctx?.camera;
-		if (camera && face) {
-			face.pointCamera?.(camera); // we should get the model to do this work.
-			ctx?.controls.update();
+		if (!explodeMode) {
+			const face = currentBuilder?.getFaces()[idx];
+			const camera = ctx?.camera;
+			if (camera && face) {
+				face.transform?.applyRotationToCamera(camera); // we should get the model to do this work.
+				ctx?.controls.update();
+			}
 		}
 	}
 
@@ -212,7 +231,16 @@
 					const d = setData?.dice.find((x) => x.id === dieId)!;
 					console.log('rendering on change', dieId, ctx.scene);
 					builder.build({ ...d.parameters }, d.face_parameters.slice());
-					console.log(dieToJSON(d));
+					console.log(
+						JSON.stringify(d.face_parameters, (key, value) => {
+							try {
+								if (value.isVector2) {
+									return `new Vector2(${value.x}, ${value.y})`;
+								}
+							} catch {}
+							return value;
+						})
+					);
 					face2face = builder.getFace2FaceDistance();
 					approxVolume = builder.getApproximateVolume();
 					const updated = dieId != renderedDice;
@@ -233,13 +261,16 @@
 	const gridHelper = createGridHelper(50);
 	let gridVisible = $state(true);
 	function toggleGridHelper() {
-		if (gridVisible) {
+		gridVisible = !gridVisible;
+	}
+	$effect(() => {
+		const show = gridVisible && !explodeMode;
+		if (!show) {
 			ctx?.scene.remove(gridHelper);
 		} else {
 			ctx?.scene.add(gridHelper);
 		}
-		gridVisible = !gridVisible;
-	}
+	});
 
 	const nf = Intl.NumberFormat(undefined, {
 		maximumFractionDigits: 2,
@@ -261,6 +292,19 @@
 	function highlightSelectedFace() {
 		ctx?.setPrimarySelectedItems(currentBuilder?.getOutlineObjects(selectedFace) ?? []);
 	}
+
+	let explodeMode = $state(false);
+
+	// The explode mode explodes the dice into a flat grid of faces.
+	// I want that to be animated!
+	// so I need to tween between the standard state for each face group and the
+	// desired flat position of the group. this is a matter of "reserving" the orientation
+	// for each face group and adding the translation and then tweening between the current orientation(rotation)
+	// and position. The position is easy..., tween x,y,z independently. but the rotation is a bit more complex.
+	// perhaps I should split the "face.orient" method into a rotation and translation prop.
+	// then I have the "rotation from flat" and translation from origin, which should allow
+	// me to reverse the props.
+	// unfortunately I modelled the orientation as an imperative function which translates and rotates...
 </script>
 
 <Layout title={setData?.name ?? ''}>
@@ -307,7 +351,7 @@
 		></Menu>
 	{/snippet}
 	<div class="flex h-full flex-col">
-		<div class="flex flex-row items-center justify-start gap-4 pb-4">
+		<div class="flex flex-row flex-wrap items-center justify-start gap-4 pb-4">
 			{#each setData?.dice as die}
 				<!-- svelte-ignore a11y_click_events_have_key_events, a11y_interactive_supports_focus -->
 				<div
@@ -359,6 +403,21 @@
 						onclick={() => {
 							toggleGridHelper();
 						}}><Grid3X3 /></Button.Root
+					>
+				</li>
+				<li>
+					<Button.Root
+						class="btn-icon preset-filled-primary-500"
+						title="EXPLODE_MODE"
+						onclick={() => {
+							explodeMode = !explodeMode;
+							if (explodeMode) {
+								setTimeout(() => {
+									resetCamera();
+								});
+							}
+						}}
+						>{#if explodeMode}<Box />{:else}<LayoutGrid />{/if}</Button.Root
 					>
 				</li>
 			</ul>
