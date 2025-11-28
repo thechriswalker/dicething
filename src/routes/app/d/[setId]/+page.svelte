@@ -30,8 +30,9 @@
 	import { onMount } from 'svelte';
 	import { Vector3 } from 'three';
 
-	let { setId } = page.params;
+	let { setId = '' } = page.params;
 	let dieId = $derived(page.url.searchParams.get('die') ?? '');
+	let renderPass = $state(0);
 
 	function gotoDie(id: string) {
 		const p = page.url;
@@ -71,6 +72,8 @@
 			} else if (setData.dice.length > 0 && setData.dice.findIndex((d) => d.id === dieId) === -1) {
 				gotoDie(setData.dice[0].id);
 			}
+		} else {
+			goto("/")
 		}
 		loaded = true;
 		console.log(setData);
@@ -196,7 +199,7 @@
 				}
 				if (d.id === dieId) {
 					console.log('rendering in init', d.id);
-					builder.build({ ...d.parameters }, d.face_parameters.slice());
+					renderPass = builder.build({ ...d.parameters }, d.face_parameters.slice());
 					face2face = builder.getFace2FaceDistance();
 					approxVolume = builder.getApproximateVolume();
 					ctx.scene.add(builder.diceGroup);
@@ -230,7 +233,7 @@
 					const d = setData?.dice.find((x) => x.id === dieId)!;
 					console.log('rendering on change', dieId, ctx.scene);
 					currentBuilder?.changeLegends(setData!.legends);
-					builder.build({ ...d.parameters }, d.face_parameters.slice());
+					renderPass = builder.build({ ...d.parameters }, d.face_parameters.slice());
 					console.log(
 						JSON.stringify(d.face_parameters, (key, value) => {
 							try {
@@ -418,6 +421,7 @@
 					{@const die = setData.dice!.find((x) => x.id === dieId)}
 					{#if die}
 						<DiceParameters
+							{renderPass}
 							bind:dparams={die.parameters}
 							bind:fparams={die.face_parameters}
 							kind={die.kind}

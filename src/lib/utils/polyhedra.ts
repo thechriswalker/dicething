@@ -48,7 +48,8 @@ export function polyhedron(
 	name: string,
 	sides: Array<PolyhedronFace>,
 	shaper: Shaper,
-	parameters: Array<DiceParameter> = defaultParameters()
+	parameters: Array<DiceParameter> = defaultParameters(),
+	individualLegendScaling?: boolean
 ): DieModel {
 	// might as well only do this once.
 	const _q = new Quaternion();
@@ -74,10 +75,6 @@ export function polyhedron(
 		}
 		return quat;
 	});
-
-
-
-
 	return {
 		id,
 		name,
@@ -89,11 +86,11 @@ export function polyhedron(
 			return {
 				legendScaling: 1,
 				faceToFaceDistance: d,
+				sizeLegendsIndividually:individualLegendScaling,
 				faces: sides.map((s, i) => {
 					const transform = new Transform()
 						.translateBy(0, 0, d / 2)
 						.rotate(quats[i])
-					const quat = transform.rotation;
 					return {
 						isNumberFace: true, // they all are
 						shape: face,

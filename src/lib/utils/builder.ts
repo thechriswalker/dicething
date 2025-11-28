@@ -24,15 +24,17 @@ const _m2 = new MeshBasicMaterial({ color: 0x000000 });
 const _m3 = new MeshBasicMaterial({ color: 0xff0000, side: DoubleSide });
 
 export class Builder {
+	private renderCount = 0;
 	private forceRerenderBlank = true;
 	private forceRerenderFaces = true;
 	private lastDieParams: Record<string, number> = {};
 	private face2face: number = 0;
-	public currentLegendScaling: number = 1;
+	private individualLegendScaling = false;
+	public  currentSmallestLegendScaling: number = 1;
+	public readonly currentLegendScaling = new Map<Legend, number>();
 	private faces: Array<DieFaceModel> = [];
 	private faceObjects: Array<Object3D> = [];
 	private lastFaceParams: Array<FaceParams> = [];
-	private engravingDepth: number = 0.8;
 
 	// these two default to mesh normal
 	private frontMaterial: Material = _m1;
@@ -135,13 +137,14 @@ export class Builder {
 		});
 	}
 
-	build(dieParams: Record<string, number>, faceParams: Array<FaceParams>) {
+	build(dieParams: Record<string, number>, faceParams: Array<FaceParams>): number {
 		dieParams = simplifyDieParams(dieParams, this.model.parameters);
 		const dieChanged = this.forceRerenderBlank || !dieParamsEqual(this.lastDieParams, dieParams);
 		if (dieChanged) {
 			const x = this.model.build(dieParams);
 			this.face2face = x.faceToFaceDistance;
 			this.faces = x.faces;
+			this.individualLegendScaling = !!x.sizeLegendsIndividually;
 			this.recalculateLegendScaling();
 			this.lastDieParams = dieParams;
 		}
@@ -195,25 +198,42 @@ export class Builder {
 		}
 		this.forceRerenderBlank = false;
 		this.forceRerenderFaces = false;
+		this.renderCount++
+		return this.renderCount;
 	}
 
 	private recalculateLegendScaling() {
-		let scaling = 1;
 		const face = this.faces.find((x) => x.isNumberFace);
 		if (face) {
-			// get the legends we want, and find the biggest.
-			// we will size against that.
-			// faces.map -> face parameters.legend ?? face.defaultLegend -> getBiggest(legends)
+			let smallest = 1;
+			this.currentLegendScaling.clear();
+			// get the legends we want, and find the smallest scaling factor.
+			// only consider legends on the number faces
+			const allLegends = Array.from(
+				new Set(
+					this.faces.map((f, i) => {
+						if(f.isNumberFace) {
+						return this.lastFaceParams[i]?.legend ?? f.defaultLegend;
+						}
+						return Legend.BLANK;
+					})
+				)
+			);
 
-			// stick with 00 for now...
-			const shapes = this.legends.get(Legend.DOUBLE_ZERO); // probably the widest/squarest shape.
-			// find the biggest! we will punt that to the legend loader/generator...
-			if (shapes.length > 0) {
-				// we have a face and a non-blank symbol.
-				scaling = findBestLegendScalingFactor(face.shape, shapes);
-			}
+			allLegends.forEach((l) => {
+				const shapes = this.legends.get(l);
+				if(shapes.length>0) {
+					const scale = findBestLegendScalingFactor(face.shape, shapes);
+					this.currentLegendScaling.set(l, scale); // save for later
+					if(scale < smallest) {
+						smallest = scale;
+					}
+				}
+			})
+
+			this.currentSmallestLegendScaling = smallest;
+			console.log("scaling" , this.model.id,{individualLegendScaling: this.individualLegendScaling, smallest: this.currentSmallestLegendScaling, legends: this.currentLegendScaling });
 		}
-		this.currentLegendScaling = scaling;
 	}
 
 	public export(dieParams: Record<string, number>, faceParams: Array<FaceParams>) {
@@ -226,6 +246,7 @@ export class Builder {
 			this.face2face = x.faceToFaceDistance;
 			this.recalculateLegendScaling();
 			this.faces = x.faces;
+			this.individualLegendScaling = !!x.sizeLegendsIndividually;
 			this.faceObjects.forEach((g) => g.children?.forEach((c) => g.remove(c)));
 			this.lastDieParams = dieParams;
 		}
@@ -251,6 +272,14 @@ export class Builder {
 		return new Mesh(deduped, _m1);
 	}
 
+	public getDefaultScaleForLegend(l: Legend): number {
+		if (this.individualLegendScaling) {
+				return this.currentLegendScaling.get(l) ?? this.currentSmallestLegendScaling;
+			} else {
+				return this.currentSmallestLegendScaling;
+			}
+	}
+
 	private buildFace(
 		i: number,
 		engravingDepth: number,
@@ -259,15 +288,16 @@ export class Builder {
 	): Array<BufferGeometry> {
 		// engrave face.
 		const face = this.faces[i];
-		const legend = this.legends.get(params.legend ?? face.defaultLegend);
+		const legend = params.legend ?? face.defaultLegend;
+		const symbols = this.legends.get(legend);
 		if (!params.scale) {
-			params.scale = this.currentLegendScaling;
+			params.scale = this.getDefaultScaleForLegend( legend);
 		}
 		let output: Array<BufferGeometry>;
 		try {
 			output = engrave(
 				face.shape,
-				legend,
+				symbols,
 				params,
 				engravingDepth + (params.extraDepth ?? 0),
 				forExport ? DefaultDivisions : 2 * DefaultDivisions // will need to "up" this to make a "high quality" render.

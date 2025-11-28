@@ -34,7 +34,11 @@
 			dice.dodecahedron_d12,
 			dice.trapezohedron_d00,
 			dice.trapezohedron_d10,
-			dice.trapezohedron_d8
+			dice.trapezohedron_d8,
+			dice.caltrop_d4,
+			dice.rhombic_d12,
+			dice.cube_d6,
+			dice.shard_d4
 		];
 		const pickRandomModel = () => {
 			const randomIndex = Math.floor(Math.random() * models.length);

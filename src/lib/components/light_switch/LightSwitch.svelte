@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
 	import { Moon, Sun, SunMoon } from '@lucide/svelte';
-	import { Popover, Segment } from '@skeletonlabs/skeleton-svelte';
+	import { Popover, Portal, SegmentedControl } from '@skeletonlabs/skeleton-svelte';
 	import { onDestroy, onMount } from 'svelte';
 
 	const LightIcon = Sun;
@@ -26,42 +26,45 @@
 		window.updateLightDark((e.value as any) || '');
 		mode = window.getLightDark();
 	}
-	let openState = $state(false);
 </script>
 
-<Popover
-	open={openState}
-	onOpenChange={(e) => (openState = e.open)}
-	triggerClasses="btn-icon preset-filled-surface-50-950"
-	zIndex="1000"
->
-	{#snippet content()}
-		<Segment
-			background="preset-filled-surface-950-50 preset-outlined-surface-200-800 pointer-events-auto z-100"
-			indicatorBg="preset-filled-surface-50-950"
-			indicatorText="text-surface-contrast-50 dark:text-surface-contrast-950"
-			gap="gap-0"
-			border="p-1"
-			name="lightdark"
-			value={mode.mode || 'system'}
-			onValueChange={handleValueChange}
-		>
-			<Segment.Item classes="btn-icon px-2 mx-0" value="light">
-				<LightIcon size="18" />
-			</Segment.Item>
-			<Segment.Item classes="btn-icon px-2 mx-0" value="system">
-				<SystemIcon size="18" />
-			</Segment.Item>
-			<Segment.Item classes="btn-icon px-2 mx-0" value="dark">
-				<DarkIcon size="18" />
-			</Segment.Item>
-		</Segment>
-	{/snippet}
-	{#snippet trigger()}
+<Popover>
+	<Popover.Trigger class="btn-icon preset-filled-surface-50-950">
 		{#if mode.isDark}
 			<DarkIcon class="icon-text" />
 		{:else if mode.isLight}
 			<LightIcon class="icon-text" />
 		{/if}
-	{/snippet}
+	</Popover.Trigger>
+	<Portal>
+		<Popover.Positioner>
+			<Popover.Content>
+				<Popover.Description>
+					<SegmentedControl defaultValue={mode.mode || 'system'} onValueChange={handleValueChange}>
+						<SegmentedControl.Control>
+							<SegmentedControl.Indicator />
+							<SegmentedControl.Item value="light" title="light" aria-label="light">
+								<SegmentedControl.ItemText class="btn-icon px-2 mx-0">
+									<LightIcon size="18" />
+								</SegmentedControl.ItemText>
+								<SegmentedControl.ItemHiddenInput />
+							</SegmentedControl.Item>
+							<SegmentedControl.Item value="system" title="system" aria-label="system">
+								<SegmentedControl.ItemText class="btn-icon px-2 mx-0">
+									<SystemIcon size="18" />
+								</SegmentedControl.ItemText>
+								<SegmentedControl.ItemHiddenInput />
+							</SegmentedControl.Item>
+							<SegmentedControl.Item value="dark" title="dark" aria-label="dark">
+								<SegmentedControl.ItemText class="btn-icon px-2 mx-0">
+									<DarkIcon size="18" />
+								</SegmentedControl.ItemText>
+								<SegmentedControl.ItemHiddenInput />
+							</SegmentedControl.Item>
+						</SegmentedControl.Control>
+					</SegmentedControl>
+				</Popover.Description>
+			</Popover.Content>
+		</Popover.Positioner>
+	</Portal>	
 </Popover>

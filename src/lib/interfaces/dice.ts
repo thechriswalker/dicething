@@ -11,6 +11,12 @@ export type DieModel = {
 	build(params: Record<string, number>): {
 		faces: Array<DieFaceModel>;
 		faceToFaceDistance: number;
+
+		// some dice beenfit from explicitly sizing the symbols for each face.
+		// if this flag is set, the builder will size each face specifically for it's legend
+		// otherwise, we'll find the biggest fit for each face, but scale all legends evenly
+		sizeLegendsIndividually?: boolean;
+
 		// how to transform the model for printing
 		// the model is usually centered on the origin, so this will be a rotation
 		// to move the object to the correct orientation and then a y translation to

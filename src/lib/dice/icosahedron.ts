@@ -163,5 +163,6 @@ export const IcosahedronD20 = polyhedron(
 	'D20 Icosahedron',
 	d20_faces,
 	d20_shape,
-	params
+	params,
+	true
 );

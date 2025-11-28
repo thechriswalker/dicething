@@ -11,3 +11,7 @@ const handleParaglide: Handle = ({ event, resolve }) =>
 	});
 
 export const handle: Handle = handleParaglide;
+
+if(!globalThis.File) {
+	(globalThis as any).File = class {};
+}

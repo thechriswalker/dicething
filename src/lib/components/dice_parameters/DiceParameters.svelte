@@ -6,7 +6,8 @@
 	import { debugLegendName, Legend, type LegendSet } from '$lib/utils/legends';
 	import { Vector2 } from 'three';
 	import { degToRad, radToDeg } from 'three/src/math/MathUtils.js';
-	import { Slider } from '@skeletonlabs/skeleton-svelte';
+	import Slider from '$lib/components/slider/Slider.svelte';
+	import type { DieFaceModel } from '$lib/interfaces/dice';
 
 	type Props = {
 		kind: Dice['kind'];
@@ -15,6 +16,7 @@
 		legends: LegendSet;
 		selectedFace: number;
 		builder: Builder;
+		renderPass: number;
 		onChangeSelectedFace?: (n: number) => void;
 	};
 
@@ -25,13 +27,11 @@
 		fparams = $bindable(),
 		selectedFace = $bindable(),
 		builder,
+		renderPass,
 		onChangeSelectedFace
 	}: Props = $props();
 
-	const faces = builder.getFaces();
-	const firstBlank = faces.findIndex((x) => !x.isNumberFace);
-	const model = dice[kind];
-	const params = model.parameters;
+	let model = $derived(dice[kind]);
 	const nf = Intl.NumberFormat(undefined, {
 		maximumFractionDigits: 2,
 		trailingZeroDisplay: 'stripIfInteger'
@@ -42,10 +42,15 @@
 		}
 		return nf.format(x);
 	}
-
-	// using "object entries" here means any change to the object will trigger an upate
-	let vol = $derived(Object.values(dparams) ? builder.getApproximateVolume() : '-');
-	let f2f = $derived(Object.values(dparams) ? builder.getFace2FaceDistance() : '-');
+	let faces = $derived(renderPass ? builder.getFaces() : []);
+	let vol = $derived(renderPass ? builder.getApproximateVolume() : "-");
+	let f2f = $derived(renderPass ? builder.getFace2FaceDistance() : "-")
+	let firstBlank = $derived(faces.findIndex((x) => !x.isNumberFace));
+	let engravingDepth = $derived(dparams[engravingParam.id] ?? engravingParam.defaultValue);
+	let faceLegend = $derived(fparams[selectedFace]?.legend ?? faces[selectedFace]?.defaultLegend);
+	let faceLegendScale = $derived(fparams[selectedFace]?.scale ?? builder.getDefaultScaleForLegend(faceLegend));
+	let faceLegendOffset = $derived(fparams[selectedFace]?.offset ?? new Vector2(0, 0));
+	let faceRotationDegrees = $derived(radToDeg(fparams[selectedFace]?.rotation ?? 0));
 </script>
 
 <div class="card preset-tonal-surface w-72 p-4">
@@ -56,7 +61,7 @@
 	<p>
 		{m['dice_parameters.face_to_face_distance']()}: {numberFormat(f2f)}
 	</p>
-	{#each params as p}
+	{#each model.parameters as p}
 		{@const currentValue = dparams[p.id] ?? p.defaultValue}
 		<label
 			id="parameter-{p.id}"
@@ -67,15 +72,13 @@
 			<!-- Bits UI Slider component! -->
 
 			<Slider
-				classes="py-2 my-2 "
-				meterBg="bg-primary-500"
-				thumbBg="bg-primary-500"
-				value={[currentValue]}
-				onValueChange={(e) => (dparams[p.id] = e.value[0])}
+				class="py-1"
+				value={currentValue}
+				onChange={(newValue) => (dparams[p.id] = newValue)}
 				min={p.min}
 				max={p.max}
 				step={p.step}
-			></Slider>
+			/>
 		</label>
 	{/each}
 	<label
@@ -83,16 +86,13 @@
 		class="flex flex-col"
 		title={m['dice_parameters.description']({ id: engravingParam.id })}
 	>
-		{m['dice_parameters.name']({ id: engravingParam.id })}: ({dparams[engravingParam.id] ??
-			engravingParam.defaultValue}):
+		{m['dice_parameters.name']({ id: engravingParam.id })}: ({engravingDepth}):
 		<!-- Bits UI Slider component! -->
 
 		<Slider
-			classes="py-2 my-2 "
-			meterBg="bg-primary-500"
-			thumbBg="bg-primary-500"
-			value={[dparams[engravingParam.id] ?? engravingParam.defaultValue]}
-			onValueChange={(e) => (dparams[engravingParam.id] = e.value[0])}
+			class="py-1"
+			value={engravingDepth}
+			onChange={(e) => (dparams[engravingParam.id] = e)}
 			min={engravingParam.min}
 			max={engravingParam.max}
 			step={engravingParam.step}
@@ -148,21 +148,18 @@
 				{#each legends as l}
 					<option
 						value={l}
-						selected={l === (fparams[selectedFace]?.legend ?? faces[selectedFace]?.defaultLegend)}
+						selected={l === (faceLegend)}
 						>{debugLegendName(l)}</option
 					>
 				{/each}
 			</select>
 		</label>
 		<label class="flex flex-col"
-			>scale ({fparams[selectedFace]?.scale ?? builder?.currentLegendScaling ?? 1})
+			>scale ({numberFormat(faceLegendScale)})
 			<Slider
-				classes="py-2 my-2 "
-				meterBg="bg-primary-500"
-				thumbBg="bg-primary-500"
-				value={[fparams[selectedFace]?.scale ?? builder?.currentLegendScaling ?? 1]}
-				onValueChange={(e) => {
-					const nextScale = e.value[0];
+				class="py-1"
+				value={faceLegendScale}
+				onChange={(nextScale) => {
 					const _params = fparams[selectedFace] ?? {};
 					_params.scale = nextScale;
 					fparams[selectedFace] = _params;
@@ -173,14 +170,11 @@
 			></Slider>
 		</label>
 		<label class="flex flex-col"
-			>offset-x ({(fparams[selectedFace]?.offset ?? new Vector2(0, 0)).x.toFixed(2)})
+			>offset-x ({faceLegendOffset.x.toFixed(2)})
 			<Slider
-				classes="py-2 my-2 "
-				meterBg="bg-primary-500"
-				thumbBg="bg-primary-500"
-				value={[(fparams[selectedFace]?.offset ?? new Vector2(0, 0)).x]}
-				onValueChange={(e) => {
-					const nextOffset = e.value[0];
+				class="py-1"
+				value={faceLegendOffset.x}
+				onChange={(nextOffset) => {
 					const _params = fparams[selectedFace] ?? {};
 					if (_params.offset) {
 						_params.offset = _params.offset.clone().setX(nextOffset);
@@ -196,38 +190,32 @@
 		</label>
 	{/if}
 	<label class="flex flex-col"
-		>offset-y ({(fparams[selectedFace]?.offset ?? new Vector2(0, 0)).y.toFixed(2)})
-		<Slider
-			classes="py-2 my-2 "
-			meterBg="bg-primary-500"
-			thumbBg="bg-primary-500"
-			value={[(fparams[selectedFace]?.offset ?? new Vector2(0, 0)).y]}
-			onValueChange={(e) => {
-				const nextOffset = e.value[0];
-				const _params = fparams[selectedFace] ?? {};
-				if (_params.offset) {
-					_params.offset = _params.offset.clone().setY(nextOffset);
-				} else {
-					_params.offset = new Vector2(0, nextOffset);
-				}
-				fparams[selectedFace] = _params;
-			}}
+		>offset-y ({faceLegendOffset.y.toFixed(2)})
+			<Slider
+				class="py-1"
+				value={faceLegendOffset.y}
+				onChange={(nextOffset) => {
+					const _params = fparams[selectedFace] ?? {};
+					if (_params.offset) {
+						_params.offset = _params.offset.clone().setY(nextOffset);
+					} else {
+						_params.offset = new Vector2(0, nextOffset);
+					}
+					fparams[selectedFace] = _params;
+				}}
 			min={-20}
 			max={20}
 			step={0.1}
 		></Slider>
 	</label>
 	<label class="flex flex-col"
-		>rotation ({radToDeg(fparams[selectedFace]?.rotation ?? 0).toFixed(2)})
+		>rotation ({faceRotationDegrees.toFixed(2)})
 		<Slider
-			classes="py-2 my-2 "
-			meterBg="bg-primary-500"
-			thumbBg="bg-primary-500"
-			value={[radToDeg(fparams[selectedFace]?.rotation ?? 0)]}
-			onValueChange={(e) => {
-				const nextOffset = e.value[0];
+			class="py-1"
+			value={faceRotationDegrees}
+			onChange={(nextRotation) => {
 				const params = fparams[selectedFace] ?? {};
-				params.rotation = degToRad(nextOffset);
+				params.rotation = degToRad(nextRotation);
 				fparams[selectedFace] = params;
 			}}
 			min={-180}
