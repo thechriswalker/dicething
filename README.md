@@ -73,7 +73,7 @@ The UI section will need a whole lot more...
   - [x] Crystals (d4, d6, d8, d10/d%, d12)
   - [x] Rhombics (d6, d12)
   - [x] Shards (d4,d6, d8, d10/d%, d12)
-  - [x] Barrels (d4,d6, d8, d10/d%, d12)
+  - [] Barrels (d4,d6, d8, d10/d%, d12) (these are the triangle faced ones)
   - [ ] Caltrop D4 (as 12 faces both on tips and edges, and with only 4 faces)
     - [x] With 12 faces on tips
     - [ ] With 12 faces on edges

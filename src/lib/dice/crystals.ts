@@ -1,8 +1,8 @@
 import type { DieModel, DieFaceModel, DiceParameter } from '$lib/interfaces/dice';
-import { Transform, vectorRotateX, vectorRotateY, vectorRotateZ, type Rotatable } from '$lib/utils/3d';
+import { Transform } from '$lib/utils/3d';
 import { Legend, pickForDoublesByIndex, pickForNumber } from '$lib/utils/legends';
 import { orientCoplanarVertices, rotateShapes } from '$lib/utils/shapes';
-import { BufferGeometry, Plane, Ray, Shape, Vector2, Vector3, Camera, Quaternion } from 'three';
+import { Plane, Ray, Shape, Vector2, Vector3 } from 'three';
 
 const defaultHeight = 16;
 const defaultWidth = 8;
@@ -11,7 +11,6 @@ const defaultCapTwist = 0.5;
 
 const xAxis = new Vector3(1, 0, 0);
 const yAxis = new Vector3(0, 1, 0);
-const negYaxis = new Vector3(0, -1, 0);
 const zAxis = new Vector3(0, 0, 1);
 
 const crystalParameters: Array<DiceParameter> = [
@@ -53,10 +52,44 @@ export const CrystalD12 = crystal('crystal_d12', 'D12 Crystal', 12);
 export const CrystalD00 = crystal('crystal_d00', 'D% Crystal', 10, true);
 
 function crystal(id: string, name: string, sides: number, tens = false): DieModel {
-	return { id, name, parameters: crystalParameters, build: build(sides, tens) };
+	return {
+		id,
+		name,
+		parameters: crystalParameters,
+		build: build(sides, tens),
+		blankParameters: crystalBlankParams(sides)
+	};
+}
+
+function crystalBlankParams(
+	sides: number
+): (params: Record<string, number>, offset: number) => Record<string, number> {
+	// we want to reduce face-2-face distance by offset*2.
+	const alpha = (2 * Math.PI) / sides;
+	const tanHalfAlpha = Math.tan(alpha / 2);
+	return (params, offset) => {
+		const x = params.crystal_width ?? defaultWidth;
+		const y = params.crystal_height ?? defaultHeight;
+		const cap = params.crystal_cap ?? defaultCapHeight;
+		const d = x / (2 * tanHalfAlpha);
+		// this is the current center to face distance.
+		// we want to find x so that d is reduced by offset.
+		const xb = (d - offset) * 2 * tanHalfAlpha;
+		// the height is reduced by 2*offset (one at each end)
+		// and the cap height is reduced by offset.
+		return {
+			...params,
+			crystal_height: y - offset * 2,
+			crystal_cap: cap - offset,
+			crystal_width: xb
+		};
+	};
 }
 
 function build(sides: number, tens: boolean): DieModel['build'] {
+	if (sides % 2 === 1) {
+		throw new RangeError('sides cannot be odd for crystal die');
+	}
 	return (params) => {
 		const x = params.crystal_width ?? defaultWidth;
 		const x2 = x / 2;
@@ -65,6 +98,11 @@ function build(sides: number, tens: boolean): DieModel['build'] {
 		const rot = params.crystal_twist ?? defaultCapTwist;
 		const h = params.crystal_cap ?? defaultCapHeight;
 		const isTwisted = rot !== 0;
+
+		// crystals sit upright on their tips.
+		// so the transform to print them is simply raise it so the tip is on
+		// the xz plane.
+		const printingTransform = new Transform().translateBy(0, (y + h) / 2, 0);
 
 		// I think I need to construct this in 3-space and then project each face onto the plane +z on the origin.
 		// but I only need to construct the cap faces, as the front face is already
@@ -89,8 +127,6 @@ function build(sides: number, tens: boolean): DieModel['build'] {
 		const capFaceVertices3 = [
 			new Vector3(0, h + y2, 0) // cap at x=0, z=0 y= half height+cap height
 		];
-
-		let rotationZero = xAxis;
 
 		if (isTwisted) {
 			// we need to add in the extra points on the number faces, and the
@@ -119,10 +155,6 @@ function build(sides: number, tens: boolean): DieModel['build'] {
 			// now add an "-alpha" rotated version of the intersection
 			const intersection2 = new Vector3().copy(intersection).applyAxisAngle(yAxis, -alpha);
 
-			// the rotation basis for our model, is now a the line across this plane. between the intersection points.
-			// i.e. the line intersection1 -> intersection 2 then moved to the origin.
-			// this is the vector intersection1, intersection2 and the origin.
-			rotationZero.copy(intersection.clone().sub(intersection2).normalize());
 			// the "actual" corner needs to be on the plane of the triangle though (so may not be)
 			// cap is already in the array, so we add the insection point and then the corner.
 			// so I will do another ray intersection.
@@ -173,18 +205,18 @@ function build(sides: number, tens: boolean): DieModel['build'] {
 		// the number faces, in numerical order.
 		const faces: Array<DieFaceModel> = Array.from({ length: sides }).map((_, i) => {
 			const yRot = yRotation(i, sides, alpha);
-			const transform = new Transform()
+			const transform = new Transform();
 			if (tens) {
-				transform.rotateByAxisAngle(zAxis, -Math.PI / 2)
+				transform.rotateByAxisAngle(zAxis, -Math.PI / 2);
 			}
-			transform.translateBy(0, 0, d)
-			transform.rotateByAxisAngle(yAxis, yRot)
+			transform.translateBy(0, 0, d);
+			transform.rotateByAxisAngle(yAxis, yRot);
 
 			return {
 				isNumberFace: true,
 				shape: face,
 				defaultLegend: tens ? pickForDoublesByIndex(i) : pickForNumber(i, sides),
-				transform,
+				transform
 			};
 		});
 
@@ -193,8 +225,7 @@ function build(sides: number, tens: boolean): DieModel['build'] {
 			const topTransform = new Transform()
 				.rotate(capFaceInfo.quat)
 				.translate(capFaceInfo.offset)
-				.rotateByAxisAngle(yAxis, yRot)
-
+				.rotateByAxisAngle(yAxis, yRot);
 
 			const bottomTransform = topTransform.clone().rotateByAxisAngle(zAxis, Math.PI);
 
@@ -203,7 +234,7 @@ function build(sides: number, tens: boolean): DieModel['build'] {
 					isNumberFace: false,
 					shape: capFaceInfo.shape,
 					defaultLegend: Legend.BLANK,
-					transform: topTransform,
+					transform: topTransform
 				},
 				{
 					isNumberFace: false,
@@ -217,6 +248,7 @@ function build(sides: number, tens: boolean): DieModel['build'] {
 		return {
 			legendScaling: 1,
 			faceToFaceDistance: d * 2,
+			printingTransform,
 			faces
 		};
 	};
@@ -229,11 +261,10 @@ const yRotation = (i: number, sides: number, alpha: number): number => {
 	}
 	let n = i + 1;
 	// some logic around i.
-	let even = false;
-	if (n % 2 == 0) {
+	let even = n % 2 == 0;
+	if (even) {
 		// even number.
 		// they are placed opposite their odd couterpart.
-		even = true;
 		// using the sides+1 total rule.
 		// the number this should be opposite is sides - n+1
 		n = sides - n + 1;

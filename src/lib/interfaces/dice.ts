@@ -1,6 +1,6 @@
 import type { Transform } from '$lib/utils/3d';
 import type { Legend } from '$lib/utils/legends';
-import type { BufferGeometry, Camera, Quaternion, Shape, Vector2 } from 'three';
+import type { Object3D, Shape, Vector2 } from 'three';
 
 export type DieModel = {
 	id: string; // stable name for serialisation
@@ -11,7 +11,20 @@ export type DieModel = {
 	build(params: Record<string, number>): {
 		faces: Array<DieFaceModel>;
 		faceToFaceDistance: number;
+		// how to transform the model for printing
+		// the model is usually centered on the origin, so this will be a rotation
+		// to move the object to the correct orientation and then a y translation to
+		// raise the object so the tip is on the xz plane.
+		// this is the orientation we want to use to print, keeping all dice on the same level, for when / if they are grouped.
+		printingTransform: Transform;
 	};
+	// create parameters for building a blank using the "build" function that is
+	// offset from the given parameters by `offset`.
+	// note that offset could be positive or negative - as people might want "inverse"
+	// blanks that are bigger than the numbered dice and shell smooth or regular
+	// ones that are smaller than the regular ones and shell to the same size as regular.
+	// either way, the offset should be at least your engraving depth + wiggle room.
+	blankParameters?(params: Record<string, number>, offset: number): Record<string, number>;
 };
 
 export type FaceParams = {
