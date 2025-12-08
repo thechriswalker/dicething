@@ -2,25 +2,25 @@
 import { parse, type RenderOptions } from 'opentype.js';
 import { Curve, LineCurve, QuadraticBezierCurve, Ray, Vector2, Vector3, type Shape } from 'three';
 import { SVGLoader } from 'three/examples/jsm/loaders/SVGLoader.js';
-import { centerShapes } from './shapes';
+import { centerShapes, scaleShapes } from './shapes';
 import { shapeToJSON } from './to_json';
 
 // these are in the same order as the "Legend" enum values
-const defaultStrings: Array<FontString> =
-	'0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 6. 9. 30 40 50 60 70 80 90 00'
-		.split(' ')
-		.map((s) => {
-			const o: FontString = { text: s };
-			switch (s) {
-				case '6.':
-				case '9.':
-					o.renderOptions = { letterSpacing: -0.1 };
-					break;
-				default:
-				//nothing
-			}
-			return o;
-		});
+export const defaultStrings =
+	'0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 6. 9. 30 40 50 60 70 80 90 00';
+
+export function addRenderOptions(
+	strings: string,
+	fontRenderOptions: Record<string, RenderOptions>
+): Array<FontString> {
+	return strings.split(' ').map((s) => {
+		const o: FontString = { text: s };
+		if (s in fontRenderOptions) {
+			o.renderOptions = fontRenderOptions[s];
+		}
+		return o;
+	});
+}
 
 export type FontString = {
 	text: string;
@@ -29,10 +29,33 @@ export type FontString = {
 
 const _svg = new SVGLoader();
 
-export function createShapesFromFont(
-	fontData: ArrayBufferLike,
-	strings: Array<FontString> = defaultStrings
-) {
+const svgOpen = /(<svg[^>]*>)/m;
+const svgClose = /(<\/svg>)/;
+
+//the problem with "parse" is that is makes them inverted and flipped.
+// so we need to inject a transform.
+// scale is base on a "10x10" viewbox (like we use for fonts)
+// our icons are 20x20 so we need to scale by 0.5
+export function createShapesFromSVG(svg: string, scale: number = 1): Array<Shape> {
+	// find the first closing tag.
+	svg = svg.replace(svgOpen, (m) => {
+		return m + `<g transform="rotate(180) scale(-1,1)">`;
+	});
+	svg = svg.replace(svgClose, (m) => {
+		return `</g>` + m;
+	});
+	// now we can use the parseo
+	const fromSVG = _svg.parse(svg).paths;
+	const shapes = fromSVG.flatMap((p) => SVGLoader.createShapes(p));
+	preprocessShapes(shapes);
+	let c = centerShapes(...shapes);
+	if (scale != 1) {
+		c = scaleShapes(scale, ...c);
+	}
+	return c.map(shapeToJSON);
+}
+
+export function createShapesFromFont(fontData: ArrayBufferLike, strings: Array<FontString>) {
 	const font = parse(fontData);
 
 	const legendShapes: Array<Array<Shape>> = strings.map((s) => {
@@ -40,15 +63,10 @@ export function createShapesFromFont(
 		const paths = font.getPaths(s.text, 0, 0, 10, opts);
 		// This is a massive inefficient hack, but it works...
 		// We pregenerate these anyway...
-		const svgText = `<svg width="30" height="20" viewBox="0 0 20 20"><g transform="rotate(180) scale(-1,1)">${paths
+		const svgText = `<svg width="30" height="20" viewBox="0 0 20 20">${paths
 			.map((p) => p.toSVG(6))
-			.join('\n')}</g></svg>`;
-		const fromSVG = _svg.parse(svgText).paths;
-
-		const shapes = fromSVG.flatMap((p) => SVGLoader.createShapes(p));
-		preprocessShapes(shapes);
-		const c = centerShapes(...shapes);
-		return c.map(shapeToJSON);
+			.join('\n')}</svg>`;
+		return createShapesFromSVG(svgText);
 	});
 
 	return legendShapes;
@@ -72,9 +90,9 @@ function preprocessPaths(s: Array<Curve<Vector2>>) {
 		const c = s[i];
 		// first hueristic = 0-length LineCurve
 		if (curveIsLineCurve(c)) {
-			if (c.v1.equals(c.v2)) {
-				// remove.
+			if (c.getLength() < 0.0001) {
 				s.splice(i, 1);
+
 				i--; // now pretend to go back one.
 			}
 		} else {

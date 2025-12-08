@@ -1,9 +1,10 @@
 import { Icon } from '@lucide/svelte';
+import type { Snippet } from 'svelte';
 
 export type MenuData = Record<string, MenuItem[]>; // ie. File -> [New, Save, ...]
 
 type MenuItemBase = {
-	title: string;
+	title: string | Snippet;
 	icon?: typeof Icon;
 	disabled?: boolean;
 };

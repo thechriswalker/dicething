@@ -33,6 +33,7 @@ export function engrave(
 	symbols: Array<Shape>,
 	orientation: SymbolOrientation,
 	depth: number,
+	clearance: number = 0.5, // minimum distance from symbol to edge.
 	divisions: number = DefaultDivisions
 ): Array<BufferGeometry> {
 	// orient the symbol
@@ -52,7 +53,7 @@ export function engrave(
 		symbols = translateShapes(orientation.offset, ...symbols);
 	}
 
-	const canEngraveSymbol = isContained(surface, symbols);
+	const canEngraveSymbol = isContained(surface, symbols, clearance);
 
 	// add the initial shape to the group.
 	const face = surface.clone();

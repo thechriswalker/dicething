@@ -2,7 +2,7 @@
 
 import { browser } from '$app/environment';
 
-class RGB {
+export class RGB {
 	constructor(
 		private r: number,
 		private g: number,

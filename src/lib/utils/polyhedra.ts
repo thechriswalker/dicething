@@ -86,16 +86,14 @@ export function polyhedron(
 			return {
 				legendScaling: 1,
 				faceToFaceDistance: d,
-				sizeLegendsIndividually:individualLegendScaling,
+				sizeLegendsIndividually: individualLegendScaling,
 				faces: sides.map((s, i) => {
-					const transform = new Transform()
-						.translateBy(0, 0, d / 2)
-						.rotate(quats[i])
+					const transform = new Transform().translateBy(0, 0, d / 2).rotate(quats[i]);
 					return {
 						isNumberFace: true, // they all are
 						shape: face,
 						defaultLegend: pickForNumber(i, sides.length),
-						transform,
+						transform
 					};
 				})
 			};

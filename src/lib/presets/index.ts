@@ -36,7 +36,7 @@ export type PresetName = keyof typeof presets;
 export async function fromPreset(preset: Preset): Promise<DiceSet> {
 	const base = (await preset()) as DiceSet;
 	// this is going to way easier if we go "unsafe" as far as TS is concerned.
-	(base.id = uuid()), (base.updated = Date.now());
+	((base.id = uuid()), (base.updated = Date.now()));
 	base.dice.forEach((x) => {
 		x.id = uuid();
 	});

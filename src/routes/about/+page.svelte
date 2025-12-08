@@ -5,23 +5,21 @@
 
 	let thanks = [
 		{
-			"title": "DiceMaker",
-			"link": "https://ankhe.itch.io/dicemaker",
-			"desc": "The original DiceMaker was and is an excellent tool, and I don't think I would have considered making this if not for it."
+			title: 'DiceMaker',
+			link: 'https://ankhe.itch.io/dicemaker',
+			desc: "The original DiceMaker was and is an excellent tool, and I don't think I would have considered making this if not for it."
 		},
 		{
-			"title": "three.js",
-			"link": "https://threejs.org",
-			"desc": "Three.js provides the awesome 3D rendering capabilities I needed to create custom dice models."
+			title: 'three.js',
+			link: 'https://threejs.org',
+			desc: 'Three.js provides the awesome 3D rendering capabilities I needed to create custom dice models.'
 		},
 		{
-			"title": "Svelte(Kit)",
-			"link": "https://svelte.dev/",
-			"desc": "The web frontend framework that powers this frontend"
+			title: 'Svelte(Kit)',
+			link: 'https://svelte.dev/',
+			desc: 'The web frontend framework that powers this frontend'
 		}
-	]
-
-
+	];
 </script>
 
 <AppBar></AppBar>
@@ -56,12 +54,14 @@
 	<p>This project would not have been possible without the following prior work:</p>
 	<dl class="space-y-2 p-4">
 		{#each thanks as t}
-		<div>
-			<dt class="font-bold">{t.title} <small class="opacity-60"><a href={t.link}>{t.link}</a></small></dt>
-			<dd>
-				<p>{t.desc}</p>
-			</dd>
-		</div>
+			<div>
+				<dt class="font-bold">
+					{t.title} <small class="opacity-60"><a href={t.link}>{t.link}</a></small>
+				</dt>
+				<dd>
+					<p>{t.desc}</p>
+				</dd>
+			</div>
 		{/each}
 	</dl>
 </Scroll>

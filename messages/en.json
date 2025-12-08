@@ -1,148 +1,161 @@
 {
 	"$schema": "https://inlang.com/schema/inlang-message-format",
-	"meta": {
-		"app_name": "DiceThing",
-		"app_tagline": "Design, Model, Print",
-		"app_version": "0.0.0"
-	},
-	"not_available": {
-		"title": "DiceThing is not ready yet",
-		"content": "I'm working on it, but it's a slow process. Reach out via Github for early access if you like sharp edges."
-	},
-	"splash": {
-		"about": "About",
-		"start": "Start",
-		"early_access": "(early access only)"
-	},
-	"start": {
-		"new_set_header": "Create a new set",
-		"load_set_header": "Load an existing set",
-		"import": "Import from JSON",
-		"no_saved_sets": "You don't have any saved sets... yet ;)"
-	},
-	"presets": {
-		"title": [
-			{
-				"declarations": [
-					"input preset"
-				],
-				"selectors": [
-					"preset"
-				],
-				"match": {
-					"preset=go_first": "Go First Dice (4 Players)",
-					"preset=scratch": "Start from Scratch",
-					"preset=classic": "Classic 7 Dice D&D Set",
-					"preset=dicething": "DiceThing Custom 7",
-					"preset=everything": "One of everything",
-					"preset=chris": "Chris' Dice Set",
-					"preset=mine": "Chris' 9 Dice Set"
-				}
+	"meta_app_name": "DiceThing",
+	"meta_app_tagline": "Design, Model, Print",
+	"meta_app_version": "0.0.0",
+	"not_available_title": "DiceThing is not ready yet",
+	"not_available_content": "I'm working on it, but it's a slow process. Reach out via Github for early access if you like sharp edges.",
+	"splash_about": "About",
+	"splash_start": "Start",
+	"splash_early_access": "(early access only)",
+	"start_new_set_header": "Create a new set",
+	"start_load_set_header": "Load an existing set",
+	"start_import": "Import from JSON",
+	"start_no_saved_sets": "You don't have any saved sets... yet ;)",
+	"presets_title": [
+		{
+			"declarations": ["input preset"],
+			"selectors": ["preset"],
+			"match": {
+				"preset=go_first": "Go First Dice (4 Players)",
+				"preset=scratch": "Start from Scratch",
+				"preset=classic": "Classic 7 Dice D&D Set",
+				"preset=dicething": "DiceThing Custom 7",
+				"preset=everything": "One of everything",
+				"preset=chris": "Chris' Dice Set",
+				"preset=mine": "Chris' 9 Dice Set"
 			}
-		],
-		"description": [
-			{
-				"declarations": [
-					"input preset"
-				],
-				"selectors": [
-					"preset"
-				],
-				"match": {
-					"preset=go_first": "A set of 4d12 that always roll different numbers and have a equal chance of each die being first (and second, third, fourth).",
-					"preset=scratch": "Empty set so you can start from a blank slate",
-					"preset=classic": "The standard 7 D&D dice set with a caltrop D4. Sized around a 14mm D6",
-					"preset=dicething": "A larger than standard set with the shapes that I like (no caltrops!)",
-					"preset=chris": "Chris' own custom layout based on the DiceThing 7 sizes",
-					"preset=everything": "One of every dice shape in this app",
-					"preset=mine": "Chris' own custom set with 2 D6 and 2 D20"
-				}
+		}
+	],
+	"presets_description": [
+		{
+			"declarations": ["input preset"],
+			"selectors": ["preset"],
+			"match": {
+				"preset=go_first": "A set of 4d12 that always roll different numbers and have a equal chance of each die being first (and second, third, fourth).",
+				"preset=scratch": "Empty set so you can start from a blank slate",
+				"preset=classic": "The standard 7 D&D dice set with a caltrop D4. Sized around a 14mm D6",
+				"preset=dicething": "A larger than standard set with the shapes that I like (no caltrops!)",
+				"preset=chris": "Chris' own custom layout based on the DiceThing 7 sizes",
+				"preset=everything": "One of every dice shape in this app",
+				"preset=mine": "Chris' own custom set with 2 D6 and 2 D20"
 			}
-		]
-	},
-	"dice_parameters": {
-		"face_to_face_distance": "Face-to-face distance",
-		"name": [
-			{
-				"declarations": [
-					"input id"
-				],
-				"selectors": [
-					"id"
-				],
-				"match": {
-					"id=caltrop_height": "Height",
-					"id=crystal_height": "Body Length",
-					"id=crystal_width": "Body Width",
-					"id=crystal_cap": "Cap Height",
-					"id=crystal_twist": "Cap Twist",
-					"id=polyhedron_size": "Face to Face",
-					"id=shard_height": "Body Length",
-					"id=shard_radius": "Body Radius",
-					"id=shard_cap": "Cap Height",
-					"id=shard_twist": "Cap Twist",
-					"id=trapezohedron_radius": "Radius",
-					"id=trapezohedron_height": "Height",
-					"id=engraving_depth": "Engraving Depth"
-				}
+		}
+	],
+	"dice_parameters_face_to_face_distance": "Face-to-face distance",
+	"dice_parameters_name": [
+		{
+			"declarations": ["input id"],
+			"selectors": ["id"],
+			"match": {
+				"id=caltrop_height": "Height",
+				"id=crystal_height": "Body Length",
+				"id=crystal_width": "Body Width",
+				"id=crystal_cap": "Cap Height",
+				"id=crystal_twist": "Cap Twist",
+				"id=polyhedron_size": "Face to Face",
+				"id=shard_height": "Body Length",
+				"id=shard_radius": "Body Radius",
+				"id=shard_cap": "Cap Height",
+				"id=shard_twist": "Cap Twist",
+				"id=trapezohedron_radius": "Radius",
+				"id=trapezohedron_height": "Height",
+				"id=engraving_depth": "Engraving Depth"
 			}
-		],
-		"description": [
-			{
-				"declarations": [
-					"input id"
-				],
-				"selectors": [
-					"id"
-				],
-				"match": {
-					"id=caltrop_height": "Height of the caltrop",
-					"id=crystal_height": "Length of the long edge of the body",
-					"id=crystal_width": "Length of the short edge of the body",
-					"id=crystal_cap": "Height of the caps above the long edges of the body",
-					"id=crystal_twist": "Rotation of the the cap with respect to the other faces",
-					"id=polyhedron_size": "Distance between opposite faces",
-					"id=shard_height": "Length of the long edge of the body",
-					"id=shard_radius": "Distance from center to vertex",
-					"id=shard_cap": "Height of the caps above the long edges of the body",
-					"id=shard_twist": "Rotation of the cap with respect to the other faces. 0 is none, 0.5 is exactly half way",
-					"id=trapezohedron_radius": "Distance from the center axis to the edge vertices",
-					"id=trapezohedron_height": "Distance from tip to tip",
-					"id=engraving_depth": "Depth of the legend engraving"
-				}
+		}
+	],
+	"dice_parameters_description": [
+		{
+			"declarations": ["input id"],
+			"selectors": ["id"],
+			"match": {
+				"id=caltrop_height": "Height of the caltrop",
+				"id=crystal_height": "Length of the long edge of the body",
+				"id=crystal_width": "Length of the short edge of the body",
+				"id=crystal_cap": "Height of the caps above the long edges of the body",
+				"id=crystal_twist": "Rotation of the the cap with respect to the other faces",
+				"id=polyhedron_size": "Distance between opposite faces",
+				"id=shard_height": "Length of the long edge of the body",
+				"id=shard_radius": "Distance from center to vertex",
+				"id=shard_cap": "Height of the caps above the long edges of the body",
+				"id=shard_twist": "Rotation of the cap with respect to the other faces. 0 is none, 0.5 is exactly half way",
+				"id=trapezohedron_radius": "Distance from the center axis to the edge vertices",
+				"id=trapezohedron_height": "Distance from tip to tip",
+				"id=engraving_depth": "Depth of the legend engraving"
 			}
-		]
-	},
-	"dice": {
-		"current_face": "Current Face",
-		"name": [
-			{
-				"declarations": [
-					"input kind"
-				],
-				"selectors": [
-					"kind"
-				],
-				"match": {
-					"kind=cube_d6": "D6 Cube",
-					"kind=caltrop_d4": "D4 Caltrop",
-					"kind=crystal_d4": "D4 Crystal",
-					"kind=crystal_d6": "D6 Crystal",
-					"kind=crystal_d8": "D8 Crystal",
-					"kind=crystal_d10": "D10 Crystal",
-					"kind=crystal_d00": "D% Crystal",
-					"kind=crystal_d12": "D12 Crystal",
-					"kind=dodecahedron_d12": "D12 Dodecahedron",
-					"kind=icosahedron_d20": "D20 Icosahedron",
-					"kind=rhombic_d12": "D12 Rhombic",
-					"kind=rhombic_d6": "D6 Rhombic",
-					"kind=trapezohedron_d8": "D8 Trapezohedron",
-					"kind=trapezohedron_d10": "D10 Trapezohedron",
-					"kind=trapezohedron_d00": "D% Trapezohedron",
-					"kind=trapezohedron_d12": "D12 Trapezohedron",
-					"kind=shard_d4": "D4 Shard"
-				}
+		}
+	],
+	"dice_parameters_approx_volume": "Approximate Volume",
+	"dice_current_face": "Current Face",
+	"dice_name": [
+		{
+			"declarations": ["input kind"],
+			"selectors": ["kind"],
+			"match": {
+				"kind=cube_d6": "D6 Cube",
+				"kind=caltrop_d4": "D4 Caltrop",
+				"kind=crystal_d4": "D4 Crystal",
+				"kind=crystal_d6": "D6 Crystal",
+				"kind=crystal_d8": "D8 Crystal",
+				"kind=crystal_d10": "D10 Crystal",
+				"kind=crystal_d00": "D% Crystal",
+				"kind=crystal_d12": "D12 Crystal",
+				"kind=dodecahedron_d12": "D12 Dodecahedron",
+				"kind=icosahedron_d20": "D20 Icosahedron",
+				"kind=rhombic_d12": "D12 Rhombic",
+				"kind=rhombic_d6": "D6 Rhombic",
+				"kind=trapezohedron_d8": "D8 Trapezohedron",
+				"kind=trapezohedron_d10": "D10 Trapezohedron",
+				"kind=trapezohedron_d00": "D% Trapezohedron",
+				"kind=trapezohedron_d12": "D12 Trapezohedron",
+				"kind=shard_d4": "D4 Shard"
 			}
-		]
-	}
+		}
+	],
+	"menu_legends": "Legends",
+	"menu_export": "Export",
+	"menu_all_blanks": "All Blanks",
+	"menu_standard": "Standard",
+	"menu_numbers_0_99": "Numbers 0-99",
+	"menu_as_json": "As JSON",
+	"menu_as_stl": "As STL",
+	"menu_export_as_json": "As JSON",
+	"menu_export_as_stl": "As STL",
+	"controls_add_new_die": "Add new die",
+	"controls_reset_camera": "Reset Camera",
+	"controls_toggle_gridlines": "Toggle Gridlines",
+	"controls_toggle_explode_mode": "Toggle Explode Mode",
+	"face_parameters_selected_legend": "Selected Legend",
+	"face_parameters_pick_legend": "Pick Legend",
+	"face_parameters_face_name_0_n": "Face {n}",
+	"face_parameters_blank_name_0_n": "Blank {n}",
+	"face_parameters_scale": "Scale",
+	"face_parameters_scale_description": "Scale factor for the legend",
+	"face_parameters_rotation": "Rotation",
+	"face_parameters_rotation_description": "Angle of rotation of the legend",
+	"face_parameters_offset_x": "X-Offset",
+	"face_parameters_offset_x_description": "Horizontal offset of legend from center",
+	"face_parameters_offset_y": "Y-Offset",
+	"face_parameters_offset_y_description": "Vertical offset of legend from center",
+	"dice_parameterßs_name": [
+		{
+			"declarations": ["input id"],
+			"selectors": ["id"],
+			"match": {
+				"id=caltrop_height": "Height",
+				"id=crystal_height": "Body Length",
+				"id=crystal_width": "Body Width",
+				"id=crystal_cap": "Cap Height",
+				"id=crystal_twist": "Cap Twist",
+				"id=polyhedron_size": "Face to Face",
+				"id=shard_height": "Body Length",
+				"id=shard_radius": "Body Radius",
+				"id=shard_cap": "Cap Height",
+				"id=shard_twist": "Cap Twist",
+				"id=trapezohedron_radius": "Radius",
+				"id=trapezohedron_height": "Height",
+				"id=engraving_depth": "Engraving Depth"
+			}
+		}
+	]
 }

@@ -1,12 +1,18 @@
 // we should be able to use filesystem calls here and $lib functions
 import { mkdir, readdir, readFile, unlink, writeFile } from 'node:fs/promises';
-import lucideMeta from './icons/lucide/info.json';
 
-import { createShapesFromFont, type FontString } from '$lib/utils/font';
+import {
+	addRenderOptions,
+	createShapesFromFont,
+	createShapesFromSVG,
+	defaultStrings,
+	type FontString
+} from '$lib/utils/font';
 import { dirname } from 'node:path';
 
 import { DOMParser } from 'xmldom';
 import type { Shape } from 'three';
+import type { RenderOptions } from 'opentype.js';
 
 const builtinPrefix = 'builtin:';
 
@@ -18,7 +24,7 @@ async function createFontBasedLegends(
 	dst: string,
 	varname: string,
 	name: string,
-	strings?: Array<FontString>,
+	strings: Array<FontString>,
 	extraIcons?: Array<Array<Shape>>
 ) {
 	// load font from src.
@@ -40,55 +46,26 @@ async function createFontBasedLegends(
 	);
 }
 
-// The lucide icons are line based and not best for this purpose.
-// I should really custom make some SVGs to use for this.
-// Icons I want are:
-// - the logo - whatever that ends up? maybe a hexagon?
-// - skull
-// - heart (these 2 for deathsave dice)
-// - hexagon
-// - cube
-//
-// I'll leave these in for now as they are useful for testing.
-const iconStrings = (
-	[
-		'dices',
-		'hexagon',
-		'box',
-		'cherry',
-		'croissant',
-		'eye',
-		'gem',
-		'heart',
-		'ghost',
-		'skull',
-		'triangle',
-		'umbrella',
-		'zap'
-	] as const
-).map((x) => {
-	const u = lucideMeta[x].unicode.replace(/[^0-9]+/g, ''); // just the numbers
-	return { text: String.fromCodePoint(parseInt(u)) };
-});
+const zero_to_ninety_nine: string = Array.from({ length: 100 })
+	.map((_, i) => {
+		return i == 6 ? '6.' : i == 9 ? '9.' : '' + i;
+	})
+	.join(' ');
 
-const zero_to_ninety_nine: Array<FontString> = Array.from({ length: 100 }).map((_, i) => {
-	switch (i) {
-		case 6:
-		case 9:
-			return { text: `${i}.`, renderOptions: { letterSpacing: -0.1 } };
-		default:
-			return { text: i.toString() };
-	}
-});
+async function loadSVGIcon(name: string): Promise<Array<Shape>> {
+	const data = await readFile(name, { encoding: 'utf8' });
+	// svg icons should be 24x24 px, but our standard size is 10px
+	const shapes = createShapesFromSVG(data, 10 / 24);
+	return shapes;
+}
+
+const defaultRenderOptions: Record<string, RenderOptions> = {
+	'6.': { letterSpacing: -0.1 },
+	'9.': { letterSpacing: -0.1 }
+};
 
 async function buildAll() {
 	const baseDir = new URL(dirname(import.meta.url)).pathname;
-
-	const iconShapes = await createShapesFromFont(
-		(await readFile(baseDir + '/icons/lucide/lucide.ttf')).buffer,
-		iconStrings
-	);
-
 	const genSuffix = '/generated';
 
 	const generated = baseDir + genSuffix;
@@ -100,6 +77,8 @@ async function buildAll() {
 		await unlink(generated + '/' + f);
 	}
 
+	const icons = await Promise.all([loadSVGIcon(baseDir + '/icons/dicething.svg')]);
+
 	const fontMeta = [];
 	for (let d of await readdir(builtins)) {
 		const src = builtins + '/' + d + '/' + d + '.ttf';
@@ -109,20 +88,35 @@ async function buildAll() {
 			.split('_')
 			.map((s) => s[0].toUpperCase() + s.slice(1))
 			.join(' ');
-		await createFontBasedLegends(src, dst, d, name, undefined, iconShapes);
+		// load the font specifics.
+		let renderOptions = defaultRenderOptions;
+		try {
+			const { renderOptions: modRenderOptions } = await import(builtins + '/' + d + '/index.ts');
+			renderOptions = modRenderOptions;
+		} catch {}
+		const strings = addRenderOptions(defaultStrings, renderOptions);
+		await createFontBasedLegends(src, dst, d, name, strings, icons);
 		fontMeta.push({
 			varname: d,
 			name: JSON.stringify(name),
+			tags: ['std'],
 			import: JSON.stringify('.' + genSuffix + '/' + d + '.json')
 		});
 		// also make a 0-99 set, just because we can.
 		d = d + '_100';
 		dst = generated + '/' + d + '.json';
 		name += ' (100)';
-		await createFontBasedLegends(src, dst, d, name, zero_to_ninety_nine);
+		await createFontBasedLegends(
+			src,
+			dst,
+			d,
+			name,
+			addRenderOptions(zero_to_ninety_nine, renderOptions)
+		);
 		fontMeta.push({
 			varname: d,
 			name: JSON.stringify(name),
+			tags: ['0-99'],
 			import: JSON.stringify('.' + genSuffix + '/' + d + '.json')
 		});
 	}
@@ -165,11 +159,12 @@ export async function loadBuiltinById(id: string): Promise<LegendSet> {
 
 export type Builtin = {
     readonly name: string;
+	readonly tags: Array<string>;
     readonly load: () => Promise<ReturnType<typeof loadImmutableLegends>>;
 }
 
 const builtins = {
-	blanks: { name: "Blanks", load: async () => blanks },
+	blanks: { name: "Blanks", tags: ["blank"], load: async () => blanks } as Builtin,
 ${fontMeta
 	.map((x) => {
 		return (
@@ -177,6 +172,8 @@ ${fontMeta
 			x.varname +
 			': { name: ' +
 			x.name +
+			', tags: ' +
+			JSON.stringify(x.tags) +
 			', load: deferredFontLoader("' +
 			x.varname +
 			'") } as Builtin,'

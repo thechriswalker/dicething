@@ -1,4 +1,5 @@
 import {
+	ArcCurve,
 	CubicBezierCurve,
 	EllipseCurve,
 	LineCurve,
@@ -50,7 +51,7 @@ function serialiseCurve(c: Curve<Vector2>): any {
 	if (c instanceof CubicBezierCurve) {
 		return ['C', c.v0.x, c.v0.y, c.v1.x, c.v1.y, c.v2.x, c.v2.y, c.v3.x, c.v3.y].map(fp);
 	}
-	if (c instanceof EllipseCurve) {
+	if (c instanceof EllipseCurve || c instanceof ArcCurve) {
 		return [
 			'A',
 			c.aX,
@@ -66,7 +67,7 @@ function serialiseCurve(c: Curve<Vector2>): any {
 	if (c instanceof SplineCurve) {
 		return ['S', ...c.points.flatMap((p) => [p.x, p.y])].map(fp);
 	}
-	throw new Error('unsupported curve');
+	throw new Error('unsupported curve: ' + typeof c);
 }
 
 // none are robust against bad data...
@@ -91,6 +92,8 @@ function deserialiseCurve(a: any): Curve<Vector2> {
 				new Vector2(a[7], a[8])
 			);
 		case 'E':
+		// fall through
+		case 'A':
 			return new EllipseCurve(...a.slice(1));
 		case 'S':
 			return new SplineCurve(
@@ -105,7 +108,7 @@ function deserialiseCurve(a: any): Curve<Vector2> {
 				}, [])
 			);
 		default:
-			throw new Error('unsupported curve type');
+			throw new Error('unsupported curve type: ' + a[0]);
 	}
 }
 

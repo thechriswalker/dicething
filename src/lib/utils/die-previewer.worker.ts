@@ -39,11 +39,9 @@ function getRenderFunction() {
 					builder.build(d.parameters, d.face_parameters);
 					scene.add(builder.diceGroup);
 					const largeFace = builder.getFaces().findLast((x) => x.isNumberFace);
-					console.log(d.kind, '=>', largeFace);
-
 					const camera = new PerspectiveCamera(30, 1, 1, 500);
 					camera.position.set(0, 0, 60);
-					largeFace?.transform?.applyRotationToCamera(camera)
+					largeFace?.transform?.applyRotationToCamera(camera);
 					camera.lookAt(new Vector3(0, 0, 0));
 					renderer.render(scene, camera);
 					scene.remove(builder.diceGroup);

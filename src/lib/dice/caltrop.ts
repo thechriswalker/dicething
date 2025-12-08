@@ -74,8 +74,7 @@ export const CaltropD4: DieModel = {
 			faces: Array.from({ length: 12 }).map((_, i) => {
 				const n = i % 3; // the "segment" of this face.
 				const f = i % 4; // the face to put this segment on
-				const transform = new Transform()
-					.translateBy(0, h / 3, 0)
+				const transform = new Transform().translateBy(0, h / 3, 0);
 				switch (n) {
 					case 0:
 						// no roation
@@ -121,7 +120,7 @@ export const CaltropD4: DieModel = {
 					isNumberFace: true,
 					defaultLegend: pickForNumber(numbering[i], 4),
 					shape: shape,
-					transform,
+					transform
 				};
 			}),
 			faceToFaceDistance: H

@@ -4,10 +4,11 @@
 	import DiceParameters from '$lib/components/dice_parameters/DiceParameters.svelte';
 	import DiePreview from '$lib/components/die_preview/DiePreview.svelte';
 	import Layout from '$lib/components/layout/Layout.svelte';
+	import type { MenuItem } from '$lib/components/menu/menu';
 	import Menu from '$lib/components/menu/Menu.svelte';
 	import Scene from '$lib/components/scene/Scene.svelte';
 	import dice from '$lib/dice';
-	import builtins from '$lib/fonts';
+	import builtins, { type Builtin } from '$lib/fonts';
 	import { waitForSet, type DiceSet } from '$lib/interfaces/storage.svelte';
 	import { m } from '$lib/paraglide/messages';
 	import { Builder } from '$lib/utils/builder';
@@ -23,7 +24,6 @@
 		Grid3X3,
 		LayoutGrid,
 		PlusIcon,
-		Settings,
 		XIcon
 	} from '@lucide/svelte';
 	import { Button } from 'bits-ui';
@@ -73,7 +73,7 @@
 				gotoDie(setData.dice[0].id);
 			}
 		} else {
-			goto("/")
+			goto('/');
 		}
 		loaded = true;
 		console.log(setData);
@@ -177,8 +177,6 @@
 
 	const diceBuilders = new Map<string, Builder>();
 	let renderedDice = $state('');
-	let face2face = $state<string | number>('-');
-	let approxVolume = $state<string | number>('-');
 	let currentBuilder = $state<Builder | undefined>(undefined);
 
 	let init = false;
@@ -200,8 +198,6 @@
 				if (d.id === dieId) {
 					console.log('rendering in init', d.id);
 					renderPass = builder.build({ ...d.parameters }, d.face_parameters.slice());
-					face2face = builder.getFace2FaceDistance();
-					approxVolume = builder.getApproximateVolume();
 					ctx.scene.add(builder.diceGroup);
 					renderedDice = d.id;
 					currentBuilder = builder;
@@ -296,37 +292,63 @@
 	// then I have the "rotation from flat" and translation from origin, which should allow
 	// me to reverse the props.
 	// unfortunately I modelled the orientation as an imperative function which translates and rotates...
+
+	function fontAction(b: Builtin) {
+		return async () => {
+			const fnt = await b.load();
+			if (setData) {
+				setData.legends = fnt;
+			}
+		};
+	}
+
+	const legendsMenu: MenuItem[] = [
+		{
+			title: m.menu_all_blanks(),
+			type: 'action',
+			icon: FileType,
+			action: fontAction(builtins.blanks)
+		},
+		{
+			title: m.menu_standard(),
+			type: 'submenu',
+			children: Object.values(builtins)
+				.filter((x) => x.tags.includes('std'))
+				.map((f) => {
+					return {
+						title: f.name,
+						type: 'action',
+						icon: FileType,
+						action: fontAction(f)
+					};
+				})
+		},
+		{
+			title: m.menu_numbers_0_99(),
+			type: 'submenu',
+			children: Object.values(builtins)
+				.filter((x) => x.tags.includes('0-99'))
+				.map((f) => {
+					return {
+						title: f.name,
+						type: 'action',
+						icon: FileType,
+						action: fontAction(f)
+					};
+				})
+		}
+	];
 </script>
 
 <Layout title={setData?.name ?? ''}>
 	{#snippet header()}
 		<Menu
 			data={{
-				Legends: [
+				[m.menu_legends()]: legendsMenu,
+
+				[m.menu_export()]: [
 					{
-						title: 'Load Font',
-						icon: FileType,
-						type: 'action',
-						action: async () => {
-							// switch to averia?
-							const nextFont = await builtins.voltaire.load();
-							if (setData) {
-								setData.legends = nextFont;
-							}
-						}
-					},
-					{
-						title: 'Customise',
-						icon: Settings,
-						type: 'action',
-						action: () => {
-							console.log('Customise');
-						}
-					}
-				],
-				Export: [
-					{
-						title: 'As JSON',
+						title: m.menu_export_as_json(),
 						icon: FileCode2,
 						type: 'action',
 						action: () => {
@@ -334,7 +356,7 @@
 						}
 					},
 					{
-						title: 'As STL',
+						title: m.menu_export_as_stl(),
 						icon: FileBoxIcon,
 						type: 'action',
 						action: () => {
@@ -375,7 +397,7 @@
 			{/each}
 			<button
 				class="hover:border-primary-500 hover:shadow-primary-500 flex size-16 cursor-pointer items-center justify-center overflow-hidden rounded-md border text-center hover:shadow-md"
-				title="ADD_NEW_DIE"
+				title={m.controls_add_new_die()}
 			>
 				<PlusIcon size={32} />
 			</button>
@@ -385,7 +407,7 @@
 				<li>
 					<Button.Root
 						class="btn-icon preset-filled-primary-500"
-						title="RESET_CAMERA"
+						title={m.controls_reset_camera()}
 						onclick={() => {
 							lookAtFace(selectedFace);
 						}}><Focus /></Button.Root
@@ -394,7 +416,7 @@
 				<li>
 					<Button.Root
 						class="btn-icon preset-filled-primary-500"
-						title="SHOW_GRID"
+						title={m.controls_toggle_gridlines()}
 						onclick={() => {
 							toggleGridHelper();
 						}}><Grid3X3 /></Button.Root
@@ -403,7 +425,7 @@
 				<li>
 					<Button.Root
 						class="btn-icon preset-filled-primary-500"
-						title="EXPLODE_MODE"
+						title={m.controls_toggle_explode_mode()}
 						onclick={() => {
 							explodeMode = !explodeMode;
 							if (explodeMode) {

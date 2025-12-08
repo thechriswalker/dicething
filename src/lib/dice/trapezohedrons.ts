@@ -123,21 +123,18 @@ function trapezohedron(id: string, name: string, sides: number, tens = false): D
 			return {
 				faceToFaceDistance: info.offset.length() * 2,
 				faces: Array.from({ length: sides }, (v, i) => {
-
-					const transform = new Transform()
-						.rotate(info.quat)
-						.translate(info.offset)
+					const transform = new Transform().rotate(info.quat).translate(info.offset);
 					const { y, xflip } = xyRot(i, sides, baseAngle);
 					if (xflip) {
-						transform.rotateByAxisAngle(xAxis, Math.PI)
+						transform.rotateByAxisAngle(xAxis, Math.PI);
 					}
-					transform.rotateByAxisAngle(yAxis, y)
+					transform.rotateByAxisAngle(yAxis, y);
 
 					return {
 						isNumberFace: true,
 						defaultLegend: tens ? pickForDoublesByIndex(i) : pickForNumber(i, sides),
 						shape: info.shape,
-						transform,
+						transform
 					};
 				})
 			};

@@ -44,19 +44,19 @@
 						<SegmentedControl.Control>
 							<SegmentedControl.Indicator />
 							<SegmentedControl.Item value="light" title="light" aria-label="light">
-								<SegmentedControl.ItemText class="btn-icon px-2 mx-0">
+								<SegmentedControl.ItemText class="btn-icon mx-0 px-2">
 									<LightIcon size="18" />
 								</SegmentedControl.ItemText>
 								<SegmentedControl.ItemHiddenInput />
 							</SegmentedControl.Item>
 							<SegmentedControl.Item value="system" title="system" aria-label="system">
-								<SegmentedControl.ItemText class="btn-icon px-2 mx-0">
+								<SegmentedControl.ItemText class="btn-icon mx-0 px-2">
 									<SystemIcon size="18" />
 								</SegmentedControl.ItemText>
 								<SegmentedControl.ItemHiddenInput />
 							</SegmentedControl.Item>
 							<SegmentedControl.Item value="dark" title="dark" aria-label="dark">
-								<SegmentedControl.ItemText class="btn-icon px-2 mx-0">
+								<SegmentedControl.ItemText class="btn-icon mx-0 px-2">
 									<DarkIcon size="18" />
 								</SegmentedControl.ItemText>
 								<SegmentedControl.ItemHiddenInput />
@@ -66,5 +66,5 @@
 				</Popover.Description>
 			</Popover.Content>
 		</Popover.Positioner>
-	</Portal>	
+	</Portal>
 </Popover>

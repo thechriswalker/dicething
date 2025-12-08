@@ -4,6 +4,7 @@
 	import AppBar from '$lib/components/app_bar/AppBar.svelte';
 	import Scroll from '$lib/components/scroll/Scroll.svelte';
 	import type { Snippet } from 'svelte';
+	import LightDarkContext from '../light_switch/LightDarkContext.svelte';
 
 	let {
 		children,
@@ -13,11 +14,13 @@
 </script>
 
 <LightMode />
-<div class="relative flex h-screen w-screen flex-col overflow-hidden">
-	<AppBar {title}
-		>{#if header}{@render header()}{/if}
-	</AppBar>
-	<Scroll>
-		{@render children()}
-	</Scroll>
-</div>
+<LightDarkContext>
+	<div class="relative flex h-screen w-screen flex-col overflow-hidden">
+		<AppBar {title}
+			>{#if header}{@render header()}{/if}
+		</AppBar>
+		<Scroll>
+			{@render children()}
+		</Scroll>
+	</div>
+</LightDarkContext>

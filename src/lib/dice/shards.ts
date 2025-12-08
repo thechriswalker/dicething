@@ -152,13 +152,14 @@ function build(sides: number, tens: boolean): DieModel['build'] {
 			const yRot = yRotation(i, sides, alpha);
 			const transform = new Transform();
 			if (tens) {
-				transform.rotateByAxisAngle(zAxis, -Math.PI / 2)
+				transform.rotateByAxisAngle(zAxis, -Math.PI / 2);
 			}
-			transform.translateBy(0, -yOffset, 0)
+			transform
+				.translateBy(0, -yOffset, 0)
 				.rotate(numFaceInfo.quat)
 				.translate(numFaceInfo.offset)
 				.rotateByAxisAngle(yAxis, yRot)
-				.translateBy(0, (y - h) / 2, 0)
+				.translateBy(0, (y - h) / 2, 0);
 			return {
 				isNumberFace: true,
 				shape: face,
@@ -173,7 +174,7 @@ function build(sides: number, tens: boolean): DieModel['build'] {
 				.rotate(capFaceInfo.quat)
 				.translate(capFaceInfo.offset)
 				.translateBy(0, (y - h) / 2, 0)
-				.rotateByAxisAngle(yAxis, yRot)
+				.rotateByAxisAngle(yAxis, yRot);
 
 			faces.push({
 				isNumberFace: false,
@@ -181,7 +182,6 @@ function build(sides: number, tens: boolean): DieModel['build'] {
 				defaultLegend: Legend.BLANK,
 				// top
 				transform
-
 			});
 		}
 
@@ -233,6 +233,5 @@ function yRotation(i: number, sides: number, alpha: number): number {
 	if (even) {
 		rotation += sign * Math.PI;
 	}
-	return rotation
-
+	return rotation;
 }

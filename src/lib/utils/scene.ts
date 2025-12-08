@@ -30,22 +30,6 @@ export function createBaseSceneAndRenderer(
 	renderer.setSize(el.clientWidth, el.clientHeight);
 	el.appendChild(renderer.domElement);
 	const resizeContainer = el.parentElement!;
-	function darkModeListener() {
-		const bgColorCss = window.getComputedStyle(document.body).getPropertyValue('background-color');
-		let rgb = getRGB(bgColorCss);
-		const { isDark } = window.getLightDark();
-		if (isDark) {
-			rgb = rgb.lighten(0.05);
-		} else {
-			rgb = rgb.darken(0.05);
-		}
-		scene.background = new Color(rgb.toNumber());
-		// 	scene.background = window.getLightDark().isDark ? darkBackground : lightBackground;
-	}
-	darkModeListener();
-
-	window.addEventListener('light-dark', darkModeListener);
-
 	let camera = new PerspectiveCamera(70, el.clientWidth / el.clientHeight, 1, 500);
 	camera.position.copy(initialCameraPosition);
 
@@ -131,7 +115,6 @@ export function createBaseSceneAndRenderer(
 	const onDispose: Array<() => any> = [
 		//		() => observer.unobserve(el),
 		() => observer.unobserve(resizeContainer),
-		() => window.removeEventListener('light-dark', darkModeListener),
 		() => window.removeEventListener('visibilitychange', visibilityListener)
 	];
 

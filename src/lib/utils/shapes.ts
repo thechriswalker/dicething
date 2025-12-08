@@ -1,5 +1,6 @@
 import {
 	ArcCurve,
+	Box2,
 	CubicBezierCurve,
 	Curve,
 	EllipseCurve,
@@ -22,12 +23,12 @@ import {
 // on the same side of all edges of the outer shape.
 const _edge = new Vector2();
 const _a = new Vector2();
-export function isContained(outer: Shape, inner: Array<Shape>): boolean {
+export function isContained(outer: Shape, inner: Array<Shape>, threshold: number = 0): boolean {
 	if (inner.length === 0) {
 		return true;
 	}
 	const d = _isContainedAndMinDistanceToEdge(outer, inner);
-	return d > 0;
+	return d > threshold;
 }
 
 function _isContainedAndMinDistanceToEdge(outer: Shape, inner: Array<Shape>): number {
@@ -489,4 +490,78 @@ export function getAreaOfShapeAtOrigin(shape: Shape): number {
 		_t.set(_o3, _v1, _v2);
 		return total + _t.getArea();
 	}, 0);
+}
+
+function expandByPoints(box: Box2, points: Array<Vector2>) {
+	for (let i = 0, il = points.length; i < il; i++) {
+		box.expandByPoint(points[i]);
+	}
+}
+
+export function shapesToSVG(shapes: Array<Shape>): SVGSVGElement {
+	let box = new Box2();
+	const paths: string[] = [];
+	shapes.forEach((s) => {
+		// include this in bounding box.
+		expandByPoints(box, s.getPoints());
+		// create the path.
+		paths.push(toSVGPath(s));
+	});
+	const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+	const boxSize = box.getSize(_v);
+	svg.setAttribute('viewBox', `${box.min.x} ${box.min.y} ${boxSize.x} ${boxSize.y}`);
+	paths.forEach((p) => {
+		const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+		path.setAttribute('d', p);
+		svg.appendChild(path);
+	});
+	return svg;
+}
+
+function toSVGPath(s: Shape): string {
+	const segments = appendSVGPathSegments([], s);
+	s.holes.forEach((h) => {
+		appendSVGPathSegments(segments, h);
+	});
+	return segments.join(' ');
+}
+
+function appendSVGPathSegments(segments: Array<string>, path: Path): Array<string> {
+	const p = path.getPointAt(0, _v);
+	segments.push(`M${p.x} ${p.y}`);
+	path.curves.forEach((c, i) => {
+		// we will use the curve transformer to make the next big easier.
+		curveTransformer({
+			isLineCurve: (lc) => {
+				segments.push(`L${lc.v2.x} ${lc.v2.y}`);
+				return lc;
+			},
+			isArcCurve: (ac) => {
+				// get the end point
+				ac.getPointAt(1, _v);
+				const s = `A${ac.xRadius} ${ac.yRadius} ${ac.aRotation} ${ac.aEndAngle - ac.aStartAngle < Math.PI ? 0 : 1} ${ac.aClockwise ? 0 : 1} ${_v.x} ${_v.y}`;
+				segments.push(s);
+				console.log(ac);
+				console.log(s);
+				return ac;
+			},
+			isSplineCurve: (sp) => {
+				// this is an array of points
+				sp.points.forEach((p) => {
+					segments.push(`L${p.x} ${p.y}`);
+				});
+				return sp;
+			},
+			isCubicBezierCurve: (cbc) => {
+				segments.push(`C${cbc.v1.x} ${cbc.v1.y}, ${cbc.v2.x} ${cbc.v2.y}, ${cbc.v3.x} ${cbc.v3.y}`);
+				return cbc;
+			},
+			isQuadraticBezierCurve: (qbc) => {
+				segments.push(`Q${qbc.v1.x} ${qbc.v1.y}, ${qbc.v2.x} ${qbc.v2.y}`);
+				return qbc;
+			}
+		})(c);
+	});
+	segments.push('Z');
+	return segments;
 }

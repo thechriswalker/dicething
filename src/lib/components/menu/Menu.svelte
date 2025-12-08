@@ -2,6 +2,7 @@
 	import { Menubar } from 'bits-ui';
 	import type { MenuData, MenuItem } from './menu.ts';
 	import { ChevronRight } from '@lucide/svelte';
+	import type { Snippet } from 'svelte';
 
 	let { data = {} as MenuData } = $props();
 
@@ -15,6 +16,14 @@
 		'card preset-outlined-surface-500 bg-surface-50-950 flex flex-col gap-2 rounded-md p-1 focus-visible:outline-hidden';
 </script>
 
+{#snippet titleContent(title: string | Snippet)}
+	{#if typeof title === 'string'}
+		{title}
+	{:else}
+		{@render title()}
+	{/if}
+{/snippet}
+
 {#snippet menuitem(item: MenuItem)}
 	{@const disabled = !!item.disabled}
 	{#if item.type === 'separator'}
@@ -27,7 +36,7 @@
 						{@const Icon = item.icon}
 						<Icon class="icon-text" />
 					{/if}
-					{item.title}
+					{@render titleContent(item.title)}
 				</a>
 			{/snippet}
 		</Menubar.Item>
@@ -41,7 +50,7 @@
 				{@const Icon = item.icon}
 				<Icon class="icon-text" />
 			{/if}
-			{item.title}
+			{@render titleContent(item.title)}
 		</Menubar.Item>
 	{:else if item.type === 'submenu'}
 		{@const subDisabled = disabled || item.children.length === 0}
@@ -54,7 +63,9 @@
 					{@const Icon = item.icon}
 					<Icon class="icon-text" />
 				{/if}
-				<span class="grow">{item.title}</span>
+				<span class="grow">
+					{@render titleContent(item.title)}
+				</span>
 				<ChevronRight class="icon-text" />
 			</Menubar.SubTrigger>
 
@@ -74,7 +85,7 @@
 				{@const Icon = item.icon}
 				<Icon class="icon-text" />
 			{/if}
-			{item.title}
+			{@render titleContent(item.title)}
 			<Menubar.CheckboxItem bind:checked={item.checked}>
 				{#snippet children({ checked })}
 					{checked ? 'On' : 'Off'}

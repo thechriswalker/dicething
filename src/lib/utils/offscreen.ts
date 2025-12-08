@@ -1,6 +1,6 @@
 //
 // This is a nice to have, but I don't want to code myself into a corner by not thinking about it up front.
-// 
+//
 // The main problem offscreen rendering solves is that I don't have to work on the main thread.
 // my "builds" are the heavy bit, not the rendering.
 //

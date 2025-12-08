@@ -1,8 +1,7 @@
-import { polyhedron, type PolyhedronFace, type Shaper } from "$lib/utils/polyhedra";
-import { Shape, Vector2, Vector3 } from "three";
+import { polyhedron, type PolyhedronFace, type Shaper } from '$lib/utils/polyhedra';
+import { Shape, Vector2, Vector3 } from 'three';
 
 const xAxis = new Vector3(1, 0, 0);
-
 
 // we will need the golden ratio for the dodecahedron
 const phi = (1 + Math.sqrt(5)) / 2;

@@ -72,7 +72,7 @@ The UI section will need a whole lot more...
   - [x] Classic 7 (caltrop d4, cube d6, octahderon d8, trapezohedron d10/d%, dodecahedron d12, icosahedron d20)
   - [x] Crystals (d4, d6, d8, d10/d%, d12)
   - [x] Rhombics (d6, d12)
-  - [x] Shards (d4,d6, d8, d10/d%, d12)
+  - [x] Shards (d4,d6, d8, d10/d%, d12) (theoretically we can do weird ones here, like D3,D5,D7,D9...)
   - [] Barrels (d4,d6, d8, d10/d%, d12) (these are the triangle faced ones)
   - [ ] Caltrop D4 (as 12 faces both on tips and edges, and with only 4 faces)
     - [x] With 12 faces on tips

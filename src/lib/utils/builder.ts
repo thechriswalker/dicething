@@ -30,7 +30,7 @@ export class Builder {
 	private lastDieParams: Record<string, number> = {};
 	private face2face: number = 0;
 	private individualLegendScaling = false;
-	public  currentSmallestLegendScaling: number = 1;
+	public currentSmallestLegendScaling: number = 1;
 	public readonly currentLegendScaling = new Map<Legend, number>();
 	private faces: Array<DieFaceModel> = [];
 	private faceObjects: Array<Object3D> = [];
@@ -198,7 +198,7 @@ export class Builder {
 		}
 		this.forceRerenderBlank = false;
 		this.forceRerenderFaces = false;
-		this.renderCount++
+		this.renderCount++;
 		return this.renderCount;
 	}
 
@@ -212,8 +212,8 @@ export class Builder {
 			const allLegends = Array.from(
 				new Set(
 					this.faces.map((f, i) => {
-						if(f.isNumberFace) {
-						return this.lastFaceParams[i]?.legend ?? f.defaultLegend;
+						if (f.isNumberFace) {
+							return this.lastFaceParams[i]?.legend ?? f.defaultLegend;
 						}
 						return Legend.BLANK;
 					})
@@ -222,17 +222,21 @@ export class Builder {
 
 			allLegends.forEach((l) => {
 				const shapes = this.legends.get(l);
-				if(shapes.length>0) {
+				if (shapes.length > 0) {
 					const scale = findBestLegendScalingFactor(face.shape, shapes);
 					this.currentLegendScaling.set(l, scale); // save for later
-					if(scale < smallest) {
+					if (scale < smallest) {
 						smallest = scale;
 					}
 				}
-			})
+			});
 
 			this.currentSmallestLegendScaling = smallest;
-			console.log("scaling" , this.model.id,{individualLegendScaling: this.individualLegendScaling, smallest: this.currentSmallestLegendScaling, legends: this.currentLegendScaling });
+			console.log('scaling', this.model.id, {
+				individualLegendScaling: this.individualLegendScaling,
+				smallest: this.currentSmallestLegendScaling,
+				legends: this.currentLegendScaling
+			});
 		}
 	}
 
@@ -274,10 +278,10 @@ export class Builder {
 
 	public getDefaultScaleForLegend(l: Legend): number {
 		if (this.individualLegendScaling) {
-				return this.currentLegendScaling.get(l) ?? this.currentSmallestLegendScaling;
-			} else {
-				return this.currentSmallestLegendScaling;
-			}
+			return this.currentLegendScaling.get(l) ?? this.currentSmallestLegendScaling;
+		} else {
+			return this.currentSmallestLegendScaling;
+		}
 	}
 
 	private buildFace(
@@ -291,7 +295,7 @@ export class Builder {
 		const legend = params.legend ?? face.defaultLegend;
 		const symbols = this.legends.get(legend);
 		if (!params.scale) {
-			params.scale = this.getDefaultScaleForLegend( legend);
+			params.scale = this.getDefaultScaleForLegend(legend);
 		}
 		let output: Array<BufferGeometry>;
 		try {
@@ -300,6 +304,7 @@ export class Builder {
 				symbols,
 				params,
 				engravingDepth + (params.extraDepth ?? 0),
+				undefined, // clearance
 				forExport ? DefaultDivisions : 2 * DefaultDivisions // will need to "up" this to make a "high quality" render.
 			);
 		} catch (e) {
@@ -314,6 +319,7 @@ export class Builder {
 				[], // force to blank
 				params,
 				engravingDepth + (params.extraDepth ?? 0),
+				undefined, // clearance
 				forExport ? DefaultDivisions : 2 * DefaultDivisions // will need to "up" this to make a "high quality" render.
 			);
 		}
