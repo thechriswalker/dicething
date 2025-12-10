@@ -13,6 +13,8 @@ import { dirname } from 'node:path';
 import { DOMParser } from 'xmldom';
 import type { Shape } from 'three';
 import type { RenderOptions } from 'opentype.js';
+import { shapesToSVG, shapesToSVGData } from '$lib/utils/shapes';
+import { shapeFromJSON } from '$lib/utils/to_json';
 
 const builtinPrefix = 'builtin:';
 
@@ -42,6 +44,15 @@ async function createFontBasedLegends(
 			name: name,
 			shapes: shapes
 		}),
+		{ encoding: 'utf8' }
+	);
+
+	// create a preview SVG of a small set of characters
+	const previewShapes = createShapesFromFont(data, [{text: "0123456789"}])
+	const svg = shapesToSVGData(previewShapes[0].map(shapeFromJSON));
+	await writeFile(
+		dst.replace(/\.json$/, '.svg'),
+		svg,
 		{ encoding: 'utf8' }
 	);
 }
@@ -123,6 +134,7 @@ async function buildAll() {
 
 	let indexTemplate = `// AUTO-GENERATED FILE - DO NOT EDIT MANUALLY
 import { loadImmutableLegends, type LegendSet } from "$lib/utils/legends";
+${fontMeta.map((f) => `import ${f.varname}SVG from './generated/${f.varname}.svg';`).join("\n")}
 
 const deferredFontLoader = (fontname: string) => {
 	const fn = async () => {
@@ -160,11 +172,12 @@ export async function loadBuiltinById(id: string): Promise<LegendSet> {
 export type Builtin = {
     readonly name: string;
 	readonly tags: Array<string>;
+	readonly preview: string;
     readonly load: () => Promise<ReturnType<typeof loadImmutableLegends>>;
 }
 
 const builtins = {
-	blanks: { name: "Blanks", tags: ["blank"], load: async () => blanks } as Builtin,
+	blanks: { name: "Blanks", tags: ["blank"], load: async () => blanks, preview: "" } as Builtin,
 ${fontMeta
 	.map((x) => {
 		return (
@@ -174,6 +187,7 @@ ${fontMeta
 			x.name +
 			', tags: ' +
 			JSON.stringify(x.tags) +
+			', preview: ' + x.varname + "SVG"+
 			', load: deferredFontLoader("' +
 			x.varname +
 			'") } as Builtin,'

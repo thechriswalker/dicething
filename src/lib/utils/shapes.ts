@@ -503,9 +503,14 @@ export function shapesToSVG(shapes: Array<Shape>): SVGSVGElement {
 	const paths: string[] = [];
 	shapes.forEach((s) => {
 		// include this in bounding box.
+		try {
 		expandByPoints(box, s.getPoints());
 		// create the path.
 		paths.push(toSVGPath(s));
+		}catch(e) {
+			console.error("failed processing shape", s)
+			console.error(e)
+		}
 	});
 	const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
 	const boxSize = box.getSize(_v);
@@ -516,6 +521,28 @@ export function shapesToSVG(shapes: Array<Shape>): SVGSVGElement {
 		svg.appendChild(path);
 	});
 	return svg;
+}
+
+export function shapesToSVGData(shapes: Array<Shape>): string{
+	let box = new Box2();
+	const paths: string[] = [];
+	shapes.forEach((s) => {
+		// include this in bounding box.
+		try {
+		expandByPoints(box, s.getPoints());
+		// create the path.
+		paths.push(toSVGPath(s));
+		}catch(e) {
+			console.error("failed processing shape", typeof s)
+			console.error(e)
+		}
+	});
+	const boxSize = box.getSize(_v);
+	return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${box.min.x} ${box.min.y} ${boxSize.x} ${boxSize.y}">
+		<g transform="scale(1,-1)">
+			${paths.map((p) => `<path d="${p}" />`).join('\n')}
+		</g>
+	</svg>`;
 }
 
 function toSVGPath(s: Shape): string {

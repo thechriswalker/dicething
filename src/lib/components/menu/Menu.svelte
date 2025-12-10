@@ -1,15 +1,14 @@
 <script lang="ts">
-	import { Menubar } from 'bits-ui';
+	import { Menu, Portal } from '@skeletonlabs/skeleton-svelte';
 	import type { MenuData, MenuItem } from './menu.ts';
-	import { ChevronRight } from '@lucide/svelte';
+	import { CheckIcon, ChevronLeft, ChevronRight } from '@lucide/svelte';
 	import type { Snippet } from 'svelte';
+	import MenuLightSwitch from './MenuLightSwitch.svelte';
 
-	let { data = {} as MenuData } = $props();
+	let { data, submenuOnLeft = false }: { data: MenuData; submenuOnLeft?: boolean } = $props();
 
-	let menus = $derived(Object.keys(data));
-	let entries = $derived(Object.values(data));
-
-	const itemBase = 'btn flex w-full flex-row items-center justify-start gap-2';
+	const itemBase =
+		'btn flex w-full flex-row items-center justify-start gap-2 outline-hidden focus:preset-filled-primary-500';
 	const itemClass = ' cursor-pointer';
 	const itemDisabled = 'background-surface-200-800 text-surface-300-700 cursor-not-allowed';
 	const menuClass =
@@ -27,87 +26,140 @@
 {#snippet menuitem(item: MenuItem)}
 	{@const disabled = !!item.disabled}
 	{#if item.type === 'separator'}
-		<Menubar.Separator class="hr" />
+		<Menu.Separator />
+	{:else if item.type === 'lightswitch'}
+		<MenuLightSwitch
+			{disabled}
+			class="{itemBase} {disabled ? itemDisabled : itemClass}"
+			{submenuOnLeft}
+			{menuClass}
+		/>
 	{:else if item.type === 'link'}
-		<Menubar.Item {disabled} class="{itemBase} {disabled ? itemDisabled : itemClass}">
-			{#snippet child({ props })}
-				<a href={item.href} {...props}>
-					{#if item.icon}
-						{@const Icon = item.icon}
+		<Menu.Item value="v" {disabled} class="{itemBase} {disabled ? itemDisabled : itemClass}">
+			<a href={item.href}>
+				{#if item.icon}
+					{@const Icon = item.icon}
+					<Menu.ItemIndicator>
 						<Icon class="icon-text" />
-					{/if}
+					</Menu.ItemIndicator>
+				{/if}
+				<Menu.ItemText>
 					{@render titleContent(item.title)}
-				</a>
-			{/snippet}
-		</Menubar.Item>
+				</Menu.ItemText>
+			</a>
+		</Menu.Item>
 	{:else if item.type === 'action'}
-		<Menubar.Item
+		<Menu.Item
+			value="a"
 			{disabled}
 			onclick={item.action}
 			class="{itemBase} {disabled ? itemDisabled : itemClass}"
 		>
 			{#if item.icon}
 				{@const Icon = item.icon}
-				<Icon class="icon-text" />
-			{/if}
-			{@render titleContent(item.title)}
-		</Menubar.Item>
-	{:else if item.type === 'submenu'}
-		{@const subDisabled = disabled || item.children.length === 0}
-		<Menubar.Sub>
-			<Menubar.SubTrigger
-				disabled={subDisabled}
-				class="{itemBase} {subDisabled ? itemDisabled : itemClass}"
-			>
-				{#if item.icon}
-					{@const Icon = item.icon}
+				<Menu.ItemIndicator>
 					<Icon class="icon-text" />
-				{/if}
-				<span class="grow">
-					{@render titleContent(item.title)}
-				</span>
-				<ChevronRight class="icon-text" />
-			</Menubar.SubTrigger>
-
-			<Menubar.SubContent sideOffset={10} class={menuClass}>
-				{#each item.children as child}
-					{@render menuitem(child)}
-				{/each}
-			</Menubar.SubContent>
-		</Menubar.Sub>
-	{:else if item.type === 'toggle'}
-		<Menubar.Item
+				</Menu.ItemIndicator>
+			{/if}
+			<Menu.ItemText>
+				{@render titleContent(item.title)}
+			</Menu.ItemText>
+		</Menu.Item>
+	{:else if item.type === 'legend'}
+		<Menu.Item
+			value="l"
 			{disabled}
-			onclick={() => item.onToggle?.(!item.checked)}
+			onclick={item.action}
 			class="{itemBase} {disabled ? itemDisabled : itemClass}"
 		>
 			{#if item.icon}
 				{@const Icon = item.icon}
-				<Icon class="icon-text" />
+				<Menu.ItemIndicator>
+					<Icon class="icon-text" />
+				</Menu.ItemIndicator>
 			{/if}
-			{@render titleContent(item.title)}
-			<Menubar.CheckboxItem bind:checked={item.checked}>
-				{#snippet children({ checked })}
-					{checked ? 'On' : 'Off'}
-				{/snippet}
-			</Menubar.CheckboxItem>
-		</Menubar.Item>
+			<Menu.ItemText class="flex w-full flex-col gap-1">
+				{@render titleContent(item.title)}
+				<img height="10px" src={item.img} alt="" class="dark:invert" />
+			</Menu.ItemText>
+		</Menu.Item>
+	{:else if item.type === 'submenu'}
+		{@const subDisabled = disabled || item.children.length === 0}
+		<Menu>
+			<Menu.TriggerItem
+				value="sub"
+				disabled={subDisabled}
+				class="{itemBase} {subDisabled ? itemDisabled : itemClass}"
+				>{#if submenuOnLeft}
+					<Menu.ItemIndicator>
+						<ChevronLeft class="icon-text" />
+					</Menu.ItemIndicator>
+				{/if}
+				{#if item.icon}
+					{@const Icon = item.icon}
+					<Menu.ItemIndicator>
+						<Icon class="icon-text" />
+					</Menu.ItemIndicator>
+				{/if}
+				<Menu.ItemText>
+					{@render titleContent(item.title)}
+				</Menu.ItemText>
+				{#if !submenuOnLeft}
+					<Menu.ItemIndicator>
+						<ChevronRight class="icon-text" />
+					</Menu.ItemIndicator>
+				{/if}
+			</Menu.TriggerItem>
+			<Portal>
+				<Menu.Positioner>
+					<Menu.Content>
+						{#each item.children as child}
+							{@render menuitem(child)}
+						{/each}
+					</Menu.Content>
+				</Menu.Positioner>
+			</Portal>
+		</Menu>
+	{:else if item.type === 'toggle'}
+		<Menu.OptionItem
+			type="checkbox"
+			{disabled}
+			checked={!!item.checked}
+			onCheckedChange={(checked) => item.onToggle?.(checked)}
+			class="{itemBase} {disabled ? itemDisabled : itemClass}"
+			value={'test'}
+		>
+			{#if item.icon}
+				{@const Icon = item.icon}
+				<Menu.ItemIndicator>
+					<Icon class="icon-text" />
+				</Menu.ItemIndicator>
+			{/if}
+			<Menu.ItemText>
+				{@render titleContent(item.title)}
+			</Menu.ItemText>
+			<Menu.ItemIndicator class="hidden data-[state=checked]:block">
+				<CheckIcon class="size-4" />
+			</Menu.ItemIndicator>
+		</Menu.OptionItem>
 	{/if}
 {/snippet}
 
-<Menubar.Root class="flex h-full flex-row items-center justify-end gap-2">
-	{#if menus.length}
-		{#each menus as title, i}
-			<Menubar.Menu>
-				<Menubar.Trigger class="btn preset-outlined-surface-500">{title}</Menubar.Trigger>
-				<Menubar.Portal>
-					<Menubar.Content align="start" sideOffset={3} class={menuClass}>
-						{#each entries[i] as item}
-							{@render menuitem(item)}
-						{/each}
-					</Menubar.Content>
-				</Menubar.Portal>
-			</Menubar.Menu>
-		{/each}
-	{/if}
-</Menubar.Root>
+<Menu class="flex h-full flex-row items-center justify-end gap-2">
+	<Menu.Trigger class="btn-icon preset-outlined-surface-500">
+		{#if data.icon}
+			{@const Icon = data.icon}
+			<Icon class="icon-text" />
+		{/if}
+		{@render titleContent(data.title)}
+	</Menu.Trigger>
+	<Portal>
+		<Menu.Positioner>
+			<Menu.Content>
+				{#each data.children as item}
+					{@render menuitem(item)}
+				{/each}
+			</Menu.Content>
+		</Menu.Positioner>
+	</Portal>
+</Menu>

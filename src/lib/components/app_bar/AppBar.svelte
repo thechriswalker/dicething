@@ -4,20 +4,6 @@
 	import { m } from '$lib/paraglide/messages';
 	import LightSwitch from '../light_switch/LightSwitch.svelte';
 	import type { Snippet } from 'svelte';
-	/*
-		Menu?
-
-		I wanted to be able to set this from a child, via context... but I couldn't get it to
-		work reactively
-
-		File:
-			New Dice Set > (presets)
-			Load Dice Set > (list local sets) < disable if no sets
-			Import JSON
-			Export JSON < disable if no set loaded
-			---
-			Export STL < disable if no set loaded
-	*/
 	let { title, children }: { title: string; children?: Snippet } = $props();
 </script>
 
@@ -34,7 +20,6 @@
 		</AppBar.Headline>
 		<AppBar.Trail>
 			{@render children?.()}
-			<LightSwitch />
 		</AppBar.Trail>
 	</AppBar.Toolbar>
 </AppBar>

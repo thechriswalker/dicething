@@ -4,7 +4,7 @@
 	import DiceParameters from '$lib/components/dice_parameters/DiceParameters.svelte';
 	import DiePreview from '$lib/components/die_preview/DiePreview.svelte';
 	import Layout from '$lib/components/layout/Layout.svelte';
-	import type { MenuItem } from '$lib/components/menu/menu';
+	import type { MenuItemSubmenu } from '$lib/components/menu/menu';
 	import Menu from '$lib/components/menu/Menu.svelte';
 	import Scene from '$lib/components/scene/Scene.svelte';
 	import dice from '$lib/dice';
@@ -17,12 +17,14 @@
 	import { event } from '$lib/utils/use_event';
 	import {
 		Box,
+		DownloadIcon,
 		FileBoxIcon,
 		FileCode2,
 		FileType,
 		Focus,
 		Grid3X3,
 		LayoutGrid,
+		MenuIcon,
 		PlusIcon,
 		XIcon
 	} from '@lucide/svelte';
@@ -302,70 +304,89 @@
 		};
 	}
 
-	const legendsMenu: MenuItem[] = [
-		{
-			title: m.menu_all_blanks(),
-			type: 'action',
-			icon: FileType,
-			action: fontAction(builtins.blanks)
-		},
-		{
-			title: m.menu_standard(),
-			type: 'submenu',
-			children: Object.values(builtins)
-				.filter((x) => x.tags.includes('std'))
-				.map((f) => {
-					return {
-						title: f.name,
-						type: 'action',
-						icon: FileType,
-						action: fontAction(f)
-					};
-				})
-		},
-		{
-			title: m.menu_numbers_0_99(),
-			type: 'submenu',
-			children: Object.values(builtins)
-				.filter((x) => x.tags.includes('0-99'))
-				.map((f) => {
-					return {
-						title: f.name,
-						type: 'action',
-						icon: FileType,
-						action: fontAction(f)
-					};
-				})
-		}
-	];
+	const legendsMenu: MenuItemSubmenu = {
+		type: 'submenu',
+		title: m.menu_legends(),
+		icon: FileType,
+		children: [
+			{
+				title: m.menu_all_blanks(),
+				type: 'action',
+				icon: FileType,
+				action: fontAction(builtins.blanks)
+			},
+			{
+				title: m.menu_standard(),
+				type: 'submenu',
+				children: Object.values(builtins)
+					.filter((x) => x.tags.includes('std'))
+					.map((f) => {
+						return {
+							title: f.name,
+							type: 'legend',
+							img: f.preview,
+							action: fontAction(f)
+						};
+					})
+			},
+			{
+				title: m.menu_numbers_0_99(),
+				type: 'submenu',
+				children: Object.values(builtins)
+					.filter((x) => x.tags.includes('0-99'))
+					.map((f) => {
+						return {
+							title: f.name,
+							type: 'legend',
+							img: f.preview,
+							action: fontAction(f)
+						};
+					})
+			}
+		]
+	};
+
+	const exportMenu: MenuItemSubmenu = {
+		type: 'submenu',
+		title: m.menu_export(),
+		icon: DownloadIcon,
+		children: [
+			{
+				title: m.menu_export_as_json(),
+				icon: FileCode2,
+				type: 'action',
+				action: () => {
+					console.log('JSON');
+				}
+			},
+			{
+				title: m.menu_export_as_stl(),
+				icon: FileBoxIcon,
+				type: 'action',
+				action: () => {
+					console.log('STL');
+				}
+			}
+		]
+	};
+
+	const menu: MenuItemSubmenu = {
+		type: 'submenu',
+		title: '',
+		icon: MenuIcon,
+		children: [
+			legendsMenu,
+			exportMenu,
+			{
+				type: 'lightswitch'
+			}
+		]
+	};
 </script>
 
 <Layout title={setData?.name ?? ''}>
 	{#snippet header()}
-		<Menu
-			data={{
-				[m.menu_legends()]: legendsMenu,
-
-				[m.menu_export()]: [
-					{
-						title: m.menu_export_as_json(),
-						icon: FileCode2,
-						type: 'action',
-						action: () => {
-							console.log('JSON');
-						}
-					},
-					{
-						title: m.menu_export_as_stl(),
-						icon: FileBoxIcon,
-						type: 'action',
-						action: () => {
-							console.log('STL');
-						}
-					}
-				]
-			}}
-		></Menu>
+		<Menu data={menu} submenuOnLeft></Menu>
 	{/snippet}
 	<div class="flex h-full flex-col">
 		<div class="flex flex-row flex-wrap items-center justify-start gap-4 pb-4">
