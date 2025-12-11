@@ -20,7 +20,7 @@
 		type="button"
 		class={'chip btn p-0  ' +
 			(selected === l ? 'preset-tonal-primary' : 'preset-filled-primary-500')}
-		title={debugLegendName(l)}
+		title={legends.getLegendName(l)}
 	>
 		<LegendPreview legend={l} {legends} class="h-16" />
 	</button>

@@ -20,7 +20,7 @@
 <Layout title="">
 	<div class="flex min-h-full flex-col items-center justify-center">
 		<div class="card preset-filled-surface-100-900 p-4">
-			<h2 class="h2 my-4">{m['start.new_set_header']()}</h2>
+			<h2 class="h2 my-4">{m.start_new_set_header()}</h2>
 			<div class="m-auto my-2 grid max-w-216 auto-rows-fr grid-cols-1 gap-4 md:grid-cols-2">
 				{#each Object.entries(presets) as [preset, fn]}
 					<button
@@ -28,23 +28,23 @@
 						onclick={() => handlePreset(fn)}
 					>
 						<h6 class="h4">
-							{m['presets.title']({ preset })}
+							{m.presets_title({ preset })}
 						</h6>
-						<p class="">{m['presets.description']({ preset })}</p>
+						<p class="">{m.presets_description({ preset })}</p>
 					</button>
 				{/each}
 			</div>
 			<hr class="hr my-4" />
 			<h2 class="h2 my-4 flex flex-row items-center justify-between">
-				<span>{m['start.load_set_header']()}</span>
+				<span>{m.start_load_set_header()}</span>
 				<button
 					class="btn btn-lg preset-tonal-secondary hidden font-normal sm:block"
-					onclick={() => alert('not implemented yet :(')}>{m['start.import']()}</button
+					onclick={() => alert('not implemented yet :(')}>{m.start_import()}</button
 				>
 			</h2>
 			<button
 				class="btn preset-tonal-secondary btn-lg my-4 block w-full sm:hidden"
-				onclick={() => alert('not implemented yet :(')}>{m['start.import']()}</button
+				onclick={() => alert('not implemented yet :(')}>{m.start_import()}</button
 			>
 			{#await waitForInitialLoad()}
 				<Progress value={null} />
@@ -62,7 +62,7 @@
 						{/each}
 					</div>
 				{:else}
-					<p class="card preset-filled-warning-500 px-3 py-2">{m['start.no_saved_sets']()}</p>
+					<p class="card preset-filled-warning-500 px-3 py-2">{m.start_no_saved_sets()}</p>
 				{/if}
 			{/await}
 		</div>

@@ -2,4 +2,4 @@
 	import logo from '$lib/fonts/icons/dicething.svg?raw';
 </script>
 
-<div class="h-[24px] w-[24px]">{@html logo}</div>
+<div class="size-[2em] fill-current">{@html logo}</div>

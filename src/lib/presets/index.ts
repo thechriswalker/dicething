@@ -1,5 +1,4 @@
-import { blanks } from '$lib/fonts';
-import type { Preset } from '$lib/interfaces/presets';
+import type { Preset, PresetOption } from '$lib/interfaces/presets';
 import type { DiceSet } from '$lib/interfaces/storage.svelte';
 import { goFirstPreset } from '$lib/presets/go_first';
 import { uuid } from '$lib/utils/uuid';
@@ -7,36 +6,16 @@ import { classic } from './classic';
 import { dicethingPreset } from './dicething';
 import { everythingPreset } from './everything';
 import { myPreset } from './mine';
+import { empty } from "./empty"
 
-const dicething: Preset = dicethingPreset;
+const presets = [empty, classic, dicethingPreset, myPreset, goFirstPreset, everythingPreset]
 
-const go_first: Preset = goFirstPreset;
-
-const scratch: Preset = () => ({
-	dice: [],
-	legends: blanks,
-	name: 'New Dice Set'
-});
-
-const everything: Preset = everythingPreset;
-
-const mine: Preset = myPreset;
-
-const presets = {
-	dicething,
-	scratch,
-	classic,
-	go_first,
-	everything,
-	mine
-} as const;
-
-export type PresetName = keyof typeof presets;
-
-export async function fromPreset(preset: Preset): Promise<DiceSet> {
-	const base = (await preset()) as DiceSet;
+export async function fromPreset(preset: Preset, name: string, options: Array<PresetOption>): Promise<DiceSet> {
+	const base = (await preset.factory(options)) as DiceSet;
+	base.name = name;
 	// this is going to way easier if we go "unsafe" as far as TS is concerned.
-	((base.id = uuid()), (base.updated = Date.now()));
+	base.id = uuid()
+	base.updated = Date.now();
 	base.dice.forEach((x) => {
 		x.id = uuid();
 	});

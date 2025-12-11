@@ -1,6 +1,6 @@
 import type { Transform } from '$lib/utils/3d';
 import type { Legend } from '$lib/utils/legends';
-import type { Object3D, Shape, Vector2 } from 'three';
+import type { Shape, Vector2 } from 'three';
 
 export type DieModel = {
 	id: string; // stable name for serialisation
@@ -50,7 +50,8 @@ export type DieFaceModel = {
 	shape: Shape;
 	// the default Legend for this face (user can change of course)
 	defaultLegend: Legend;
-	transform: Transform;
+	transform: Transform; // transform to put the face in position.
+	explodeTransform?: Transform; // transfor to put the face in the exploded position
 };
 
 export type DiceParameter = {

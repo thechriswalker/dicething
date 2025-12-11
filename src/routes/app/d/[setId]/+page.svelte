@@ -9,9 +9,10 @@
 	import Scene from '$lib/components/scene/Scene.svelte';
 	import dice from '$lib/dice';
 	import builtins, { type Builtin } from '$lib/fonts';
-	import { waitForSet, type DiceSet } from '$lib/interfaces/storage.svelte';
+	import { saveSet, waitForSet, type DiceSet } from '$lib/interfaces/storage.svelte';
 	import { m } from '$lib/paraglide/messages';
 	import { Builder } from '$lib/utils/builder';
+	import { debounce } from '$lib/utils/debounce';
 	import { hoverAndClickEvents } from '$lib/utils/events';
 	import { createGridHelper, type SceneRenderer } from '$lib/utils/scene';
 	import { event } from '$lib/utils/use_event';
@@ -25,7 +26,9 @@
 		Grid3X3,
 		LayoutGrid,
 		MenuIcon,
+		PencilIcon,
 		PlusIcon,
+		SaveIcon,
 		XIcon
 	} from '@lucide/svelte';
 	import { Button } from 'bits-ui';
@@ -65,7 +68,6 @@
 
 	// need to load the set by id, or 404 if it doesn't exist.
 	let setData: DiceSet | undefined = $state(undefined);
-	let loaded = $state(false);
 	onMount(async () => {
 		setData = await waitForSet(setId);
 		if (setData) {
@@ -77,8 +79,6 @@
 		} else {
 			goto('/');
 		}
-		loaded = true;
-		console.log(setData);
 	});
 
 	let ctx = $state<SceneRenderer>();
@@ -103,6 +103,15 @@
 		}
 	});
 
+	let saving = $state(false);
+	const save = (data: DiceSet) => {
+		saving = true;
+		debounceSave(data);
+	};
+	const debounceSave = debounce(250, (data: DiceSet) => {
+		saveSet(data);
+		saving = false;
+	});
 	const sceneReady = (_ctx: SceneRenderer) => {
 		// this is only called on Scene mount, and not reactive
 		// use it to set up the scene window, but not
@@ -227,21 +236,12 @@
 					currentBuilder = undefined;
 				}
 				const builder = diceBuilders.get(dieId);
-				if (builder && ctx) {
+				if (builder && ctx && setData) {
 					const d = setData?.dice.find((x) => x.id === dieId)!;
 					console.log('rendering on change', dieId, ctx.scene);
 					currentBuilder?.changeLegends(setData!.legends);
 					renderPass = builder.build({ ...d.parameters }, d.face_parameters.slice());
-					console.log(
-						JSON.stringify(d.face_parameters, (key, value) => {
-							try {
-								if (value.isVector2) {
-									return `new Vector2(${value.x}, ${value.y})`;
-								}
-							} catch {}
-							return value;
-						})
-					);
+					save(setData); // ensure we save!
 					const updated = dieId != renderedDice;
 					renderedDice = dieId;
 					currentBuilder = builder;
@@ -384,8 +384,14 @@
 	};
 </script>
 
-<Layout title={setData?.name ?? ''}>
+<Layout title={''}>
 	{#snippet header()}
+		{#if saving}
+			<SaveIcon class="size-4" />
+		{/if}
+		<p class="text-primary-500 h4">
+			{setData?.name}
+		</p>
 		<Menu data={menu} submenuOnLeft></Menu>
 	{/snippet}
 	<div class="flex h-full flex-col">

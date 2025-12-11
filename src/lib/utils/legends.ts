@@ -34,8 +34,9 @@ export enum Legend {
 	EIGHTY = 28,
 	NINETY = 29,
 	DOUBLE_ZERO = 30,
+	MAKER_LOGO = 31,
 	// and 34 slots for custom stuff..
-	CUSTOM_SYMBOLS_START = 31
+	CUSTOM_SYMBOLS_START = 32
 }
 
 // a custom legend
@@ -83,75 +84,14 @@ export function pickForNumber(index: number, sides: number): Legend {
 	}
 }
 
-// this is a boring function, but useful for debugging...
+//  useful for debugging...
 export function debugLegendName(n: Legend): string {
-	switch (n) {
-		case Legend.BLANK:
-			return 'BLANK';
-		case Legend.ZERO:
-			return 'ZERO';
-		case Legend.ONE:
-			return 'ONE';
-		case Legend.TWO:
-			return 'TWO';
-		case Legend.THREE:
-			return 'THREE';
-		case Legend.FOUR:
-			return 'FOUR';
-		case Legend.FIVE:
-			return 'FIVE';
-		case Legend.SIX:
-			return 'SIX';
-		case Legend.SEVEN:
-			return 'SEVEN';
-		case Legend.EIGHT:
-			return 'EIGHT';
-		case Legend.NINE:
-			return 'NINE';
-		case Legend.TEN:
-			return 'TEN';
-		case Legend.ELEVEN:
-			return 'ELEVEN';
-		case Legend.TWELVE:
-			return 'TWELVE';
-		case Legend.THIRTEEN:
-			return 'THIRTEEN';
-		case Legend.FOURTEEN:
-			return 'FOURTEEN';
-		case Legend.FIFTEEN:
-			return 'FIFTEEN';
-		case Legend.SIXTEEN:
-			return 'SIXTEEN';
-		case Legend.SEVENTEEN:
-			return 'SEVENTEEN';
-		case Legend.EIGHTEEN:
-			return 'EIGHTEEN';
-		case Legend.NINETEEN:
-			return 'NINETEEN';
-		case Legend.TWENTY:
-			return 'TWENTY';
-		case Legend.SIX_MARKED:
-			return 'SIX_MARKED';
-		case Legend.NINE_MARKED:
-			return 'NINE_MARKED';
-		case Legend.THIRTY:
-			return 'THIRTY';
-		case Legend.FORTY:
-			return 'FORTY';
-		case Legend.FIFTY:
-			return 'FIFTY';
-		case Legend.SIXTY:
-			return 'SIXTY';
-		case Legend.SEVENTY:
-			return 'SEVENTY';
-		case Legend.EIGHTY:
-			return 'EIGHTY';
-		case Legend.NINETY:
-			return 'NINETY';
-		case Legend.DOUBLE_ZERO:
-			return 'DOUBLE_ZERO';
-	}
-	return `CUSTOM_SYMBOL_(${n})`;
+	const s = n in Legend ? Legend[n] : `CUSTOM_SYMBOL_(${n})`;
+	// to Title Case
+	return s
+		.split('_')
+		.map((t) => t.charAt(0).toUpperCase() + t.slice(1).toLowerCase())
+		.join(' ');
 }
 
 export type LegendSet = {
@@ -160,12 +100,14 @@ export type LegendSet = {
 	readonly mutable: boolean;
 	readonly length: number;
 	get(l: Legend): Array<Shape>;
+	getLegendName(l: Legend): string;
 	toJSON(): SerialisedLegendSet;
 } & Iterable<Legend>;
 
 export type SerialisedLegendSet = {
 	id: string;
 	name: string;
+	names: Array<string>;
 	shapes: Array<Array<any>>;
 };
 
@@ -183,7 +125,7 @@ export type ImmutableLegendSet = LegendSet & {
 export type MutableLegendSet = LegendSet & {
 	readonly mutable: true;
 	name: string;
-	set(l: Legend, shapes: Array<Shape>): void;
+	set(l: Legend, name: string, shapes: Array<Shape>): void;
 };
 
 export function loadImmutableLegends(s: SerialisedLegendSet): ImmutableLegendSet {
@@ -201,6 +143,12 @@ export function loadImmutableLegends(s: SerialisedLegendSet): ImmutableLegendSet
 		get length() {
 			return data.length;
 		},
+		getLegendName(l) {
+			if (l in data === false) {
+				l = Legend.BLANK;
+			}
+			return l in s.names ? s.names[l] : debugLegendName(l);
+		},
 		get(l: Legend) {
 			// anything not in the array is a blank.
 			if (l in data === false) {
@@ -216,7 +164,7 @@ export function loadImmutableLegends(s: SerialisedLegendSet): ImmutableLegendSet
 		clone(): MutableLegendSet {
 			// update the ID
 			const id = crypto.randomUUID();
-			return loadMutableLegends({ id, name: s.name, shapes: s.shapes });
+			return loadMutableLegends({ id, name: s.name, names: s.names, shapes: s.shapes });
 		},
 		toJSON() {
 			return s;
@@ -240,12 +188,19 @@ export function loadMutableLegends(s: SerialisedLegendSet): MutableLegendSet {
 		cache.set(l, shapes);
 		return shapes;
 	};
+	const names = s.names.slice();
 	const set: MutableLegendSet = {
 		id: s.id,
 		name: s.name,
 		mutable: true,
 		get length() {
 			return data.length;
+		},
+		getLegendName(l) {
+			if (l in data === false) {
+				l = Legend.BLANK;
+			}
+			return l in names ? names[l] : debugLegendName(l);
 		},
 		get(l: Legend) {
 			// anything not in the array is a blank.
@@ -259,14 +214,16 @@ export function loadMutableLegends(s: SerialisedLegendSet): MutableLegendSet {
 			}
 			return s;
 		},
-		set(l, shapes) {
+		set(l, name, shapes) {
 			cache.set(l, shapes);
 			data[l] = shapes.map(shapeToJSON);
+			names[l] = name;
 		},
 		toJSON() {
 			return {
 				id: s.id,
 				name: set.name,
+				names: names,
 				shapes: data
 			};
 		},

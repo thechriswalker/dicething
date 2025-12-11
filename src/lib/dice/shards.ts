@@ -10,7 +10,7 @@ import { BufferGeometry, Plane, Ray, Camera, Vector2, Vector3 } from 'three';
 const defaultHeight = 24;
 const defaultRadius = 8;
 const defaultCapHeight = 4;
-const defaultCapTwist = 0.2;
+const defaultCapTwist = 0;
 
 const yAxis = new Vector3(0, 1, 0);
 
