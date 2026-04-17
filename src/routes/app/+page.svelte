@@ -1,8 +1,10 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import Layout from '$lib/components/layout/Layout.svelte';
+	import Modal from '$lib/components/modal/Modal.svelte';
+	import PresetOptions from '$lib/components/preset_options/PresetOptions.svelte';
 	import Time from '$lib/components/time/Time.svelte';
-	import type { Preset } from '$lib/interfaces/presets';
+	import type { Preset, PresetOption } from '$lib/interfaces/presets';
 	import { getSavedSets, saveSet, waitForInitialLoad } from '$lib/interfaces/storage.svelte';
 	import { m } from '$lib/paraglide/messages';
 	import { fromPreset, presets } from '$lib/presets';
@@ -10,10 +12,11 @@
 
 	let savedSets = getSavedSets();
 
-	async function handlePreset(fn: Preset) {
-		const set = await fromPreset(fn);
-		saveSet(set);
-		goto('/d/' + set.id);
+	function handlePreset(fn: Preset) {
+		// options
+		return async (opts: PresetOption[]) => {
+			const set = await fn.factory(opts);
+		};
 	}
 </script>
 
@@ -22,16 +25,40 @@
 		<div class="card preset-filled-surface-100-900 p-4">
 			<h2 class="h2 my-4">{m.start_new_set_header()}</h2>
 			<div class="m-auto my-2 grid max-w-216 auto-rows-fr grid-cols-1 gap-4 md:grid-cols-2">
-				{#each Object.entries(presets) as [preset, fn]}
-					<button
-						class="btn preset-tonal-surface hover:preset-outlined-primary-500 block flex w-full flex-col justify-start gap-1 border-[1px] border-transparent text-wrap"
-						onclick={() => handlePreset(fn)}
-					>
-						<h6 class="h4">
-							{m.presets_title({ preset })}
-						</h6>
-						<p class="">{m.presets_description({ preset })}</p>
-					</button>
+				{#each presets as preset}
+					{@const presetOptions = preset.options()}
+					<Modal>
+						{#snippet title()}
+							<p class="h3">
+								{m.presets_title({ preset: preset.id })}
+							</p>
+						{/snippet}
+						{#snippet trigger(props)}
+							<button
+								{...props}
+								class="btn preset-tonal-surface hover:preset-outlined-primary-500 block flex w-full flex-col justify-start gap-1 border-[1px] border-transparent text-wrap"
+							>
+								<h6 class="h4">
+									{m.presets_title({ preset: preset.id })}
+								</h6>
+								<p class="">{m.presets_description({ preset: preset.id })}</p>
+							</button>
+						{/snippet}
+						{#snippet inner(close)}
+							<PresetOptions
+								description={m.presets_description({ preset: preset.id })}
+								name={m.presets_title({ preset: preset.id })}
+								options={presetOptions}
+								onSubmit={async (name, opts) => {
+									// create the thing?
+									const set = await fromPreset(preset, name, opts);
+									saveSet(set);
+									close();
+									goto('/d/' + set.id);
+								}}
+							/>
+						{/snippet}
+					</Modal>
 				{/each}
 			</div>
 			<hr class="hr my-4" />

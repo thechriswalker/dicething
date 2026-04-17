@@ -35,7 +35,7 @@
 		<Dialog.Backdrop class="bg-surface-50-950/50 fixed inset-0 z-50" />
 		<Dialog.Positioner class="fixed inset-0 z-50 flex items-center justify-center p-4">
 			<Dialog.Content class="card bg-surface-100-900 space-y-4 p-4 shadow-xl {animation}">
-				<header class="flex items-center justify-between">
+				<header class="flex items-start justify-between">
 					{#if title}<Dialog.Title class="text-lg font-bold">{@render title()}</Dialog.Title>{/if}
 					<Dialog.CloseTrigger class="btn-icon hover:preset-tonal">
 						<XIcon class="size-4" />

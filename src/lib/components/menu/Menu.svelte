@@ -5,10 +5,18 @@
 	import type { Snippet } from 'svelte';
 	import MenuLightSwitch from './MenuLightSwitch.svelte';
 
-	let { data, submenuOnLeft = false }: { data: MenuData; submenuOnLeft?: boolean } = $props();
+	let {
+		data,
+		submenuOnLeft = false,
+		class: triggerClasses = 'btn preset-outlined-surface-500'
+	}: {
+		data: MenuData;
+		submenuOnLeft?: boolean;
+		class?: string;
+	} = $props();
 
 	const itemBase =
-		'btn flex w-full flex-row items-center justify-start gap-2 outline-hidden focus:preset-filled-primary-500';
+		'btn flex w-full flex-row items-center justify-start gap-2 outline-hidden focus:preset-filled-primary-500 z-1000';
 	const itemClass = ' cursor-pointer';
 	const itemDisabled = 'background-surface-200-800 text-surface-300-700 cursor-not-allowed';
 	const menuClass =
@@ -146,7 +154,7 @@
 {/snippet}
 
 <Menu class="flex h-full flex-row items-center justify-end gap-2">
-	<Menu.Trigger class="btn-icon preset-outlined-surface-500">
+	<Menu.Trigger class={triggerClasses}>
 		{#if data.icon}
 			{@const Icon = data.icon}
 			<Icon class="icon-text" />

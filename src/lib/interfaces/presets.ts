@@ -7,7 +7,7 @@ export type UnidentifiedDiceSet = Omit<DiceSet, 'name' | 'id' | 'updated' | 'dic
 type MaybePromise<T> = T | Promise<T>;
 
 
-export type PresetOption = PresetOptionBoolean | PresetOptionSelection | PresetOptionRange;
+export type PresetOption = PresetOptionBoolean | PresetOptionSelection | PresetOptionRange | PresetOptionLegend;
 
 export type PresetOptionBoolean = {
 	id: string;
@@ -18,7 +18,7 @@ export type PresetOptionBoolean = {
 export type PresetOptionSelection = {
 	id: string;
 	kind: "select";
-	options: Array<string>;
+	options: Array<[string, string]>;// value, label
 	value: string;
 }
 
@@ -31,6 +31,12 @@ export type PresetOptionRange = {
 	value: number;
 }
 
+export type PresetOptionLegend = {
+	id: string;
+	kind: "legend",
+	filter: string;
+	value: string;
+}
 
 
 

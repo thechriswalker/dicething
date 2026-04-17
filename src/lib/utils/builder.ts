@@ -324,7 +324,11 @@ export class Builder {
 			);
 		}
 
-		output.forEach((g) => face.transform?.applyToGeometry(g));
+		if (face.explodeTransform) {
+			output.forEach((g) => face.explodeTransform?.applyToGeometry(g));
+		} else {
+			output.forEach((g) => face.transform.applyToGeometry(g));
+		}
 		return output;
 	}
 }

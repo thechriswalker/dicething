@@ -12,6 +12,7 @@
 	"start_load_set_header": "Load an existing set",
 	"start_import": "Import from JSON",
 	"start_no_saved_sets": "You don't have any saved sets... yet ;)",
+	"preset_options_modal_title": "Options for set",
 	"presets_title": [
 		{
 			"declarations": [

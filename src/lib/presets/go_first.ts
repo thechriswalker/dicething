@@ -24,7 +24,13 @@ const defaultSize = 20;
 export const goFirstPreset: Preset = {
 	id: "go_first",
 	options() {
-		return [legendPickerOption("0-99", builtins.germania_one_100.id)]
+		return [legendPickerOption("0-99", builtins.germania_one_100.id),
+		{
+			kind: "bool",
+			id: " rhombic_vs_dodecahedron",
+			value: false,
+		}
+		]
 	},
 	async factory(opts) {
 		const [legendOption, rhombicOption] = opts;

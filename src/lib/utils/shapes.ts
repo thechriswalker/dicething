@@ -498,18 +498,31 @@ function expandByPoints(box: Box2, points: Array<Vector2>) {
 	}
 }
 
+export function getBoundingBox(shape: Shape, margin: number = 0): Box2 {
+	let box = new Box2(new Vector2(0, 0), new Vector2(0, 0));
+	const paths: string[] = [];
+	expandByPoints(box, shape.getPoints());
+	if (margin) {
+		box.min.x -= margin;
+		box.min.y -= margin;
+		box.max.x += margin;
+		box.max.y += margin;
+	}
+	return box;
+}
+
 export function shapesToSVG(shapes: Array<Shape>): SVGSVGElement {
-	let box = new Box2();
+	let box = new Box2(new Vector2(0, 0), new Vector2(0, 0));
 	const paths: string[] = [];
 	shapes.forEach((s) => {
 		// include this in bounding box.
 		try {
-		expandByPoints(box, s.getPoints());
-		// create the path.
-		paths.push(toSVGPath(s));
-		}catch(e) {
-			console.error("failed processing shape", s)
-			console.error(e)
+			expandByPoints(box, s.getPoints());
+			// create the path.
+			paths.push(toSVGPath(s));
+		} catch (e) {
+			console.error('failed processing shape', s);
+			console.error(e);
 		}
 	});
 	const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -523,18 +536,18 @@ export function shapesToSVG(shapes: Array<Shape>): SVGSVGElement {
 	return svg;
 }
 
-export function shapesToSVGData(shapes: Array<Shape>): string{
-	let box = new Box2();
+export function shapesToSVGData(shapes: Array<Shape>): string {
+	let box = new Box2(new Vector2(0, 0), new Vector2(0, 0));
 	const paths: string[] = [];
 	shapes.forEach((s) => {
 		// include this in bounding box.
 		try {
-		expandByPoints(box, s.getPoints());
-		// create the path.
-		paths.push(toSVGPath(s));
-		}catch(e) {
-			console.error("failed processing shape", typeof s)
-			console.error(e)
+			expandByPoints(box, s.getPoints());
+			// create the path.
+			paths.push(toSVGPath(s));
+		} catch (e) {
+			console.error('failed processing shape', typeof s);
+			console.error(e);
 		}
 	});
 	const boxSize = box.getSize(_v);
@@ -568,8 +581,6 @@ function appendSVGPathSegments(segments: Array<string>, path: Path): Array<strin
 				ac.getPointAt(1, _v);
 				const s = `A${ac.xRadius} ${ac.yRadius} ${ac.aRotation} ${ac.aEndAngle - ac.aStartAngle < Math.PI ? 0 : 1} ${ac.aClockwise ? 0 : 1} ${_v.x} ${_v.y}`;
 				segments.push(s);
-				console.log(ac);
-				console.log(s);
 				return ac;
 			},
 			isSplineCurve: (sp) => {

@@ -11,6 +11,7 @@ import type { DiceParameter, DieModel } from '$lib/interfaces/dice';
 import { pickForNumber } from '$lib/utils/legends';
 import { Quaternion, Shape, Vector2, Vector3, type BufferGeometry, type Camera } from 'three';
 import { Transform, vectorRotateZ } from './3d';
+import { getBoundingBox } from './shapes';
 
 const defaultF2F = 18;
 
@@ -75,6 +76,12 @@ export function polyhedron(
 		}
 		return quat;
 	});
+
+	// spacing per side can
+	const n = sides.length;
+	const x = Math.ceil(Math.sqrt(n));
+	const y = Math.ceil(n / x);
+
 	return {
 		id,
 		name,
@@ -82,6 +89,17 @@ export function polyhedron(
 		build(params) {
 			const d = params.polyhedron_size ?? defaultF2F;
 			const face = shaper(d);
+			// find the spacing for the explode view
+			// basically a vector offset based on the size of the shape.
+			const facebox = getBoundingBox(face, 2);
+			const steps = facebox.getSize(new Vector2());
+			// work out the topleft offset of the grid.
+			// its the center offset, so we want to offset a half step as well
+			const topleft = new Vector3(
+				steps.x / 2 + (-1 * steps.x * x) / 2,
+				-steps.y / 2 + (steps.y * y) / 2,
+				0
+			);
 
 			return {
 				legendScaling: 1,
@@ -89,11 +107,23 @@ export function polyhedron(
 				sizeLegendsIndividually: individualLegendScaling,
 				faces: sides.map((s, i) => {
 					const transform = new Transform().translateBy(0, 0, d / 2).rotate(quats[i]);
+
+					// the explode transform is just an XY change, based on the
+					// start at the top left and
+					let translation = topleft.clone();
+					// add the x stride and y offset
+					translation = translation.add(
+						new Vector3(steps.x * (i % x), -1 * steps.y * Math.floor(i / (y + 1)))
+					);
+
+					const explodeTransform = new Transform().translate(translation);
+
 					return {
 						isNumberFace: true, // they all are
 						shape: face,
 						defaultLegend: pickForNumber(i, sides.length),
-						transform
+						transform,
+						explodeTransform
 					};
 				})
 			};
