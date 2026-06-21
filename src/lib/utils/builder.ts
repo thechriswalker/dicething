@@ -10,7 +10,8 @@ import {
 	Plane,
 	type Object3D,
 	Vector2,
-	DoubleSide
+	DoubleSide,
+	PlaneGeometry
 } from 'three';
 import { DefaultDivisions, engrave, Part } from './engraving';
 import { debugLegendName, Legend, type LegendSet } from './legends';
@@ -79,12 +80,14 @@ export class Builder {
 		// so we can find the perpendicular height of the face to the origin
 		// by constructing a taking one normal from the face, constructing a plane
 		// and then finding the distance from the origin to the plane.
+		// but that requires the object to not be exploded,
+		// so we need to use the faces transform to get the position of the center
+		// of the face. 
 		const volume = this.faces.reduce((sum, f, i) => {
 			const area = getAreaOfShapeAtOrigin(f.shape);
-			const obj = this.faceObjects[i].children.find((m) => {
-				return (m as Mesh).isMesh && m.userData.diceThingPart === Part.Front;
-			}) as Mesh;
-			const position = obj.geometry.getAttribute('position');
+			const obj = new PlaneGeometry(1,1);
+			f.transform.applyToGeometry(obj);
+			const position = obj.getAttribute('position');
 			const plane = new Plane().setFromCoplanarPoints(
 				new Vector3(position.getX(0), position.getY(0), position.getZ(0)),
 				new Vector3(position.getX(1), position.getY(1), position.getZ(1)),
@@ -137,7 +140,7 @@ export class Builder {
 		});
 	}
 
-	build(dieParams: Record<string, number>, faceParams: Array<FaceParams>): number {
+	build(dieParams: Record<string, number>, faceParams: Array<FaceParams>, opts: { explode: boolean } = { explode: true }): number {
 		dieParams = simplifyDieParams(dieParams, this.model.parameters);
 		const dieChanged = this.forceRerenderBlank || !dieParamsEqual(this.lastDieParams, dieParams);
 		if (dieChanged) {
@@ -165,7 +168,7 @@ export class Builder {
 					this.faceObjects[i].remove(...this.faceObjects[i].children);
 				}
 				this.lastFaceParams[i] = newFaceParams;
-				this.buildFace(i, dieParams.engraving_depth, newFaceParams, false).forEach((g) => {
+				this.buildFace(i, dieParams.engraving_depth, newFaceParams, {forExport: false, ...opts }).forEach((g) => {
 					g.userData.diceThingFace = i;
 					g.userData.diceThingId = this.id;
 					let m: Material;
@@ -288,7 +291,7 @@ export class Builder {
 		i: number,
 		engravingDepth: number,
 		params: FaceParams,
-		forExport = false
+		opts: { forExport: boolean, explode: boolean } = { forExport: false, explode: true }
 	): Array<BufferGeometry> {
 		// engrave face.
 		const face = this.faces[i];
@@ -305,7 +308,7 @@ export class Builder {
 				params,
 				engravingDepth + (params.extraDepth ?? 0),
 				undefined, // clearance
-				forExport ? DefaultDivisions : 2 * DefaultDivisions // will need to "up" this to make a "high quality" render.
+				opts.forExport ? DefaultDivisions : 2 * DefaultDivisions // will need to "up" this to make a "high quality" render.
 			);
 		} catch (e) {
 			console.warn(
@@ -320,11 +323,11 @@ export class Builder {
 				params,
 				engravingDepth + (params.extraDepth ?? 0),
 				undefined, // clearance
-				forExport ? DefaultDivisions : 2 * DefaultDivisions // will need to "up" this to make a "high quality" render.
+				opts.forExport ? DefaultDivisions : 2 * DefaultDivisions // will need to "up" this to make a "high quality" render.
 			);
 		}
 
-		if (face.explodeTransform) {
+		if (opts.explode && face.explodeTransform) {
 			output.forEach((g) => face.explodeTransform?.applyToGeometry(g));
 		} else {
 			output.forEach((g) => face.transform.applyToGeometry(g));

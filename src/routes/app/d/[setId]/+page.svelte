@@ -208,7 +208,7 @@
 				}
 				if (d.id === dieId) {
 					console.log('rendering in init', d.id);
-					renderPass = builder.build({ ...d.parameters }, d.face_parameters.slice());
+					renderPass = builder.build({ ...d.parameters }, d.face_parameters.slice(), { explode: explodeMode });
 					ctx.scene.add(builder.diceGroup);
 					renderedDice = d.id;
 					currentBuilder = builder;
@@ -240,7 +240,7 @@
 					const d = setData?.dice.find((x) => x.id === dieId)!;
 					console.log('rendering on change', dieId, ctx.scene);
 					currentBuilder?.changeLegends(setData!.legends);
-					renderPass = builder.build({ ...d.parameters }, d.face_parameters.slice());
+					renderPass = builder.build({ ...d.parameters }, d.face_parameters.slice(), { explode: explodeMode });
 					save(setData); // ensure we save!
 					const updated = dieId != renderedDice;
 					renderedDice = dieId;
