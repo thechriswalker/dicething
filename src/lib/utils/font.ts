@@ -2,6 +2,7 @@
 import { parse, type RenderOptions } from 'opentype.js';
 import { Curve, LineCurve, QuadraticBezierCurve, Ray, Vector2, Vector3, type Shape } from 'three';
 import { SVGLoader } from 'three/examples/jsm/loaders/SVGLoader.js';
+import { resolveShapeBoundaries } from './path_resolve';
 import { centerShapes, scaleShapes } from './shapes';
 import { shapeToJSON } from './to_json';
 
@@ -47,8 +48,8 @@ export function createShapesFromSVG(svg: string, scale: number = 1): Array<Shape
 	// now we can use the parseo
 	const fromSVG = _svg.parse(svg).paths;
 	const shapes = fromSVG.flatMap((p) => SVGLoader.createShapes(p));
-	preprocessShapes(shapes);
-	let c = centerShapes(...shapes);
+	const cleaned = preprocessShapes(shapes);
+	let c = centerShapes(...cleaned);
 	if (scale != 1) {
 		c = scaleShapes(scale, ...c);
 	}
@@ -72,13 +73,16 @@ export function createShapesFromFont(fontData: ArrayBufferLike, strings: Array<F
 	return legendShapes;
 }
 
-function preprocessShapes(shapes: Array<Shape>) {
+function preprocessShapes(shapes: Array<Shape>): Array<Shape> {
 	for (let s of shapes) {
 		preprocessPaths(s.curves);
 		s.holes.forEach((h) => {
 			preprocessPaths(h.curves);
 		});
 	}
+	// Resolve self-intersections and overlapping contours into a coherent
+	// boundary (outline + holes), retaining the vector curve primitives.
+	return resolveShapeBoundaries(shapes);
 }
 
 function curveIsLineCurve(c: Curve<Vector2>): c is LineCurve {
@@ -102,14 +106,9 @@ function preprocessPaths(s: Array<Curve<Vector2>>) {
 			}
 		}
 	}
-	// for the path as a whole, we should check intersections with the other paths.
-	// adjacent path segements should have a single point in common, but otherwise
-	// they should not intersect. i.e. except for intersections at line ends, no
-	// intersections should happen. I think this is going to be a difficult problem to solve.
-	// at least difficult in a Big-O way.
-	// There should be an algorithm for finding a tight hull around the objects
-	// ?? https://quadst.rip/poly-isect.html gives us "unmess" which I have vendored a copy of as an example (it doesn't existing online any more)
-	// It expects straight lines, but we work on the "intersect" part of the algorithm I might be able to convert it to an arbitrary path one...?
+	// Self-intersections and overlaps between contours are resolved separately,
+	// at the shape level, by resolveShapeBoundaries (see ./path_resolve.ts),
+	// which is invoked from preprocessShapes once every contour is simplified.
 }
 
 // for quadratic bezier curves, if they are actually straight, we can replace them we a LineCurve.

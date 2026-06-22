@@ -33,7 +33,7 @@
 	const legend = undefined as Legend | undefined; // Legend.CUSTOM_SYMBOLS_START + 7;
 
 	const faceParams: Array<FaceParams> = [
-		{ legend },
+		{ legend: Legend.ELEVEN },
 		{ legend },
 		{ legend },
 		{ legend },
@@ -63,7 +63,7 @@
 			builder.build(dieParams, faceParams);
 		});
 	};
-	changeFont(fonts.alice_in_wonderland_100);
+	changeFont(fonts.voltaire);
 
 	function downloadSTL() {
 		const exporter = new STLExporter();
@@ -101,6 +101,14 @@
 			} else {
 				scene.scene.remove(merged);
 			}
+		}
+	}
+
+	let showOutline = true;
+	function toggleOutline() {
+		showOutline = !showOutline;
+		if (scene && !showOutline) {
+			scene.setSecondarySeletedItems([]);
 		}
 	}
 
@@ -149,6 +157,7 @@
 		scene.render();
 
 		hoverAndClickEvents(scene.renderer.domElement, scene.camera, merged, (ev) => {
+			if (!showOutline) return;
 			if (ev.face !== hoverFace) {
 				scene.setSecondarySeletedItems(builder.getOutlineObjects(ev.face) ?? []);
 			}
@@ -166,6 +175,9 @@
 			<p><button class="btn preset-filled-primary-500" onclick={toggleGrid}>toggle grid</button></p>
 			<p><button class="btn preset-filled-primary-500" onclick={toggleMain}>toggle main</button></p>
 			<p><button class="btn preset-filled-primary-500" onclick={toggleBad}>toggle bad</button></p>
+			<p>
+				<button class="btn preset-filled-primary-500" onclick={toggleOutline}>toggle outline</button>
+			</p>
 			<p>
 				<button class="btn preset-filled-primary-500" onclick={toggleWireframe}
 					>toggle wireframe</button

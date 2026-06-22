@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Layout from '$lib/components/layout/Layout.svelte';
 	import Scene from '$lib/components/scene/Scene.svelte';
 	import dice from '$lib/dice';
 	import fonts, { blanks, type Builtin } from '$lib/fonts';
@@ -59,7 +60,7 @@
 
 		renders[i] = builder.diceGroup;
 		const params = Array.from<FaceParams>({ length: 6 }).map((_, x) => ({
-			legend: x === 1 ? i : Legend.BLANK
+			legend: x === 0 ? i : Legend.BLANK
 		}));
 		const build = (nextSet: LegendSet) => {
 			builder.changeLegends(nextSet);
@@ -151,12 +152,13 @@
 		}
 	}
 </script>
+<Layout title="Legends">
 
-<div class="flex h-full flex-col">
-	<Scene class="w-full grow" sceneReady={onSceneReady} />
-	<div>
-		<p>
-			<button class="btn preset-filled-primary-500" onclick={toggleWireframe}
+	<div class="flex h-full flex-col">
+		<Scene class="w-full grow" sceneReady={onSceneReady} />
+		<div>
+			<p>
+				<button class="btn preset-filled-primary-500" onclick={toggleWireframe}
 				>toggle wireframes</button
 			>
 		</p>
@@ -168,12 +170,14 @@
 		<p>Pick a font</p>
 		<ul>
 			{#each Object.entries(fonts) as [_, f]}
-				<li>
-					<button class="btn preset-filled-primary-500" onclick={switchTo(f)}>{f.name}</button>
-				</li>
+			<li>
+				<button class="btn preset-filled-primary-500" onclick={switchTo(f)}>{f.name}</button>
+			</li>
 			{/each}
 		</ul>
 		<h2>Upload a font</h2>
 		<p><input onchange={filePicked} type="file" /></p>
 	</div>
 </div>
+
+</Layout>

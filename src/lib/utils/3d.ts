@@ -4,8 +4,7 @@ import {
 	Quaternion,
 	Vector3,
 	type BufferGeometry,
-	type Object3D,
-	type Camera as Vector
+	type Object3D
 } from 'three';
 
 export interface Rotatable<T = void> {

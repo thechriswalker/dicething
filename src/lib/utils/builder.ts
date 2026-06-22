@@ -327,11 +327,11 @@ export class Builder {
 			);
 		}
 
-		if (opts.explode && face.explodeTransform) {
-			output.forEach((g) => face.explodeTransform?.applyToGeometry(g));
-		} else {
+		// if (opts.explode && face.explodeTransform) {
+		// 	output.forEach((g) => face.explodeTransform?.applyToGeometry(g));
+		// } else {
 			output.forEach((g) => face.transform.applyToGeometry(g));
-		}
+		//}
 		return output;
 	}
 }
