@@ -59,7 +59,7 @@
 				>
 					<Menu.ItemText class={textClass}>
 						<MoonIcon class="icon-text" />
-						$$DARK$$
+						{m.menu_theme_dark()}
 					</Menu.ItemText>
 					<Menu.ItemIndicator class={indicatorClass}>
 						<CheckIcon class="size-4" />
@@ -77,7 +77,7 @@
 				>
 					<Menu.ItemText class={textClass}>
 						<SunMoonIcon class="icon-text" />
-						$$SYSTEM$$
+						{m.menu_theme_system()}
 					</Menu.ItemText>
 					<Menu.ItemIndicator class={indicatorClass}>
 						<CheckIcon class="size-4" />
@@ -95,7 +95,7 @@
 				>
 					<Menu.ItemText class={textClass}>
 						<SunIcon class="icon-text" />
-						$$LIGHT$$
+						{m.menu_theme_light()}
 					</Menu.ItemText>
 					<Menu.ItemIndicator class={indicatorClass}>
 						<CheckIcon class="size-4" />

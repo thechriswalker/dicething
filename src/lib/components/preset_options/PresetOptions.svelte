@@ -4,6 +4,7 @@
 	import { Switch } from '@skeletonlabs/skeleton-svelte';
 	import Slider from '../slider/Slider.svelte';
 	import { onMount } from 'svelte';
+	import { m } from '$lib/paraglide/messages';
 
 	let {
 		options,
@@ -38,16 +39,16 @@
 
 <div class="flex flex-col gap-4">
 	<div class="text-lg">{description}</div>
-	<p class="h5">$$SET_NAME$$</p>
+	<p class="h5">{m.preset_options_set_name()}</p>
 	<input
 		type="text"
 		class="input"
-		placeholder={'$$SET_NAME_PLACEHOLDER$$'}
+		placeholder={m.preset_options_set_name_placeholder()}
 		bind:value={localName}
 	/>
 	{#each options as opt, idx}
 		{#if opt.kind == 'bool'}
-			<p class="h5">$BOOLEAN_OPTION_{opt.id}$</p>
+			<p class="h5">{m.preset_options_bool_title({ id: opt.id })}</p>
 			<Switch
 				class="items-end justify-center"
 				defaultChecked={values[idx] ?? opt.value}
@@ -55,12 +56,12 @@
 					values[idx] = d.checked;
 				}}
 			>
-				<Switch.Label>$BOOLEAN_OPTION{opt.id}_DISABLED$</Switch.Label>
+				<Switch.Label>{m.preset_options_bool_disabled({ id: opt.id })}</Switch.Label>
 
 				<Switch.Control>
 					<Switch.Thumb />
 				</Switch.Control>
-				<Switch.Label>$BOOLEAN_OPTION{opt.id}_ENABLED$</Switch.Label>
+				<Switch.Label>{m.preset_options_bool_enabled({ id: opt.id })}</Switch.Label>
 				<Switch.HiddenInput />
 			</Switch>
 		{/if}
@@ -75,7 +76,7 @@
 			></Slider>
 		{/if}
 		{#if opt.kind == 'select'}
-			<p class="h5">$SELECT_OPTION_{opt.id}$</p>
+			<p class="h5">{m.preset_options_select_title({ id: opt.id })}</p>
 			<select class="select" onchange={(e) => (values[idx] = e.currentTarget.value)}>
 				{#each opt.options as entry}
 					<option value={entry[0]} selected={entry[0] === (values[idx] ?? opt.value)}>
@@ -85,7 +86,7 @@
 			</select>
 		{/if}
 		{#if opt.kind == 'legend'}
-			<p class="h5">$PICK_YOUR_LEGENDS$</p>
+			<p class="h5">{m.preset_options_pick_legends()}</p>
 			<div class="grid grid-cols-3 gap-4">
 				{#each Object.values(builtins) as f}
 					{#if f.tags.includes(opt.filter)}
@@ -100,12 +101,12 @@
 							}}
 						>
 							<strong>{f.name}</strong>
-							<img height="10px" src={f.preview} alt="$FONT_PREVIEW$" class="dark:invert" />
+							<img height="10px" src={f.preview} alt={m.preset_options_font_preview()} class="dark:invert" />
 						</button>
 					{/if}
 				{/each}
 			</div>
 		{/if}
 	{/each}
-	<button onclick={submit}>$SUBMIT</button>
+	<button onclick={submit}>{m.preset_options_submit()}</button>
 </div>

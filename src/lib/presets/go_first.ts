@@ -27,7 +27,7 @@ export const goFirstPreset: Preset = {
 		return [legendPickerOption("0-99", builtins.germania_one_100.id),
 		{
 			kind: "bool",
-			id: " rhombic_vs_dodecahedron",
+			id: "rhombic_vs_dodecahedron",
 			value: false,
 		}
 		]

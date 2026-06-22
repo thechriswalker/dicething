@@ -73,18 +73,18 @@ The UI section will need a whole lot more...
   - [x] Crystals (d4, d6, d8, d10/d%, d12)
   - [x] Rhombics (d6, d12)
   - [x] Shards (d4,d6, d8, d10/d%, d12) (theoretically we can do weird ones here, like D3,D5,D7,D9...)
-  - [] Barrels (d4,d6, d8, d10/d%, d12) (these are the triangle faced ones)
+  - [ ] Barrels (d4,d6, d8, d10/d%, d12) (these are the triangle faced ones)
   - [ ] Caltrop D4 (as 12 faces both on tips and edges, and with only 4 faces)
     - [x] With 12 faces on tips
-    - [ ] With 12 faces on edges
-    - [ ] With 4 faces (for custom stuff)
+    - [x] With 12 faces on edges
+    - [x] With 4 faces (for custom stuff)
     - [ ] Truncated? i.e. legends on tips?
   - [ ] Coin D2 - a short cylinder
     - [ ] Regular Polygon
     - [ ] Circle (I probably have to keep these separate)
 - [x] Legend Engraving
   - [x] auto-fit legends by default
-    - [ ] auto custom scale per-face-per-legend (i.e. a D20 wants numbers as large as possible on each face, not consistent on each face) - maybe an "oncreate" option?
+    - [x] auto custom scale per-face-per-legend (i.e. a D20 wants numbers as large as possible on each face, not consistent on each face) - maybe an "oncreate" option?
   - [x] customisable scale/rotation/translation
   - [x] per-face engraving depth
   - [x] per-face legend override
@@ -153,14 +153,14 @@ The first flow will be
   - [x] main selected die view
   - [x] edit singel die parameters
   - [ ] close die parameter draw (for space)
-  - [ ] save changes!
+  - [x] save changes!
   - [ ] title edit
-  - [ ] legend editor (component)
-    - [ ] font loader - character set picker
-  - [ ] legend picker (component) - i.e. pick a symbol from the current set - a select box alike
-  - [ ] set menu
-    - [ ] combine legends/export/lightswitch into a single menu
-    - [ ] export options (component)
+  - [x] legend editor (component)
+    - [x] font loader - character set picker
+  - [x] legend picker (component) - i.e. pick a symbol from the current set - a select box alike
+  - [x] set menu
+    - [x] combine legends/export/lightswitch into a single menu
+    - [x] export options (component)
       - [ ] toSTL options i.e. auto blanks
       - [ ] toJSON ? are there options?
 

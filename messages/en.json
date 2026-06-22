@@ -13,6 +13,63 @@
 	"start_import": "Import from JSON",
 	"start_no_saved_sets": "You don't have any saved sets... yet ;)",
 	"preset_options_modal_title": "Options for set",
+	"preset_options_set_name": "Set Name",
+	"preset_options_set_name_placeholder": "Enter a name for your set",
+	"preset_options_pick_legends": "Pick your legends",
+	"preset_options_font_preview": "Font preview",
+	"preset_options_submit": "Create set",
+	"preset_options_bool_title": [
+		{
+			"declarations": [
+				"input id"
+			],
+			"selectors": [
+				"id"
+			],
+			"match": {
+				"id=rhombic_vs_dodecahedron": "D12 Shape"
+			}
+		}
+	],
+	"preset_options_bool_disabled": [
+		{
+			"declarations": [
+				"input id"
+			],
+			"selectors": [
+				"id"
+			],
+			"match": {
+				"id=rhombic_vs_dodecahedron": "Dodecahedron"
+			}
+		}
+	],
+	"preset_options_bool_enabled": [
+		{
+			"declarations": [
+				"input id"
+			],
+			"selectors": [
+				"id"
+			],
+			"match": {
+				"id=rhombic_vs_dodecahedron": "Rhombic"
+			}
+		}
+	],
+	"preset_options_select_title": [
+		{
+			"declarations": [
+				"input id"
+			],
+			"selectors": [
+				"id"
+			],
+			"match": {
+				"id=*": "Option"
+			}
+		}
+	],
 	"presets_title": [
 		{
 			"declarations": [
@@ -160,5 +217,8 @@
 		}
 	],
 	"face_parameters_rotation": "Rotation",
-	"menu_theme": "Theme"
+	"menu_theme": "Theme",
+	"menu_theme_dark": "Dark",
+	"menu_theme_system": "System",
+	"menu_theme_light": "Light"
 }

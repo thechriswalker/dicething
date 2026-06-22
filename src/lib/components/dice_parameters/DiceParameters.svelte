@@ -46,7 +46,8 @@
 		return nf.format(x);
 	}
 	let faces = $derived(renderPass ? builder.getFaces() : []);
-	let vol = $derived(renderPass ? builder.getApproximateVolume() : '-');
+	// 1 ml = 1 cm³ = 1000 mm³, and we treat the three.js unit as a mm.
+	let vol = $derived(renderPass ? builder.getApproximateVolume() / 1000 : '-');
 	let f2f = $derived(renderPass ? builder.getFace2FaceDistance() : '-');
 	let firstBlank = $derived(faces.findIndex((x) => !x.isNumberFace));
 	let engravingDepth = $derived(dparams[engravingParam.id] ?? engravingParam.defaultValue);
@@ -61,7 +62,8 @@
 <div class="card preset-tonal-surface flex w-72 flex-col gap-2 p-4">
 	<Collapsible title={m.dice_name({ kind })}>
 		<p class="flex justify-between">
-			<span>{m.dice_parameters_approx_volume()}:</span> <span>{numberFormat(vol)}</span>
+			<span>{m.dice_parameters_approx_volume()}:</span>
+			<span>{numberFormat(vol)}{typeof vol === 'number' ? ' ml' : ''}</span>
 		</p>
 		<p class="flex justify-between">
 			<span>{m.dice_parameters_face_to_face_distance()}:</span> <span>{numberFormat(f2f)}</span>
