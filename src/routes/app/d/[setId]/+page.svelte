@@ -4,12 +4,13 @@
 	import DiceParameters from '$lib/components/dice_parameters/DiceParameters.svelte';
 	import DiePreview from '$lib/components/die_preview/DiePreview.svelte';
 	import Layout from '$lib/components/layout/Layout.svelte';
+	import Modal from '$lib/components/modal/Modal.svelte';
 	import type { MenuItemSubmenu } from '$lib/components/menu/menu';
 	import Menu from '$lib/components/menu/Menu.svelte';
 	import Scene from '$lib/components/scene/Scene.svelte';
 	import dice from '$lib/dice';
 	import builtins, { type Builtin } from '$lib/fonts';
-	import { saveSet, waitForSet, type DiceSet } from '$lib/interfaces/storage.svelte';
+	import { saveSet, waitForSet, type Dice, type DiceSet } from '$lib/interfaces/storage.svelte';
 	import { m } from '$lib/paraglide/messages';
 	import { Builder } from '$lib/utils/builder';
 	import { debounce } from '$lib/utils/debounce';
@@ -48,6 +49,27 @@
 		}
 		goto(p.href);
 	}
+
+	// one entry per available die kind, used to render previews in the "add die"
+	// picker. built once from the dice registry so each preview is stable.
+	const previewDice: Array<Dice> = (Object.keys(dice) as Array<keyof typeof dice>).map((kind) => ({
+		id: 'preview:' + kind,
+		kind,
+		parameters: {},
+		face_parameters: []
+	}));
+
+	let addDie = (kind: keyof typeof dice) => {
+		if (!setData) {
+			return;
+		}
+		const id = crypto.randomUUID();
+		setData.dice.push({ id, kind, parameters: {}, face_parameters: [] });
+		// mirror the init effect: dice need a builder before they can be rendered.
+		diceBuilders.set(id, new Builder(dice[kind], setData.legends, id));
+		save(setData);
+		gotoDie(id);
+	};
 
 	let removeDie = (id: string) => {
 		if (setData) {
@@ -488,12 +510,40 @@
 					<DiePreview {die} legends={setData?.legends!} />
 				</div>
 			{/each}
-			<button
-				class="hover:border-primary-500 hover:shadow-primary-500 flex size-16 cursor-pointer items-center justify-center overflow-hidden rounded-md border text-center hover:shadow-md"
-				title={m.controls_add_new_die()}
-			>
-				<PlusIcon size={32} />
-			</button>
+			<Modal>
+				{#snippet title()}
+					{m.controls_add_new_die()}
+				{/snippet}
+				{#snippet trigger(props)}
+					<button
+						{...props}
+						class="hover:border-primary-500 hover:shadow-primary-500 flex size-16 cursor-pointer items-center justify-center overflow-hidden rounded-md border text-center hover:shadow-md"
+						title={m.controls_add_new_die()}
+					>
+						<PlusIcon size={32} />
+					</button>
+				{/snippet}
+				{#snippet inner(close)}
+					<div
+						class="grid max-h-[70vh] grid-cols-2 gap-3 overflow-y-auto sm:grid-cols-3 md:grid-cols-4"
+					>
+						{#each previewDice as preview (preview.kind)}
+							<button
+								class="hover:border-primary-500 hover:shadow-primary-500 flex cursor-pointer flex-col items-center gap-1 rounded-md border p-2 text-center hover:shadow-md"
+								onclick={() => {
+									addDie(preview.kind);
+									close();
+								}}
+							>
+								{#if setData}
+									<DiePreview die={preview} legends={setData.legends} />
+								{/if}
+								<span class="text-sm">{m.dice_name({ kind: preview.kind })}</span>
+							</button>
+						{/each}
+					</div>
+				{/snippet}
+			</Modal>
 		</div>
 		<Scene class="relative w-full grow" {sceneReady}>
 			<ul class="list-style-type-none absolute top-2 left-2 flex flex-col gap-2">

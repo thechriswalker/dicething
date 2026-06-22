@@ -11,10 +11,12 @@ import {
 	TrapezohedronD8
 } from './trapezohedrons';
 import { ShardD4 } from './shards';
-import { CaltropD4 } from './caltrop';
+import { CaltropBaseD4, CaltropCustomD4, CaltropD4 } from './caltrop';
 
 const dice = {
 	caltrop_d4: CaltropD4,
+	caltrop_base_d4: CaltropBaseD4,
+	caltrop_custom_d4: CaltropCustomD4,
 	cube_d6: CubeD6,
 	crystal_d4: CrystalD4,
 	crystal_d6: CrystalD6,
