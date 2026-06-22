@@ -1,5 +1,6 @@
 import type { DieModel, DieFaceModel, DiceParameter } from '$lib/interfaces/dice';
 import { Transform } from '$lib/utils/3d';
+import { stackedExplode } from '$lib/utils/explode';
 import { Legend, pickForDoublesByIndex, pickForNumber } from '$lib/utils/legends';
 import { orientCoplanarVertices, rotateShapes } from '$lib/utils/shapes';
 import { Plane, Ray, Shape, Vector2, Vector3 } from 'three';
@@ -245,6 +246,8 @@ function build(sides: number, tens: boolean): DieModel['build'] {
 			);
 		}
 
+		explodeCrystal(faces);
+
 		return {
 			legendScaling: 1,
 			faceToFaceDistance: d * 2,
@@ -252,6 +255,12 @@ function build(sides: number, tens: boolean): DieModel['build'] {
 			faces
 		};
 	};
+}
+
+// crystals have a single row of number faces with the triangular caps tucked
+// underneath (two caps per number face, so two rows of caps).
+function explodeCrystal(faces: Array<DieFaceModel>) {
+	stackedExplode(faces);
 }
 
 const yRotation = (i: number, sides: number, alpha: number): number => {

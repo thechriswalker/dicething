@@ -1,8 +1,9 @@
 // these are the dipyramids, like a d10
 // but they also include the "rhombic" D6
 
-import type { DiceParameter, DieModel } from '$lib/interfaces/dice';
+import type { DiceParameter, DieFaceModel, DieModel } from '$lib/interfaces/dice';
 import { Transform, vectorRotateX, vectorRotateY } from '$lib/utils/3d';
+import { gridExplode } from '$lib/utils/explode';
 import { pickForDoublesByIndex, pickForNumber } from '$lib/utils/legends';
 import { orientCoplanarVertices } from '$lib/utils/shapes';
 import { Plane, Ray, Vector3, type Camera } from 'three';
@@ -120,23 +121,29 @@ function trapezohedron(id: string, name: string, sides: number, tens = false): D
 			}
 			const info = orientCoplanarVertices(faceVertice3);
 
+			const faces: Array<DieFaceModel> = Array.from({ length: sides }, (v, i) => {
+				const transform = new Transform().rotate(info.quat).translate(info.offset);
+				const { y, xflip } = xyRot(i, sides, baseAngle);
+				if (xflip) {
+					transform.rotateByAxisAngle(xAxis, Math.PI);
+				}
+				transform.rotateByAxisAngle(yAxis, y);
+
+				return {
+					isNumberFace: true,
+					defaultLegend: tens ? pickForDoublesByIndex(i) : pickForNumber(i, sides),
+					shape: info.shape,
+					transform
+				};
+			});
+
+			// all faces share one shape; lay them flat in a simple grid in numeric order.
+			const explodes = gridExplode(faces.map((f) => f.shape));
+			faces.forEach((f, i) => (f.explodeTransform = explodes[i]));
+
 			return {
 				faceToFaceDistance: info.offset.length() * 2,
-				faces: Array.from({ length: sides }, (v, i) => {
-					const transform = new Transform().rotate(info.quat).translate(info.offset);
-					const { y, xflip } = xyRot(i, sides, baseAngle);
-					if (xflip) {
-						transform.rotateByAxisAngle(xAxis, Math.PI);
-					}
-					transform.rotateByAxisAngle(yAxis, y);
-
-					return {
-						isNumberFace: true,
-						defaultLegend: tens ? pickForDoublesByIndex(i) : pickForNumber(i, sides),
-						shape: info.shape,
-						transform
-					};
-				})
+				faces
 			};
 		}
 	};

@@ -2,7 +2,7 @@
 // it is modelled as having 12 faces, because that is easier with my render pattern.
 // That might make it more difficult to customise, but I don't care...
 
-import type { DiceParameter, DieModel } from '$lib/interfaces/dice';
+import type { DiceParameter, DieFaceModel, DieModel } from '$lib/interfaces/dice';
 import { Transform, vectorRotateX, vectorRotateY, vectorRotateZ } from '$lib/utils/3d';
 import { pickForNumber } from '$lib/utils/legends';
 import { centerShapes } from '$lib/utils/shapes';
@@ -25,6 +25,63 @@ const xAxis = new Vector3(1, 0, 0);
 const yAxis = new Vector3(0, 1, 0);
 const zAxis = new Vector3(0, 0, 1);
 const numbering = [0, 3, 3, 3, 2, 2, 0, 1, 1, 0, 1, 2];
+
+// 120 degrees between the three kite segments that make up one real face.
+const SEGMENT_STEP = (2 * Math.PI) / 3;
+
+// in-plane angle of segment n within an assembled triangle (apex of n=0 is "up").
+function segmentAngle(n: number): number {
+	return n === 0 ? 0 : n === 1 ? SEGMENT_STEP : -SEGMENT_STEP;
+}
+
+// For the exploded view the 12 kite segments are regrouped into their 4 real
+// triangular faces (face = i % 4, segment = i % 3). We then pick which face goes
+// in each cell (left -> right) and how much to rotate it so the apex numbers read
+// 1,2,3,4. Computed from `numbering` so it follows any renumbering.
+const caltropExplodeLayout = computeCaltropExplodeLayout();
+
+function computeCaltropExplodeLayout(): { cellForFace: number[]; triRotForFace: number[] } {
+	// for each physical face, map the number it carries -> the segment index n.
+	const faceMaps: Array<Record<number, number>> = [];
+	for (let f = 0; f < 4; f++) {
+		const map: Record<number, number> = {};
+		for (const k of [f, f + 4, f + 8]) {
+			map[numbering[k]] = k % 3;
+		}
+		faceMaps.push(map);
+	}
+
+	const cellForFace = [0, 1, 2, 3];
+	const triRotForFace = [0, 0, 0, 0];
+	const usedFace = [false, false, false, false];
+	const faceForCell: Array<number> = new Array(4).fill(-1);
+
+	// assign a distinct face to each cell c such that the face carries number c.
+	const solve = (c: number): boolean => {
+		if (c === 4) return true;
+		for (let f = 0; f < 4; f++) {
+			if (!usedFace[f] && faceMaps[f][c] !== undefined) {
+				usedFace[f] = true;
+				faceForCell[c] = f;
+				if (solve(c + 1)) return true;
+				usedFace[f] = false;
+				faceForCell[c] = -1;
+			}
+		}
+		return false;
+	};
+
+	if (solve(0)) {
+		for (let c = 0; c < 4; c++) {
+			const f = faceForCell[c];
+			cellForFace[f] = c;
+			// rotate the whole triangle so the segment carrying number c sits at the apex.
+			triRotForFace[f] = -segmentAngle(faceMaps[f][c]);
+		}
+	}
+
+	return { cellForFace, triRotForFace };
+}
 
 export const CaltropD4: DieModel = {
 	id: 'caltrop_d4',
@@ -70,8 +127,7 @@ export const CaltropD4: DieModel = {
 		// now the offset to the center (y axis)
 		// in a tetrahedron, this is simply
 		const offsetAngle = Math.asin(1 / 3);
-		return {
-			faces: Array.from({ length: 12 }).map((_, i) => {
+		const faces: Array<DieFaceModel> = Array.from({ length: 12 }).map((_, i) => {
 				const n = i % 3; // the "segment" of this face.
 				const f = i % 4; // the face to put this segment on
 				const transform = new Transform().translateBy(0, h / 3, 0);
@@ -122,7 +178,30 @@ export const CaltropD4: DieModel = {
 					shape: shape,
 					transform
 				};
-			}),
+			});
+
+		// reassemble each real triangular face back into a full equilateral triangle
+		// and lay the 4 triangles in a row. the in-plane assembly is the same one the
+		// 3D build uses for the forward face (translate up by h/3 then rotate the
+		// segment about the origin), which leaves the triangle centered on the origin.
+		// each triangle is additionally rotated/reordered so the apex numbers read
+		// 1,2,3,4 left to right (see caltropExplodeLayout).
+		const gap = 2;
+		const cellW = e + gap;
+		const startX = -((4 - 1) * cellW) / 2;
+		faces.forEach((face, i) => {
+			const n = i % 3; // segment within the face
+			const f = i % 4; // which physical face
+			const c = caltropExplodeLayout.cellForFace[f];
+			const angle = segmentAngle(n) + caltropExplodeLayout.triRotForFace[f];
+			face.explodeTransform = new Transform()
+				.translateBy(0, h / 3, 0)
+				.rotateByAxisAngle(zAxis, angle)
+				.translate(new Vector3(startX + c * cellW, 0, 0));
+		});
+
+		return {
+			faces,
 			faceToFaceDistance: H
 		};
 	}

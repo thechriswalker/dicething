@@ -3,6 +3,7 @@
 // i.e. long edge for number faces and short cap for blanks.
 import type { DieModel, DieFaceModel, DiceParameter } from '$lib/interfaces/dice';
 import { Transform, vectorRotateY, vectorRotateZ } from '$lib/utils/3d';
+import { stackedExplode } from '$lib/utils/explode';
 import { Legend, pickForDoublesByIndex, pickForNumber } from '$lib/utils/legends';
 import { orientCoplanarVertices, rotateShapes, translateShapes } from '$lib/utils/shapes';
 import { BufferGeometry, Plane, Ray, Camera, Vector2, Vector3 } from 'three';
@@ -185,12 +186,20 @@ function build(sides: number, tens: boolean): DieModel['build'] {
 			});
 		}
 
+		explodeShard(faces);
+
 		return {
 			legendScaling: 1,
 			faceToFaceDistance: d * 2,
 			faces
 		};
 	};
+}
+
+// shards have a single row of number faces with the (smaller) blank caps
+// tucked underneath in a matching row.
+function explodeShard(faces: Array<DieFaceModel>) {
+	stackedExplode(faces);
 }
 
 function yRotation(i: number, sides: number, alpha: number): number {
