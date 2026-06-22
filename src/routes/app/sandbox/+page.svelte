@@ -11,7 +11,7 @@
 		createGridHelper,
 		type SceneRenderer
 	} from '$lib/utils/scene';
-	import { AxesHelper, DoubleSide, MeshBasicMaterial, MeshNormalMaterial, Vector2 } from 'three';
+	import { AxesHelper, DoubleSide, Group, Mesh, MeshBasicMaterial, MeshNormalMaterial, Vector2 } from 'three';
 	import { STLExporter } from 'three/examples/jsm/exporters/STLExporter.js';
 	import { hoverAndClickEvents } from '$lib/utils/events';
 	import { Legend, type LegendSet } from '$lib/utils/legends';
@@ -33,34 +33,31 @@
 	const legend = undefined as Legend | undefined; // Legend.CUSTOM_SYMBOLS_START + 7;
 
 	const faceParams: Array<FaceParams> = [
-		{ legend: Legend.ELEVEN },
-		{ legend },
-		{ legend },
-		{ legend },
-		{ legend },
-		{ legend },
-		{ legend },
-		{ legend },
-		{ legend },
-		{ legend },
-		{ legend },
-		{ legend },
-		{ legend },
-		{ legend },
-		{ legend },
-		{ legend },
-		{ legend },
-		{ legend },
-		{ legend },
-		{ legend },
-		{ legend },
-		{ legend }
+		{ legend: Legend.ZERO },
+		{ legend: Legend.BLANK },
+		{ legend: Legend.BLANK },
+		{ legend: Legend.BLANK },
+		{ legend: Legend.BLANK },
+		{ legend: Legend.BLANK },
+		{ legend: Legend.BLANK },
+		{ legend: Legend.BLANK },
+		{ legend: Legend.BLANK }
 	];
+
+	let lastBad: Mesh | null = null;
 
 	const changeFont = (f: Builtin) => {
 		f.load().then((ff) => {
 			builder.changeLegends(ff);
 			builder.build(dieParams, faceParams);
+			if (lastBad) {
+				badGroup.remove(lastBad);
+			}
+			const bad = findAllBadTriangles(builder.diceGroup);
+			if (bad) {
+				badGroup.add(bad);
+			}
+			lastBad = bad;
 		});
 	};
 	changeFont(fonts.voltaire);
@@ -113,13 +110,14 @@
 	}
 
 	let showBad = false;
+	let badGroup = new Group();
 	function toggleBad() {
 		showBad = !showBad;
-		if (scene && bad) {
+		if (scene) {
 			if (showBad) {
-				scene.scene.add(bad);
+				scene.scene.add(badGroup);
 			} else {
-				scene.scene.remove(bad);
+				scene.scene.remove(badGroup);
 			}
 		}
 	}
@@ -141,7 +139,11 @@
 	time('building mesh took', () => builder.build(dieParams, faceParams));
 	const merged = builder.diceGroup;
 	const bad = time('calculating bad triangles', () => findAllBadTriangles(merged));
-
+	console.log("bad triangles:", bad)
+	if (bad) {
+		badGroup.add(bad);
+		lastBad = bad;
+	}
 	let hoverFace = -1;
 
 	let onSceneReady = (ctx: SceneRenderer) => {

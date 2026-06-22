@@ -156,7 +156,7 @@
 
 	<div class="flex h-full flex-col">
 		<Scene class="w-full grow" sceneReady={onSceneReady} />
-		<div>
+		<div class="flex flex-row gap-2">
 			<p>
 				<button class="btn preset-filled-primary-500" onclick={toggleWireframe}
 				>toggle wireframes</button
@@ -168,7 +168,7 @@
 			>
 		</p>
 		<p>Pick a font</p>
-		<ul>
+		<ul class="flex flex-col gap-2 max-h-48 overflow-y-auto">
 			{#each Object.entries(fonts) as [_, f]}
 			<li>
 				<button class="btn preset-filled-primary-500" onclick={switchTo(f)}>{f.name}</button>
