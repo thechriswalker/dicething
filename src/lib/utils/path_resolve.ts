@@ -234,6 +234,13 @@ export function resolveShapeBoundaries(shapes: Array<Shape>, opts: ResolveOption
 		}
 	}
 
+	// A self-intersection splits the outline at the two curve vertices flanking
+	// the crossing, and the classifier discards the tiny interior segment
+	// between them. That leaves the surviving arc dangling at two endpoints that
+	// are the same pinch point geometrically but carry different node ids, so
+	// the loop can never close. Weld such dangling endpoints back together.
+	weldDanglingEndpoints(kept, nodes, o.sideOffset * 3);
+
 	// Reconnect kept fragments into closed loops.
 	const rawLoops = traceLoops(kept);
 
@@ -532,6 +539,71 @@ function isLeft(a: Vector2, b: Vector2, p: Vector2): number {
 // ---------------------------------------------------------------------------
 // Reconnection
 // ---------------------------------------------------------------------------
+
+// Merge node ids of "dangling" endpoints (where the count of fragments
+// starting differs from the count ending) that lie within `tol` of one another,
+// then drop any fragment that collapses to a point. Only dangling nodes are
+// candidates, so well-formed loops (every node balanced) are never touched;
+// `tol` is kept well below the smallest real glyph feature. Mutates `fragments`
+// in place (remapping node ids) and removes collapsed fragments.
+function weldDanglingEndpoints(fragments: Fragment[], nodes: NodeRegistry, tol: number): void {
+	const outDeg = new Map<number, number>();
+	const inDeg = new Map<number, number>();
+	for (const f of fragments) {
+		outDeg.set(f.startNode, (outDeg.get(f.startNode) ?? 0) + 1);
+		inDeg.set(f.endNode, (inDeg.get(f.endNode) ?? 0) + 1);
+	}
+	const dangling: number[] = [];
+	const seen = new Set<number>();
+	for (const id of [...outDeg.keys(), ...inDeg.keys()]) {
+		if (seen.has(id)) {
+			continue;
+		}
+		seen.add(id);
+		if ((outDeg.get(id) ?? 0) !== (inDeg.get(id) ?? 0)) {
+			dangling.push(id);
+		}
+	}
+	if (dangling.length < 2) {
+		return;
+	}
+
+	// Union-find over dangling nodes within tolerance.
+	const parent = new Map<number, number>(dangling.map((id) => [id, id]));
+	const find = (x: number): number => {
+		let r = x;
+		while (parent.get(r)! !== r) {
+			r = parent.get(r)!;
+		}
+		while (parent.get(x)! !== r) {
+			const next = parent.get(x)!;
+			parent.set(x, r);
+			x = next;
+		}
+		return r;
+	};
+	const tol2 = tol * tol;
+	for (let i = 0; i < dangling.length; i++) {
+		for (let j = i + 1; j < dangling.length; j++) {
+			if (distSq(nodes.point(dangling[i]), nodes.point(dangling[j])) <= tol2) {
+				parent.set(find(dangling[i]), find(dangling[j]));
+			}
+		}
+	}
+
+	for (let i = fragments.length - 1; i >= 0; i--) {
+		const f = fragments[i];
+		if (parent.has(f.startNode)) {
+			f.startNode = find(f.startNode);
+		}
+		if (parent.has(f.endNode)) {
+			f.endNode = find(f.endNode);
+		}
+		if (f.startNode === f.endNode) {
+			fragments.splice(i, 1);
+		}
+	}
+}
 
 function traceLoops(fragments: Fragment[]): Loop[] {
 	const used = new Set<Fragment>();
