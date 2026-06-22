@@ -6,6 +6,7 @@ import {
 	Mesh,
 	MeshBasicMaterial,
 	MeshNormalMaterial,
+	Quaternion,
 	Vector3,
 	Plane,
 	type Object3D,
@@ -36,6 +37,23 @@ export class Builder {
 	private faces: Array<DieFaceModel> = [];
 	private faceObjects: Array<Object3D> = [];
 	private lastFaceParams: Array<FaceParams> = [];
+
+	// per-face solid ("n") and exploded ("e") target transforms, decomposed into
+	// position + quaternion so the view layer can interpolate between them.
+	private faceTransforms: Array<{
+		nPos: Vector3;
+		nQuat: Quaternion;
+		ePos: Vector3;
+		eQuat: Quaternion;
+	}> = [];
+
+	// animation state. progress goes 0 (solid) -> 1 (exploded).
+	private exploded = false;
+	private progress = 0;
+	private targetProgress = 0;
+	private lastAnimTime = 0;
+	private hasBuilt = false;
+	private static readonly EXPLODE_DURATION_MS = 400;
 
 	// these two default to mesh normal
 	private frontMaterial: Material = _m1;
@@ -149,6 +167,7 @@ export class Builder {
 			this.faces = x.faces;
 			this.individualLegendScaling = !!x.sizeLegendsIndividually;
 			this.recalculateLegendScaling();
+			this.computeFaceTransforms();
 			this.lastDieParams = dieParams;
 		}
 		for (let i = 0; i < this.faces.length; i++) {
@@ -168,7 +187,7 @@ export class Builder {
 					this.faceObjects[i].remove(...this.faceObjects[i].children);
 				}
 				this.lastFaceParams[i] = newFaceParams;
-				this.buildFace(i, dieParams.engraving_depth, newFaceParams, {forExport: false, ...opts }).forEach((g) => {
+				this.buildFace(i, dieParams.engraving_depth, newFaceParams, { forExport: false }).forEach((g) => {
 					g.userData.diceThingFace = i;
 					g.userData.diceThingId = this.id;
 					let m: Material;
@@ -201,8 +220,76 @@ export class Builder {
 		}
 		this.forceRerenderBlank = false;
 		this.forceRerenderFaces = false;
+
+		// position/orient the (origin-built) face groups. on the first build we snap
+		// straight to the requested state; afterwards we let any in-flight animation
+		// continue, only updating where we're heading.
+		this.targetProgress = opts.explode ? 1 : 0;
+		this.exploded = opts.explode;
+		if (!this.hasBuilt) {
+			this.progress = this.targetProgress;
+			this.hasBuilt = true;
+		}
+		this.lastAnimTime = now();
+		this.applyProgress();
+
 		this.renderCount++;
 		return this.renderCount;
+	}
+
+	private computeFaceTransforms() {
+		this.faceTransforms = this.faces.map((f) => {
+			const explode = f.explodeTransform ?? f.transform;
+			return {
+				nPos: f.transform.translation,
+				nQuat: f.transform.rotation,
+				ePos: explode.translation,
+				eQuat: explode.rotation
+			};
+		});
+	}
+
+	// set the desired state and (re)start the animation toward it.
+	public setExploded(explode: boolean) {
+		this.exploded = explode;
+		this.targetProgress = explode ? 1 : 0;
+		this.lastAnimTime = now();
+	}
+
+	public isExploded(): boolean {
+		return this.exploded;
+	}
+
+	// advance the explode animation toward the target. returns true while still
+	// moving so callers can know motion is ongoing. safe to call every frame.
+	public update(time: number = now()): boolean {
+		if (this.progress === this.targetProgress) {
+			this.lastAnimTime = time;
+			return false;
+		}
+		const dt = time - this.lastAnimTime;
+		this.lastAnimTime = time;
+		const step = dt / Builder.EXPLODE_DURATION_MS;
+		if (this.targetProgress > this.progress) {
+			this.progress = Math.min(this.targetProgress, this.progress + step);
+		} else {
+			this.progress = Math.max(this.targetProgress, this.progress - step);
+		}
+		this.applyProgress();
+		return this.progress !== this.targetProgress;
+	}
+
+	private applyProgress() {
+		const eased = easeInOut(this.progress);
+		for (let i = 0; i < this.faceObjects.length; i++) {
+			const g = this.faceObjects[i];
+			const t = this.faceTransforms[i];
+			if (!g || !t) {
+				continue;
+			}
+			g.position.lerpVectors(t.nPos, t.ePos, eased);
+			g.quaternion.slerpQuaternions(t.nQuat, t.eQuat, eased);
+		}
 	}
 
 	private recalculateLegendScaling() {
@@ -260,10 +347,14 @@ export class Builder {
 		this.forceRerenderBlank = false;
 		const geos: Array<BufferGeometry> = [];
 		for (let i = 0; i < this.faces.length; i++) {
-			const newFaceParams = simplifyFaceParams(faceParams[i], this.faces[i]);
+			const face = this.faces[i];
+			const newFaceParams = simplifyFaceParams(faceParams[i], face);
 			// don't add these to the object.
-			const f = this.buildFace(i, dieParams.engraving_depth, newFaceParams, true);
+			const f = this.buildFace(i, dieParams.engraving_depth, newFaceParams, { forExport: true });
 			f.forEach((g) => {
+				// geometry is built at the origin, so bake the solid transform in for
+				// export (we always export in the solid/printing position).
+				face.transform.applyToGeometry(g);
 				// ensure we can merge them
 				if (g.index) {
 					g = g.toNonIndexed();
@@ -291,7 +382,7 @@ export class Builder {
 		i: number,
 		engravingDepth: number,
 		params: FaceParams,
-		opts: { forExport: boolean, explode: boolean } = { forExport: false, explode: true }
+		opts: { forExport: boolean } = { forExport: false }
 	): Array<BufferGeometry> {
 		// engrave face.
 		const face = this.faces[i];
@@ -327,16 +418,23 @@ export class Builder {
 			);
 		}
 
-		// if (opts.explode && face.explodeTransform) {
-		// 	output.forEach((g) => face.explodeTransform?.applyToGeometry(g));
-		// } else {
-			output.forEach((g) => face.transform.applyToGeometry(g));
-		//}
+		// geometry is built at the origin; the face's Group is positioned/oriented
+		// by the view layer (see applyProgress/update) so we can animate between
+		// the solid and exploded states.
 		return output;
 	}
 }
 
 const tau = 2 * Math.PI;
+
+function now(): number {
+	return typeof performance !== 'undefined' ? performance.now() : Date.now();
+}
+
+// smooth ease-in-out (cubic) used for the explode animation.
+function easeInOut(t: number): number {
+	return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+}
 
 function faceParamsNotEqual(prev: FaceParams, next: FaceParams, face: DieFaceModel) {
 	const simples =

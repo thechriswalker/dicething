@@ -103,6 +103,70 @@
 		}
 	});
 
+	// captured at scene mount so camera transitions can restore the base zoom.
+	// svelte-ignore non_reactive_update
+	let baseZoom = 1;
+
+	// smooth ease-in-out (cubic) shared by the camera transition.
+	const easeInOut = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
+
+	const CAMERA_TRANSITION_MS = 400;
+
+	// active camera tween, stepped each frame in onBeforeRender.
+	let camTween: {
+		startPos: Vector3;
+		endPos: Vector3;
+		startUp: Vector3;
+		endUp: Vector3;
+		startTarget: Vector3;
+		endTarget: Vector3;
+		startZoom: number;
+		endZoom: number;
+		start: number;
+	} | null = null;
+
+	function animateCameraTo(endPos: Vector3, endUp: Vector3, endTarget: Vector3, endZoom: number) {
+		if (!ctx) return;
+		camTween = {
+			startPos: ctx.camera.position.clone(),
+			endPos: endPos.clone(),
+			startUp: ctx.camera.up.clone(),
+			endUp: endUp.clone(),
+			startTarget: ctx.controls.target.clone(),
+			endTarget: endTarget.clone(),
+			startZoom: ctx.camera.zoom,
+			endZoom,
+			start: performance.now()
+		};
+	}
+
+	function stepCameraTween() {
+		if (!camTween || !ctx) return;
+		const t = Math.min(1, (performance.now() - camTween.start) / CAMERA_TRANSITION_MS);
+		const e = easeInOut(t);
+		ctx.camera.position.lerpVectors(camTween.startPos, camTween.endPos, e);
+		ctx.camera.up.lerpVectors(camTween.startUp, camTween.endUp, e).normalize();
+		ctx.controls.target.lerpVectors(camTween.startTarget, camTween.endTarget, e);
+		ctx.camera.zoom = camTween.startZoom + (camTween.endZoom - camTween.startZoom) * e;
+		ctx.camera.updateProjectionMatrix();
+		if (t >= 1) {
+			camTween = null;
+		}
+	}
+
+	// the camera position/up used to "look at" a given face (matches lookAtFace).
+	function faceCameraState(idx: number): { pos: Vector3; up: Vector3 } {
+		const pos = new Vector3(0, 10, 40);
+		const up = new Vector3(0, 1, 0);
+		const face = currentBuilder?.getFaces()[idx];
+		if (face) {
+			const q = face.transform.rotation;
+			pos.applyQuaternion(q);
+			up.applyQuaternion(q).normalize();
+		}
+		return { pos, up };
+	}
+
 	let saving = $state(false);
 	const save = (data: DiceSet) => {
 		saving = true;
@@ -119,6 +183,7 @@
 		ctx = _ctx;
 		ctx.camera.position.copy(camInitialPos);
 		const camZoom = ctx.camera.zoom;
+		baseZoom = camZoom;
 		const camRot = ctx.camera.rotation.clone();
 		resetCamera = () => {
 			_ctx.controls.reset();
@@ -127,6 +192,10 @@
 			_ctx.camera.rotation.copy(camRot);
 		};
 		ctx.scene.add(gridHelper);
+		ctx.onBeforeRender(() => {
+			currentBuilder?.update();
+			stepCameraTween();
+		});
 		ctx.render();
 	};
 
@@ -152,16 +221,13 @@
 	});
 
 	function lookAtFace(idx: number) {
-		console.log('looking at face:', idx);
-		resetCamera();
-		if (!explodeMode) {
-			const face = currentBuilder?.getFaces()[idx];
-			const camera = ctx?.camera;
-			if (camera && face) {
-				face.transform?.applyRotationToCamera(camera); // we should get the model to do this work.
-				ctx?.controls.update();
-			}
+		if (explodeMode) {
+			// in the flat view there's no per-face orientation; keep looking at the plane.
+			animateCameraTo(new Vector3(0, 0, 100), new Vector3(0, 1, 0), new Vector3(0, 0, 0), baseZoom);
+			return;
 		}
+		const { pos, up } = faceCameraState(idx);
+		animateCameraTo(pos, up, new Vector3(0, 0, 0), baseZoom);
 	}
 
 	// we have a few things to worry about here.
@@ -455,10 +521,19 @@
 						title={m.controls_toggle_explode_mode()}
 						onclick={() => {
 							explodeMode = !explodeMode;
+							currentBuilder?.setExploded(explodeMode);
 							if (explodeMode) {
-								setTimeout(() => {
-									resetCamera();
-								});
+								// transition to looking straight at the flat plane of faces.
+								animateCameraTo(
+									new Vector3(0, 0, 100),
+									new Vector3(0, 1, 0),
+									new Vector3(0, 0, 0),
+									baseZoom
+								);
+							} else {
+								// transition back to the "look at face" direction.
+								const { pos, up } = faceCameraState(selectedFace);
+								animateCameraTo(pos, up, new Vector3(0, 0, 0), baseZoom);
 							}
 						}}
 						>{#if explodeMode}<Box />{:else}<LayoutGrid />{/if}</Button.Root

@@ -4,6 +4,7 @@ import {
 	BufferAttribute,
 	BufferGeometry,
 	DoubleSide,
+	Matrix4,
 	Mesh,
 	MeshBasicMaterial,
 	Object3D,
@@ -52,23 +53,30 @@ function id(...vectors: Array<Vector3>): string {
 
 export function findAllBadTriangles(...obj: Array<Object3D>) {
 	const vertices: Array<number> = [];
-	function recur(o: Object3D) {
+	// face geometry is built at the origin and positioned via its Group's transform,
+	// so we must bake each mesh's accumulated transform in before comparing vertices.
+	function recur(o: Object3D, parentMatrix: Matrix4) {
+		o.updateMatrix();
+		const worldMatrix = parentMatrix.clone().multiply(o.matrix);
 		if ((o as Group).isGroup) {
-			o.children.map(recur);
+			o.children.forEach((c) => recur(c, worldMatrix));
 			return;
 		}
 		if ((o as Mesh).isMesh) {
 			let g = (o as Mesh).geometry;
 			if (g.index !== null) {
 				g = g.toNonIndexed();
+			} else {
+				g = g.clone();
 			}
+			g.applyMatrix4(worldMatrix);
 			vertices.push(...g.attributes.position.array);
 			return;
 		}
 		// some other kind of object.
 		log('unknown Object3D:', o.type);
 	}
-	obj.forEach(recur);
+	obj.forEach((o) => recur(o, new Matrix4().identity()));
 	// now we have a big list of vertices, we should run "mergeVertices" on it as
 	// we do that in the export step.
 	let buf = new BufferGeometry();
