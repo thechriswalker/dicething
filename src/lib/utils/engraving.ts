@@ -1,13 +1,5 @@
-import {
-	BufferAttribute,
-	BufferGeometry,
-	EdgesGeometry,
-	Path,
-	Shape,
-	ShapeGeometry,
-	ShapeUtils,
-	Vector2
-} from 'three';
+import { BufferAttribute, BufferGeometry, Path, Shape, ShapeUtils, Vector2 } from 'three';
+import { shapeGeometry } from './tessellate';
 import {
 	anyOuterContainsInner,
 	isContained,
@@ -18,6 +10,15 @@ import {
 import type { FaceParams } from '$lib/interfaces/dice';
 
 export const DefaultDivisions = 12;
+
+// Points that duplicate their predecessor, or whose perpendicular distance from
+// the line through their neighbours is below this, are removed from every loop
+// before triangulation. This keeps the caps (triangulated by libtess) and the
+// walls (built straight from the loop points) agreeing on the boundary, drops
+// near-degenerate slivers that would otherwise leave the mesh non-manifold, and
+// reduces the triangle count on straight runs. Units are mm; the threshold is
+// far below any visible feature but well above float32 noise.
+const RedundantPointEpsilon = 1e-3;
 
 export type SymbolOrientation = Pick<FaceParams, 'offset' | 'rotation' | 'scale'>;
 
@@ -52,6 +53,13 @@ export function engrave(
 		//console.log('offset', orientation.offset);
 		symbols = translateShapes(orientation.offset, ...symbols);
 	}
+
+	// Replace each symbol with an equivalent polygon shape whose duplicate and
+	// collinear points have been removed. From here on every consumer (the front
+	// cap holes, the back cap and the walls) derives its points from these same
+	// cleaned loops, so they all agree on the boundary edges and earcut has no
+	// collinear points left to silently drop -> the engraving stays manifold.
+	symbols = symbols.map((s) => cleanShape(s, divisions, RedundantPointEpsilon));
 
 	const canEngraveSymbol = isContained(surface, symbols, clearance);
 
@@ -115,7 +123,7 @@ export function engrave(
 	}
 	faceGroups.push(face);
 
-	const faceFront = new ShapeGeometry(faceGroups, divisions);
+	const faceFront = shapeGeometry(faceGroups, divisions);
 	faceFront.userData = { diceThingPart: Part.Front };
 
 	if (symbols.length === 0) {
@@ -123,7 +131,7 @@ export function engrave(
 		return [faceFront];
 	}
 
-	const symbolOutline = new ShapeGeometry(symbols, divisions);
+	const symbolOutline = shapeGeometry(symbols, divisions);
 	symbolOutline.userData = { diceThingPart: Part.Symbol, diceThingSymbolOK: canEngraveSymbol };
 	symbolOutline.translate(0, 0, 0.1); // move it forwards so we can see it clearly
 
@@ -132,7 +140,7 @@ export function engrave(
 	}
 
 	// engrave it.
-	const faceBack = new ShapeGeometry(symbols, divisions);
+	const faceBack = shapeGeometry(symbols, divisions);
 	faceBack.userData = { diceThingPart: Part.Engraved };
 
 	faceBack.translate(0, 0, -depth);
@@ -171,4 +179,66 @@ export function engrave(
 	wallGeo.userData = { diceThingPart: Part.Walls };
 
 	return [wallGeo, faceBack, faceFront];
+}
+
+// Returns a polygon Shape equivalent to `s` (curves tessellated at `divisions`)
+// with duplicate and collinear points removed from the outline and every hole.
+// Building a Shape from plain points produces LineCurves, so downstream
+// getPoints()/getPointsHoles() calls return exactly these cleaned points
+// regardless of the division count passed.
+function cleanShape(s: Shape, divisions: number, epsilon: number): Shape {
+	const outer = removeRedundantPoints(s.getPoints(divisions), epsilon);
+	const shape = new Shape(outer);
+	shape.holes = s
+		.getPointsHoles(divisions)
+		.map((hole) => removeRedundantPoints(hole, epsilon))
+		.filter((hole) => hole.length >= 3)
+		.map((hole) => new Path(hole));
+	return shape;
+}
+
+// Removes a trailing point coincident with the first, then iteratively removes
+// any point that is a duplicate of its predecessor or lies (within epsilon) on
+// the line between its two neighbours. Neighbours are read from the live array
+// each step so removals compound correctly. The loop keeps at least 3 points.
+export function removeRedundantPoints(
+	input: Array<Vector2>,
+	epsilon: number = RedundantPointEpsilon
+): Array<Vector2> {
+	const pts = input.slice();
+	if (pts.length > 1 && pts[0].equals(pts[pts.length - 1])) {
+		pts.pop();
+	}
+	let changed = true;
+	while (changed && pts.length > 3) {
+		changed = false;
+		for (let i = 0; i < pts.length && pts.length > 3; i++) {
+			const a = pts[(i - 1 + pts.length) % pts.length];
+			const b = pts[i];
+			const c = pts[(i + 1) % pts.length];
+			if (isRedundantPoint(a, b, c, epsilon)) {
+				pts.splice(i, 1);
+				i--;
+				changed = true;
+			}
+		}
+	}
+	return pts;
+}
+
+// True if `b` is a duplicate of `a`, or sits on (within epsilon of) segment a->c.
+function isRedundantPoint(a: Vector2, b: Vector2, c: Vector2, epsilon: number): boolean {
+	if (b.distanceToSquared(a) <= epsilon * epsilon) {
+		return true;
+	}
+	const acx = c.x - a.x;
+	const acy = c.y - a.y;
+	const acLen = Math.sqrt(acx * acx + acy * acy);
+	if (acLen <= epsilon) {
+		// a and c are coincident, so the only way b is between them is if it is
+		// also coincident, which the duplicate test above already handled.
+		return false;
+	}
+	const cross = (b.x - a.x) * acy - (b.y - a.y) * acx;
+	return Math.abs(cross) / acLen < epsilon;
 }

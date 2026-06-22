@@ -6,6 +6,7 @@
 	import type { FaceParams } from '$lib/interfaces/dice';
 	import { findAllBadTriangles } from '$lib/utils/bad_edges';
 	import { Builder } from '$lib/utils/builder';
+	import { addRenderOptions, numberStringToWords } from '$lib/utils/font';
 	import {
 		debugLegendName,
 		Legend,
@@ -142,11 +143,15 @@
 			import('$lib/utils/font')
 		]);
 		if (buf) {
-			const shapes = fontMod.createShapesFromFont(buf);
+			const strings = addRenderOptions(fontMod.defaultStrings);
+			const names = strings.map((s) => numberStringToWords(s.text));
+			const shapes = fontMod.createShapesFromFont(buf, addRenderOptions(fontMod.defaultStrings));
 			legends = loadImmutableLegends({
+			
 				id: 'temp',
 				name,
-				shapes
+				shapes,
+				names
 			});
 			renderAllLegends();
 		}

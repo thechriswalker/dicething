@@ -6,7 +6,9 @@ import {
 	createShapesFromFont,
 	createShapesFromSVG,
 	defaultStrings,
-	type FontString
+	defaultRenderOptions,
+	type FontString,
+	numberStringToWords
 } from '$lib/utils/font';
 import { dirname, sep } from 'node:path';
 
@@ -75,68 +77,7 @@ async function loadSVGIcon(
 	return { name, shapes };
 }
 
-const defaultRenderOptions: Record<string, RenderOptions> = {
-	'6.': { letterSpacing: -0.1 },
-	'9.': { letterSpacing: -0.1 }
-};
 
-// the teens and the
-const specialCases: Record<string, string> = {
-	'0': 'Zero',
-	'00': 'Double Zero',
-	'6.': 'Marked Six',
-	'9.': 'Marked Nine',
-	'11': 'Eleven',
-	'12': 'Twelve',
-	'13': 'Thirteen',
-	'14': 'Fourteen',
-	'15': 'Fifteen',
-	'16': 'Sixteen',
-	'17': 'Seventeen',
-	'18': 'Eighteen',
-	'19': 'Nineteen'
-};
-const ones: Array<string> = [
-	'', // zero
-	'One',
-	'Two',
-	'Three',
-	'Four',
-	'Five',
-	'Six',
-	'Seven',
-	'Eight',
-	'Nine'
-];
-const tens: Array<string> = [
-	'', // <10
-	'Ten',
-	'Twenty',
-	'Thirty',
-	'Forty',
-	'Fifty',
-	'Sixty',
-	'Seventy',
-	'Eighty',
-	'Ninety'
-];
-// only english and only up to 99.
-function numberStringToWords(s: string): string {
-	// special cases first.
-	if (s in specialCases) {
-		return specialCases[s];
-	}
-	const n = parseInt(s, 10);
-	if (!Number.isInteger(n)) {
-		throw new Error(`Attempt to use non-integer symbol in builtin: ${s}`);
-	}
-	if (n < 0 || n > 99) {
-		throw new Error(`Attempt to use out-of-range symbol in builtin: ${s}`);
-	}
-	const o = ones[n % 10];
-	const t = tens[Math.floor(n / 10)];
-	return [t, o].join(' ').trim();
-}
 
 async function buildAll() {
 	const baseDir = new URL(dirname(import.meta.url)).pathname;
