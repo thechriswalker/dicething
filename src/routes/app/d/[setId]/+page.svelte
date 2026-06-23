@@ -265,11 +265,17 @@
 					ctx?.setSecondarySeletedItems(currentBuilder?.getOutlineObjects(ev.face) ?? []);
 				},
 				(ev) => {
-					if (ev.dice === dieId) {
-						if (selectedFace !== ev.face) {
-							selectedFace = ev.face;
-							lookAtFace(selectedFace);
-						}
+					if (ev.dice !== dieId) {
+						return;
+					}
+					if (ev._shift) {
+						toggleFaceSelection(ev.face);
+					} else if (selectMode !== 'single' || selectedFace !== ev.face) {
+						// plain click → single select.
+						selectMode = 'single';
+						selectedFaces = [];
+						selectedFace = ev.face;
+						lookAtFace(selectedFace);
 					}
 				}
 			);
@@ -368,7 +374,9 @@
 					renderedDice = dieId;
 					currentBuilder = builder;
 					if (updated) {
+						selectMode = 'single';
 						selectedFace = 0;
+						selectedFaces = [];
 						console.log('dice changed');
 						resetCamera();
 						ctx.scene.add(builder.diceGroup);
@@ -475,15 +483,59 @@
 		}
 	});
 
+	// face selection has three modes:
+	// - 'single': one face selected (selectedFace), sliders edit that face.
+	// - 'multi': several faces selected (selectedFaces), sliders edit all of them.
+	// - 'none': nothing selected, no per-face controls.
+	// selectedFace is also the "primary" face used to aim the camera.
+	type SelectMode = 'single' | 'multi' | 'none';
+	let selectMode = $state<SelectMode>('single');
 	let selectedFace = $state(0);
+	let selectedFaces = $state<number[]>([]);
+
+	// the set of faces edits currently apply to / are highlighted.
+	let targetFaces = $derived.by(() => {
+		if (selectMode === 'multi') return selectedFaces;
+		if (selectMode === 'single' && selectedFace >= 0) return [selectedFace];
+		return [];
+	});
 
 	$effect(() => {
-		//highlightFaces();
 		highlightSelectedFace();
 	});
 
 	function highlightSelectedFace() {
-		ctx?.setPrimarySelectedItems(currentBuilder?.getOutlineObjects(selectedFace) ?? []);
+		ctx?.setPrimarySelectedItems(
+			targetFaces.flatMap((f) => currentBuilder?.getOutlineObjects(f) ?? [])
+		);
+	}
+
+	// shift-click on the 3d view toggles a face in/out of the selection.
+	// reducing the selection on the dice itself switches tools: 1 face -> single,
+	// 0 faces -> none.
+	function toggleFaceSelection(face: number) {
+		const set = new Set(targetFaces);
+		if (set.has(face)) {
+			set.delete(face);
+		} else {
+			set.add(face);
+		}
+		const next = [...set].sort((a, b) => a - b);
+		if (next.length === 0) {
+			selectMode = 'none';
+			selectedFaces = [];
+		} else if (next.length === 1) {
+			selectMode = 'single';
+			selectedFaces = [];
+			selectedFace = next[0];
+			lookAtFace(selectedFace);
+		} else {
+			selectMode = 'multi';
+			selectedFaces = next;
+			// keep the camera on the most recently toggled face.
+			selectedFace = face;
+			lookAtFace(face);
+		}
 	}
 
 	let explodeMode = $state(false);
@@ -748,7 +800,9 @@
 							kind={die.kind}
 							builder={currentBuilder}
 							legends={setData.legends}
+							bind:selectMode
 							bind:selectedFace
+							bind:selectedFaces
 							onChangeSelectedFace={(f) => lookAtFace(f)}
 						/>
 					{/if}

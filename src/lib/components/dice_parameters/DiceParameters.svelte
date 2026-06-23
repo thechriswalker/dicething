@@ -1,6 +1,7 @@
 <script lang="ts">
 	import dice from '$lib/dice';
 	import type { Dice } from '$lib/interfaces/storage.svelte';
+	import type { FaceParams } from '$lib/interfaces/dice';
 	import { m } from '$lib/paraglide/messages';
 	import { engravingParam, type Builder } from '$lib/utils/builder';
 	import { type LegendSet } from '$lib/utils/legends';
@@ -12,12 +13,16 @@
 	import LegendPreview from '../legend_viewer/LegendPreview.svelte';
 	import Collapsible from '../collapsible/Collapsible.svelte';
 
+	type SelectMode = 'single' | 'multi' | 'none';
+
 	type Props = {
 		kind: Dice['kind'];
 		dparams: Dice['parameters'];
 		fparams: Dice['face_parameters'];
 		legends: LegendSet;
+		selectMode: SelectMode;
 		selectedFace: number;
+		selectedFaces: number[];
 		builder: Builder;
 		renderPass: number;
 		onChangeSelectedFace?: (n: number) => void;
@@ -28,7 +33,9 @@
 		kind,
 		dparams = $bindable(),
 		fparams = $bindable(),
+		selectMode = $bindable(),
 		selectedFace = $bindable(),
+		selectedFaces = $bindable(),
 		builder,
 		renderPass,
 		onChangeSelectedFace
@@ -51,12 +58,38 @@
 	let f2f = $derived(renderPass ? builder.getFace2FaceDistance() : '-');
 	let firstBlank = $derived(faces.findIndex((x) => !x.isNumberFace));
 	let engravingDepth = $derived(dparams[engravingParam.id] ?? engravingParam.defaultValue);
-	let faceLegend = $derived(fparams[selectedFace]?.legend ?? faces[selectedFace]?.defaultLegend);
+
+	function faceName(face: { isNumberFace: boolean }, i: number): string {
+		return face.isNumberFace
+			? m.face_parameters_face_name_0_n({ n: i + 1 })
+			: m.face_parameters_blank_name_0_n({ n: i + 1 - firstBlank });
+	}
+
+	// the faces that edits apply to. in multi mode this is every selected face;
+	// in single mode it's just the selected one; in none mode it's empty.
+	let targetFaces = $derived.by(() => {
+		if (selectMode === 'multi') return selectedFaces;
+		if (selectMode === 'single' && selectedFace >= 0) return [selectedFace];
+		return [];
+	});
+	// the face whose values are shown on the sliders. for multi we show the first.
+	let displayFace = $derived(targetFaces.length > 0 ? targetFaces[0] : -1);
+
+	// apply a mutation to the FaceParams of every currently targeted face.
+	function updateTargetFaces(mutate: (params: FaceParams) => void) {
+		for (const i of targetFaces) {
+			const params = fparams[i] ?? {};
+			mutate(params);
+			fparams[i] = params;
+		}
+	}
+
+	let faceLegend = $derived(fparams[displayFace]?.legend ?? faces[displayFace]?.defaultLegend);
 	let faceLegendScale = $derived(
-		fparams[selectedFace]?.scale ?? builder.getDefaultScaleForLegend(faceLegend)
+		fparams[displayFace]?.scale ?? builder.getDefaultScaleForLegend(faceLegend)
 	);
-	let faceLegendOffset = $derived(fparams[selectedFace]?.offset ?? new Vector2(0, 0));
-	let faceRotationDegrees = $derived(radToDeg(fparams[selectedFace]?.rotation ?? 0));
+	let faceLegendOffset = $derived(fparams[displayFace]?.offset ?? new Vector2(0, 0));
+	let faceRotationDegrees = $derived(radToDeg(fparams[displayFace]?.rotation ?? 0));
 </script>
 
 <div class="card preset-tonal-surface flex w-72 flex-col gap-2 p-4">
@@ -120,25 +153,78 @@
 			<select
 				class="select"
 				onchange={(e) => {
-					selectedFace = Number((e.target as any).value);
-					onChangeSelectedFace?.(selectedFace);
+					const v = (e.target as HTMLSelectElement).value;
+					if (v === 'none') {
+						selectMode = 'none';
+						selectedFaces = [];
+					} else if (v === 'multi') {
+						// seed the multi selection with the current single face, if any.
+						if (selectMode !== 'multi') {
+							selectedFaces = selectMode === 'single' && selectedFace >= 0 ? [selectedFace] : [];
+						}
+						selectMode = 'multi';
+					} else {
+						selectMode = 'single';
+						selectedFaces = [];
+						selectedFace = Number(v);
+						onChangeSelectedFace?.(selectedFace);
+					}
 				}}
 			>
-				<option value={-1}>-</option>
+				<option value="none" selected={selectMode === 'none'}>{m.face_select_none()}</option>
+				<option value="multi" selected={selectMode === 'multi'}>{m.face_select_multi()}</option>
 				{#each faces as face, i}
-					{#if face.isNumberFace}
-						<option value={i} selected={i === selectedFace}
-							>{m.face_parameters_face_name_0_n({ n: i + 1 })}</option
-						>
-					{:else}
-						<option value={i} selected={i === selectedFace}
-							>{m.face_parameters_blank_name_0_n({ n: i + 1 - firstBlank })}</option
-						>
-					{/if}
+					<option value={i} selected={selectMode === 'single' && i === selectedFace}
+						>{faceName(face, i)}</option
+					>
 				{/each}
 			</select>
 		</label>
-		{#if selectedFace !== -1}
+		{#if selectMode === 'multi'}
+			<div class="mt-2 flex items-center justify-end gap-2 text-sm">
+				<button
+					type="button"
+					class="anchor"
+					onclick={() => {
+						selectedFaces = faces.map((_, i) => i);
+					}}>{m.face_select_all()}</button
+				>
+				<span>/</span>
+				<button
+					type="button"
+					class="anchor"
+					onclick={() => {
+						selectedFaces = [];
+					}}>{m.face_select_clear()}</button
+				>
+			</div>
+			<div class="border-surface-300-700 mt-1 max-h-32 overflow-y-auto rounded border">
+				{#each faces as face, i}
+					<label class="hover:bg-surface-200-800 flex items-center gap-2 px-2 py-1">
+						<input
+							type="checkbox"
+							class="checkbox"
+							checked={selectedFaces.includes(i)}
+							onchange={(e) => {
+								const checked = (e.target as HTMLInputElement).checked;
+								const set = new Set(selectedFaces);
+								if (checked) {
+									set.add(i);
+									selectedFace = i;
+									onChangeSelectedFace?.(i);
+								} else {
+									set.delete(i);
+								}
+								// staying in multi mode even when 0 or 1 remain selected.
+								selectedFaces = [...set].sort((a, b) => a - b);
+							}}
+						/>
+						<span>{faceName(face, i)}</span>
+					</label>
+				{/each}
+			</div>
+		{/if}
+		{#if targetFaces.length > 0}
 			<!-- 
 	face params are specific:
 	
@@ -169,9 +255,7 @@
 							{legends}
 							selectedLegend={faceLegend}
 							onSelectedLegend={(next) => {
-								const _params = fparams[selectedFace] ?? {};
-								_params.legend = next;
-								fparams[selectedFace] = _params;
+								updateTargetFaces((p) => (p.legend = next));
 								close();
 							}}
 						/>
@@ -192,9 +276,7 @@
 					class="py-1"
 					value={faceLegendScale}
 					onChange={(nextScale) => {
-						const _params = fparams[selectedFace] ?? {};
-						_params.scale = nextScale;
-						fparams[selectedFace] = _params;
+						updateTargetFaces((p) => (p.scale = nextScale));
 					}}
 					min={0.1}
 					max={5.0}
@@ -214,67 +296,57 @@
 					class="py-1"
 					value={faceLegendOffset.x}
 					onChange={(nextOffset) => {
-						const _params = fparams[selectedFace] ?? {};
-						if (_params.offset) {
-							_params.offset = _params.offset.clone().setX(nextOffset);
-						} else {
-							_params.offset = new Vector2(nextOffset, 0);
-						}
-						fparams[selectedFace] = _params;
+						updateTargetFaces((p) => {
+							p.offset = (p.offset?.clone() ?? new Vector2(0, 0)).setX(nextOffset);
+						});
 					}}
 					min={-20}
 					max={20}
 					step={0.1}
 				></Slider>
 			</label>
+			<label class="flex flex-col">
+				<p class="flex justify-between">
+					<span>
+						{m.face_parameters_offset_y()}
+					</span>
+					<span>
+						({faceLegendOffset.y.toFixed(2)})
+					</span>
+				</p>
+				<Slider
+					class="py-1"
+					value={faceLegendOffset.y}
+					onChange={(nextOffset) => {
+						updateTargetFaces((p) => {
+							p.offset = (p.offset?.clone() ?? new Vector2(0, 0)).setY(nextOffset);
+						});
+					}}
+					min={-20}
+					max={20}
+					step={0.1}
+				></Slider>
+			</label>
+			<label class="flex flex-col">
+				<p class="flex justify-between">
+					<span>
+						{m.face_parameters_rotation()}
+					</span>
+					<span>
+						({faceRotationDegrees.toFixed(2)})
+					</span>
+				</p>
+				<Slider
+					class="py-1"
+					value={faceRotationDegrees}
+					onChange={(nextRotation) => {
+						updateTargetFaces((p) => (p.rotation = degToRad(nextRotation)));
+					}}
+					min={-180}
+					max={180}
+					step={0.1}
+				></Slider>
+			</label>
 		{/if}
-		<label class="flex flex-col">
-			<p class="flex justify-between">
-				<span>
-					{m.face_parameters_offset_y()}
-				</span>
-				<span>
-					({faceLegendOffset.y.toFixed(2)})
-				</span>
-			</p>
-			<Slider
-				class="py-1"
-				value={faceLegendOffset.y}
-				onChange={(nextOffset) => {
-					const _params = fparams[selectedFace] ?? {};
-					if (_params.offset) {
-						_params.offset = _params.offset.clone().setY(nextOffset);
-					} else {
-						_params.offset = new Vector2(0, nextOffset);
-					}
-					fparams[selectedFace] = _params;
-				}}
-				min={-20}
-				max={20}
-				step={0.1}
-			></Slider>
-		</label>
-		<label class="flex flex-col">
-			<p class="flex justify-between">
-				<span>
-					{m.face_parameters_rotation()}
-				</span>
-				<span>
-					({faceRotationDegrees.toFixed(2)})
-				</span>
-			</p>
-			<Slider
-				class="py-1"
-				value={faceRotationDegrees}
-				onChange={(nextRotation) => {
-					const params = fparams[selectedFace] ?? {};
-					params.rotation = degToRad(nextRotation);
-					fparams[selectedFace] = params;
-				}}
-				min={-180}
-				max={180}
-				step={0.1}
-			></Slider>
-		</label>
 	</Collapsible>
 </div>
