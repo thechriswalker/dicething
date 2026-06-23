@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { PUBLIC_APP_COMMIT, PUBLIC_APP_REPO_URL, PUBLIC_APP_VERSION } from '$env/static/public';
-	import { Github } from '@lucide/svelte';
+	import { Github, GitBranch } from '@lucide/svelte';
 
 	const thanks = [
 		{
@@ -60,8 +60,13 @@
 			href={PUBLIC_APP_REPO_URL}
 			class="btn preset-filled-primary-500 inline-flex flex-row items-center gap-1"
 		>
+		{#if PUBLIC_APP_REPO_URL.includes("github.com")}
 			<Github class="icon-text" />
 			Source on GitHub
+			{:else}
+			<GitBranch class="icon-text" />
+			Source Code 
+			{/if}
 		</a>
 	</p>
 
