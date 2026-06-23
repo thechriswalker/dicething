@@ -74,14 +74,14 @@ The UI section will need a whole lot more...
   - [x] Rhombics (d6, d12)
   - [x] Shards (d4,d6, d8, d10/d%, d12) (theoretically we can do weird ones here, like D3,D5,D7,D9...)
   - [ ] Barrels (d4,d6, d8, d10/d%, d12) (these are the triangle faced ones)
-  - [ ] Caltrop D4 (as 12 faces both on tips and edges, and with only 4 faces)
+  - [x] Caltrop D4 (as 12 faces both on tips and edges, and with only 4 faces)
     - [x] With 12 faces on tips
     - [x] With 12 faces on edges
     - [x] With 4 faces (for custom stuff)
-    - [ ] Truncated? i.e. legends on tips?
-  - [ ] Coin D2 - a short cylinder
-    - [ ] Regular Polygon
-    - [ ] Circle (I probably have to keep these separate)
+    - [x] Truncated? i.e. legends on tips?
+  - [x] Coin D2 - a short cylinder
+    - [x] Regular Polygon
+    - [x] Circle ~~(I probably have to keep these separate)~~ (just use 96 segements)
 - [x] Legend Engraving
   - [x] auto-fit legends by default
     - [x] auto custom scale per-face-per-legend (i.e. a D20 wants numbers as large as possible on each face, not consistent on each face) - maybe an "oncreate" option?
@@ -97,16 +97,16 @@ The UI section will need a whole lot more...
     - [ ] for main scene (might be more trouble than it's worth at the moment, need to test on slower machines...)
   - [x] STL output and geometry preprocessing
   - [x] Bad manifold detection and edge fixing (not 100%, some errors don't cause problems, but it is a warning)
-  - [ ] multiple dice scene for rendering full sets.
+  - [x] multiple dice scene for rendering full sets.
   - [x] mouse pointer integration (for click detection/handling)
-- [ ] Blanks / Platformms
-  - [ ] generate a die with blanks at a given "inset" from the source parameters
-  - [ ] generate platforms automatically from the number faces (custom face shape needed for caltrop)
-  - [ ] make blank/platform generation configurable.
-  - [ ] how to make the output accessible to the renderer
-- [ ] Save / Load JSON
+- [x] Blanks / Platformms
+  - [x] generate a die with blanks at a given "inset" from the source parameters
+  - [x] generate platforms automatically from the number faces (custom face shape needed for caltrop)
+  - [x] make blank/platform generation configurable.
+  - [x] how to make the output accessible to the renderer
+- [x] Save / Load JSON
   - [x] create a serialisation format (JSON, but a schema)
-  - [ ] save
+  - [x] save
   - [x] load
   - [x] identify whether use of (say) indexedDB would be a good fit for our data
     - [x] localStorage is fine
@@ -148,21 +148,21 @@ The first flow will be
 - [x] new set from preset
 - [x] load saved set
 - [x] import JSON
-- [ ] set view
+- [x] set view
   - [x] previews of die
   - [x] main selected die view
   - [x] edit singel die parameters
   - [ ] close die parameter draw (for space)
   - [x] save changes!
-  - [ ] title edit
+  - [x] title edit
   - [x] legend editor (component)
     - [x] font loader - character set picker
   - [x] legend picker (component) - i.e. pick a symbol from the current set - a select box alike
   - [x] set menu
     - [x] combine legends/export/lightswitch into a single menu
     - [x] export options (component)
-      - [ ] toSTL options i.e. auto blanks
-      - [ ] toJSON ? are there options?
+      - [x] toSTL options i.e. auto blanks
+      - [x] toJSON ? are there options?
 
 ### Fonts
 
