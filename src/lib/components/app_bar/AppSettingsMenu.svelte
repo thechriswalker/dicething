@@ -3,7 +3,7 @@
 	import Menu from '$lib/components/menu/Menu.svelte';
 	import type { MenuItemSubmenu } from '$lib/components/menu/menu';
 	import { m } from '$lib/paraglide/messages';
-	import { MessageCircleQuestion, Settings } from '@lucide/svelte';
+	import { FileType, MessageCircleQuestion, Settings } from '@lucide/svelte';
 
 	let aboutOpen = $state(false);
 
@@ -13,6 +13,12 @@
 		icon: Settings,
 		children: [
 			{ type: 'lightswitch' },
+			{
+				type: 'link',
+				title: m.nav_legends(),
+				icon: FileType,
+				href: '/legends'
+			},
 			{
 				type: 'action',
 				title: m.splash_about(),

@@ -94,6 +94,21 @@ export function debugLegendName(n: Legend): string {
 		.join(' ');
 }
 
+// Where the source font for a legend set can be found when the user wants to
+// generate *more* glyphs. Builtin fonts are served from the bundle (so we just
+// need the builtin id), uploaded fonts are persisted in IndexedDB keyed by the
+// legend set id (see $lib/interfaces/fontstore).
+export type LegendFontOrigin =
+	| { kind: 'builtin'; builtinId: string }
+	| { kind: 'uploaded' };
+
+// The recipe used to (re)generate an individual legend, so the editor can tweak
+// e.g. the characters or letter spacing later. Optional/per-slot.
+export type LegendSource =
+	| { kind: 'font'; text: string; letterSpacing?: number }
+	| { kind: 'svg' }
+	| { kind: 'glyph'; from: string; legend: Legend };
+
 export type LegendSet = {
 	readonly id: string;
 	readonly name: string;
@@ -109,6 +124,13 @@ export type SerialisedLegendSet = {
 	name: string;
 	names: Array<string>;
 	shapes: Array<Array<any>>;
+	// revision marker (unix millis), bumped on every save so consumers can
+	// detect content changes for the same id.
+	updated?: number;
+	// where to find the source font to add more glyphs (custom sets only).
+	font?: LegendFontOrigin;
+	// per-slot generation recipe (custom sets only). aligned with shapes/names.
+	sources?: Array<LegendSource | null>;
 };
 
 // these are the inbuilt ones.
@@ -125,7 +147,10 @@ export type ImmutableLegendSet = LegendSet & {
 export type MutableLegendSet = LegendSet & {
 	readonly mutable: true;
 	name: string;
-	set(l: Legend, name: string, shapes: Array<Shape>): void;
+	font?: LegendFontOrigin;
+	updated?: number;
+	getSource(l: Legend): LegendSource | undefined;
+	set(l: Legend, name: string, shapes: Array<Shape>, source?: LegendSource | null): void;
 };
 
 export function loadImmutableLegends(s: SerialisedLegendSet): ImmutableLegendSet {
@@ -164,7 +189,14 @@ export function loadImmutableLegends(s: SerialisedLegendSet): ImmutableLegendSet
 		clone(): MutableLegendSet {
 			// update the ID
 			const id = crypto.randomUUID();
-			return loadMutableLegends({ id, name: s.name, names: s.names, shapes: s.shapes });
+			return loadMutableLegends({
+				id,
+				name: s.name,
+				names: s.names,
+				shapes: s.shapes,
+				font: s.font,
+				sources: s.sources
+			});
 		},
 		toJSON() {
 			return s;
@@ -184,15 +216,21 @@ export function loadMutableLegends(s: SerialisedLegendSet): MutableLegendSet {
 	const data = s.shapes.slice();
 	const cache = new Map<Legend, Array<Shape>>();
 	const load = (l: Legend) => {
-		const shapes = data[l].map((ss) => new Shape().fromJSON(ss));
+		// shapes use the project's compact encoding (shapeToJSON), the same as
+		// loadImmutableLegends and the set() mutator below — not three's native
+		// Shape.fromJSON format.
+		const shapes = data[l].map((ss) => shapeFromJSON(ss));
 		cache.set(l, shapes);
 		return shapes;
 	};
 	const names = s.names.slice();
+	const sources = (s.sources ?? []).slice();
 	const set: MutableLegendSet = {
 		id: s.id,
 		name: s.name,
 		mutable: true,
+		font: s.font,
+		updated: s.updated,
 		get length() {
 			return data.length;
 		},
@@ -214,17 +252,26 @@ export function loadMutableLegends(s: SerialisedLegendSet): MutableLegendSet {
 			}
 			return s;
 		},
-		set(l, name, shapes) {
+		getSource(l) {
+			return sources[l] ?? undefined;
+		},
+		set(l, name, shapes, source) {
 			cache.set(l, shapes);
 			data[l] = shapes.map(shapeToJSON);
 			names[l] = name;
+			if (source !== undefined) {
+				sources[l] = source;
+			}
 		},
 		toJSON() {
 			return {
 				id: s.id,
 				name: set.name,
 				names: names,
-				shapes: data
+				shapes: data,
+				updated: set.updated,
+				font: set.font,
+				sources: sources
 			};
 		},
 		*[Symbol.iterator]() {

@@ -137,6 +137,14 @@ export class Builder {
 		this.forceRerenderFaces = true;
 	}
 
+	// Force-adopt a legend set even when the id is unchanged. Used when the
+	// *contents* of a custom legend set have been edited (same id, new shapes).
+	reloadLegends(set: LegendSet) {
+		this.legends = set;
+		this.recalculateLegendScaling();
+		this.forceRerenderFaces = true;
+	}
+
 	setFrontMaterial(mat: Material) {
 		this.frontMaterial = mat;
 		this.diceGroup.children.forEach((m) => {

@@ -96,6 +96,9 @@ async function buildAll() {
 
 	const fontMeta = [];
 	for (let d of await readdir(builtins)) {
+		// the source directory name, retained even after we mangle `d` for the
+		// _100 variant, so both variants can reference the same TTF + license.
+		const fontDir = d;
 		const src = builtins + '/' + d + '/' + d + '.ttf';
 		let dst = generated + '/' + d + '.json';
 		// un_snake_case the name.
@@ -113,6 +116,7 @@ async function buildAll() {
 		await createFontBasedLegends(src, dst, d, name, strings, icons);
 		fontMeta.push({
 			varname: d,
+			fontDir,
 			name: JSON.stringify(name),
 			tags: ['std'],
 			import: JSON.stringify('.' + genSuffix + '/' + d + '.json')
@@ -130,15 +134,22 @@ async function buildAll() {
 		);
 		fontMeta.push({
 			varname: d,
+			fontDir,
 			name: JSON.stringify(name),
 			tags: ['0-99'],
 			import: JSON.stringify('.' + genSuffix + '/' + d + '.json')
 		});
 	}
 
+	// the source font + license imports are per source directory, shared by the
+	// std and _100 variants, so dedupe by fontDir.
+	const fontDirs = [...new Set(fontMeta.map((f) => f.fontDir))];
+
 	let indexTemplate = `// AUTO-GENERATED FILE - DO NOT EDIT MANUALLY
 import { loadImmutableLegends, type LegendSet } from "$lib/utils/legends";
 ${fontMeta.map((f) => `import ${f.varname}SVG from './generated/${f.varname}.svg';`).join('\n')}
+${fontDirs.map((d) => `import ${d}FontUrl from './builtins/${d}/${d}.ttf?url';`).join('\n')}
+${fontDirs.map((d) => `import ${d}License from './builtins/${d}/license.txt?raw';`).join('\n')}
 
 const deferredFontLoader = (fontname: string) => {
 	const fn = async () => {
@@ -179,13 +190,18 @@ export type Builtin = {
     readonly name: string;
 	readonly tags: Array<string>;
 	readonly preview: string;
+	// URL to the source TTF (served from the bundle) so the legend editor can
+	// generate more glyphs from a clone of this builtin. Empty for blanks.
+	readonly fontUrl: string;
+	// the font's license text, for attribution/display. Empty for blanks.
+	readonly license: string;
     readonly load: () => Promise<ReturnType<typeof loadImmutableLegends>>;
 }
 
 type BuiltinID = "blanks"|"${fontMeta.map(x => x.varname).join('"|"')}";
 
 const builtins: Record<BuiltinID, Builtin> = {
-	blanks: { id: "blanks", name: "Blanks", tags: ["blank"], load: async () => blanks, preview: "" } as Builtin,
+	blanks: { id: "blanks", name: "Blanks", tags: ["blank"], fontUrl: "", license: "", load: async () => blanks, preview: "" } as Builtin,
 ${fontMeta
 			.map((x) => {
 				return (
@@ -195,6 +211,8 @@ ${fontMeta
 					'", name: ' + x.name +
 					', tags: ' + JSON.stringify(x.tags) +
 					', preview: ' + x.varname + 'SVG' +
+					', fontUrl: ' + x.fontDir + 'FontUrl' +
+					', license: ' + x.fontDir + 'License' +
 					', load: deferredFontLoader("' + x.varname + '")' +
 					' } as Builtin,'
 				);

@@ -10,15 +10,20 @@
 	import Menu from '$lib/components/menu/Menu.svelte';
 	import Scene from '$lib/components/scene/Scene.svelte';
 	import dice from '$lib/dice';
-	import builtins, { type Builtin } from '$lib/fonts';
+	import builtins, { isBuiltin, type Builtin } from '$lib/fonts';
 	import {
+		cloneLegendSet,
 		diceFromJSON,
 		diceToJSON,
+		getSavedLegends,
+		loadLegends,
+		LEGENDS_CHANGED_EVENT,
 		saveSet,
 		waitForSet,
 		type Dice,
 		type DiceSet
 	} from '$lib/interfaces/storage.svelte';
+	import type { LegendSet } from '$lib/utils/legends';
 	import type { FaceParams } from '$lib/interfaces/dice';
 	import { m } from '$lib/paraglide/messages';
 	import { Builder } from '$lib/utils/builder';
@@ -456,6 +461,33 @@
 		}
 	});
 
+	// React to legend set edits (from the legend editor route/modal, or another
+	// tab). When the set currently in use changes, reload its (new) contents and
+	// re-engrave the dice. Mirrors the light/dark sync pattern.
+	$effect(() => {
+		const handler = async (e: Event) => {
+			const id = (e as CustomEvent<string>).detail;
+			if (!setData || setData.legends.id !== id) {
+				return;
+			}
+			const fresh = await loadLegends(id);
+			setData.legends = fresh;
+			for (const b of diceBuilders.values()) {
+				b.reloadLegends(fresh);
+			}
+			if (currentBuilder && dieId) {
+				const d = setData.dice.find((x) => x.id === dieId);
+				if (d) {
+					renderPass = currentBuilder.build({ ...d.parameters }, d.face_parameters.slice(), {
+						explode: explodeMode
+					});
+				}
+			}
+		};
+		window.addEventListener(LEGENDS_CHANGED_EVENT, handler);
+		return () => window.removeEventListener(LEGENDS_CHANGED_EVENT, handler);
+	});
+
 	// keep the builders map consistent with the current dice after an undo/redo
 	// that may have added or removed dice (mirrors addDie/removeDie cleanup).
 	function reconcileBuilders() {
@@ -805,16 +837,45 @@
 	// me to reverse the props.
 	// unfortunately I modelled the orientation as an imperative function which translates and rotates...
 
+	const savedLegends = getSavedLegends();
+
 	function fontAction(b: Builtin) {
 		return async () => {
 			const fnt = await b.load();
 			if (setData) {
 				setData.legends = fnt;
+				save(setData);
 			}
 		};
 	}
 
-	const legendsMenu: MenuItemSubmenu = {
+	function setLegends(set: LegendSet) {
+		return () => {
+			if (setData) {
+				setData.legends = set;
+				save(setData);
+			}
+		};
+	}
+
+	// jump to the legend editor for the current set. Builtins are cloned first
+	// (they can only be cloned, not edited in place); custom sets open directly.
+	async function editOrCloneLegends() {
+		if (!setData) {
+			return;
+		}
+		const ret = '/d/' + setId + (dieId ? '?die=' + dieId : '');
+		let id = setData.legends.id;
+		if (isBuiltin(id)) {
+			const clone = await cloneLegendSet(setData.legends);
+			setData.legends = clone;
+			id = clone.id;
+			saveSet(setData);
+		}
+		goto('/legends/' + id + '?return=' + encodeURIComponent(ret));
+	}
+
+	const legendsMenu = $derived<MenuItemSubmenu>({
 		type: 'submenu',
 		title: m.menu_legends(),
 		icon: FileType,
@@ -852,9 +913,21 @@
 							action: fontAction(f)
 						};
 					})
+			},
+			{
+				title: m.menu_custom(),
+				type: 'submenu',
+				children: savedLegends.map((f) => {
+					return {
+						title: f.name,
+						type: 'action',
+						icon: FileType,
+						action: setLegends(f)
+					};
+				})
 			}
 		]
-	};
+	});
 
 	function exportJson() {
 		if (!setData) {
@@ -912,6 +985,17 @@
 			</button>
 		{/if}
 		<Menu data={legendsMenu} submenuOnLeft></Menu>
+		{#if setData}
+			<button
+				type="button"
+				class="btn preset-outlined-surface-500"
+				title={isBuiltin(setData.legends.id) ? m.legends_clone() : m.legends_edit()}
+				onclick={editOrCloneLegends}
+			>
+				<PencilIcon class="size-4" />
+				{isBuiltin(setData.legends.id) ? m.legends_clone() : m.legends_edit()}
+			</button>
+		{/if}
 		<Menu data={exportMenu} submenuOnLeft></Menu>
 		{#if setData}
 			<DeleteSetDialog {setId} setName={setData.name} onDeleted={() => goto('/')}>
