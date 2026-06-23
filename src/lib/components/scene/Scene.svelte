@@ -27,11 +27,11 @@
 	let bgColor = $derived.by(() => {
 		let c = ldCtx.bgColor;
 		if (ldCtx.isDark) {
-			c = c.lighten(0.05);
+			c = c.lighten(0.3); // on a dark background we need to lighten a lot
 		} else {
 			c = c.darken(0.05);
 		}
-		return c;
+		return c.toNumber();
 	});
 
 	let ctx: ReturnType<typeof createBaseSceneAndRenderer>;
@@ -39,14 +39,14 @@
 	onMount(() => {
 		ctx = createBaseSceneAndRenderer(outerEl);
 		ctx.renderer.domElement.classList.add(...roundedClass.split(' '));
-		ctx.scene.background = new Color(bgColor.toNumber());
+		ctx.scene.background = new Color().setHex(bgColor);
 		sceneReady(ctx);
 		return ctx.dispose;
 	});
 	$effect(() => {
-		console.log('background changed');
 		if (ctx) {
-			ctx.scene.background = new Color(bgColor.toNumber());
+			// we just set it as a color
+			(ctx.scene.background as Color).setHex(bgColor);
 		}
 	});
 

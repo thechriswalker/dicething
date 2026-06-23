@@ -10,12 +10,20 @@
 	import Scene from '$lib/components/scene/Scene.svelte';
 	import dice from '$lib/dice';
 	import builtins, { type Builtin } from '$lib/fonts';
-	import { saveSet, waitForSet, type Dice, type DiceSet } from '$lib/interfaces/storage.svelte';
+	import {
+		diceFromJSON,
+		diceToJSON,
+		saveSet,
+		waitForSet,
+		type Dice,
+		type DiceSet
+	} from '$lib/interfaces/storage.svelte';
 	import { m } from '$lib/paraglide/messages';
 	import { Builder } from '$lib/utils/builder';
 	import { debounce } from '$lib/utils/debounce';
+	import { createHistory } from '$lib/utils/history.svelte';
 	import { hoverAndClickEvents } from '$lib/utils/events';
-	import { createGridHelper, type SceneRenderer } from '$lib/utils/scene';
+	import { createFancyRender, createGridHelper, type SceneRenderer } from '$lib/utils/scene';
 	import { download, exportSetJson } from '$lib/utils/export';
 	import { event } from '$lib/utils/use_event';
 	import {
@@ -30,7 +38,10 @@
 		MenuIcon,
 		PencilIcon,
 		PlusIcon,
+		Redo2,
 		SaveIcon,
+		SparklesIcon,
+		Undo2,
 		XIcon
 	} from '@lucide/svelte';
 	import { Button } from 'bits-ui';
@@ -40,6 +51,9 @@
 	let { setId = '' } = page.params;
 	let dieId = $derived(page.url.searchParams.get('die') ?? '');
 	let renderPass = $state(0);
+
+	// per-session undo/redo of the dice state (params, face params, add/remove).
+	const history = createHistory(100);
 
 	function gotoDie(id: string) {
 		const p = page.url;
@@ -86,6 +100,7 @@
 			} else {
 				diceBuilders.delete(id);
 			}
+			save(setData);
 		}
 	};
 
@@ -94,6 +109,8 @@
 	onMount(async () => {
 		setData = await waitForSet(setId);
 		if (setData) {
+			// seed the undo stack with the loaded state as the baseline.
+			history.reset(diceToJSON(setData.dice));
 			if (setData.dice.length === 0 && dieId !== '') {
 				gotoDie('');
 			} else if (setData.dice.length > 0 && setData.dice.findIndex((d) => d.id === dieId) === -1) {
@@ -105,6 +122,18 @@
 	});
 
 	let ctx = $state<SceneRenderer>();
+
+	let fancyRender = $state<ReturnType<typeof createFancyRender>>();
+	let fancy = $state(false);
+	function toggleFancy() {
+		fancy = !fancy;
+		fancyRender?.setEnabled(fancy);
+	}
+	// keep the current die's materials in sync with the fancy toggle, including
+	// when switching to a different die.
+	$effect(() => {
+		currentBuilder?.setFancy(fancy && fancyRender ? fancyRender.material : undefined);
+	});
 
 	// we will override this after capturing the initial state.
 	// svelte-ignore non_reactive_update
@@ -197,6 +226,9 @@
 	};
 	const debounceSave = debounce(250, (data: DiceSet) => {
 		saveSet(data);
+		// record the settled state for undo/redo. the apply path marks the next
+		// push as suppressed so undo/redo never records itself.
+		history.push(diceToJSON(data.dice));
 		saving = false;
 	});
 	const sceneReady = (_ctx: SceneRenderer) => {
@@ -204,6 +236,7 @@
 		// use it to set up the scene window, but not
 		// to use the reactiveProps directly.
 		ctx = _ctx;
+		fancyRender = createFancyRender(_ctx);
 		ctx.camera.position.copy(camInitialPos);
 		const camZoom = ctx.camera.zoom;
 		baseZoom = camZoom;
@@ -344,6 +377,88 @@
 				}
 			}
 		}
+	});
+
+	// keep the builders map consistent with the current dice after an undo/redo
+	// that may have added or removed dice (mirrors addDie/removeDie cleanup).
+	function reconcileBuilders() {
+		if (!setData) {
+			return;
+		}
+		for (const d of setData.dice) {
+			if (!diceBuilders.has(d.id)) {
+				diceBuilders.set(d.id, new Builder(dice[d.kind], setData.legends, d.id));
+			}
+		}
+		for (const id of [...diceBuilders.keys()]) {
+			if (!setData.dice.find((d) => d.id === id)) {
+				const g = diceBuilders.get(id)?.diceGroup;
+				if (g) {
+					ctx?.scene.remove(g);
+				}
+				diceBuilders.delete(id);
+			}
+		}
+	}
+
+	function applySnapshot(snap: string) {
+		if (!setData) {
+			return;
+		}
+		// the resulting save would otherwise record this restored state again.
+		history.markApplying();
+		// reassigning the array re-runs the render effect and rebuilds the die.
+		setData.dice = diceFromJSON(snap);
+		reconcileBuilders();
+		// if the focused die no longer exists, fall back to the first one.
+		if (dieId && !setData.dice.find((d) => d.id === dieId)) {
+			gotoDie(setData.dice[0]?.id ?? '');
+		}
+		save(setData);
+	}
+
+	function doUndo() {
+		// commit any in-flight edit first so it becomes its own entry to step back from.
+		debounceSave.flush();
+		const snap = history.undo();
+		if (snap !== undefined) {
+			applySnapshot(snap);
+		}
+	}
+
+	function doRedo() {
+		debounceSave.flush();
+		const snap = history.redo();
+		if (snap !== undefined) {
+			applySnapshot(snap);
+		}
+	}
+
+	$effect(() => {
+		const onKeyDown = (e: KeyboardEvent) => {
+			if (!(e.metaKey || e.ctrlKey)) {
+				return;
+			}
+			const target = e.target as HTMLElement | null;
+			if (
+				target &&
+				(target.tagName === 'INPUT' ||
+					target.tagName === 'TEXTAREA' ||
+					target.isContentEditable)
+			) {
+				return;
+			}
+			const key = e.key.toLowerCase();
+			if (key === 'z' && !e.shiftKey) {
+				e.preventDefault();
+				doUndo();
+			} else if ((key === 'z' && e.shiftKey) || key === 'y') {
+				e.preventDefault();
+				doRedo();
+			}
+		};
+		window.addEventListener('keydown', onKeyDown);
+		return () => window.removeEventListener('keydown', onKeyDown);
 	});
 
 	const gridHelper = createGridHelper(50);
@@ -558,6 +673,22 @@
 				<li>
 					<Button.Root
 						class="btn-icon preset-filled-primary-500"
+						title={m.controls_undo()}
+						disabled={!history.canUndo}
+						onclick={doUndo}><Undo2 /></Button.Root
+					>
+				</li>
+				<li>
+					<Button.Root
+						class="btn-icon preset-filled-primary-500"
+						title={m.controls_redo()}
+						disabled={!history.canRedo}
+						onclick={doRedo}><Redo2 /></Button.Root
+					>
+				</li>
+				<li>
+					<Button.Root
+						class="btn-icon preset-filled-primary-500"
 						title={m.controls_reset_camera()}
 						onclick={() => {
 							lookAtFace(selectedFace);
@@ -595,6 +726,14 @@
 							}
 						}}
 						>{#if explodeMode}<Box />{:else}<LayoutGrid />{/if}</Button.Root
+					>
+				</li>
+				<li>
+					<Button.Root
+						class={'btn-icon ' + (fancy ? 'preset-filled-primary-500' : 'preset-tonal-primary')}
+						title={m.controls_toggle_fancy_render()}
+						aria-pressed={fancy}
+						onclick={toggleFancy}><SparklesIcon /></Button.Root
 					>
 				</li>
 			</ul>

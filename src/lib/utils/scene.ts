@@ -73,7 +73,9 @@ export function createBaseSceneAndRenderer(
 	primaryOutlinePass.edgeGlow = 1;
 	primaryOutlinePass.edgeThickness = 2;
 	primaryOutlinePass.visibleEdgeColor = new Color(0xffffff);
-	primaryOutlinePass.hiddenEdgeColor = new Color(0x666666);
+	// black hidden colour => occluded parts of the outline contribute nothing,
+	// so the glow is hidden behind the rest of the die instead of bleeding through.
+	primaryOutlinePass.hiddenEdgeColor = new Color(0x000000);
 	const secondaryOutlinePass = new OutlinePass(
 		new Vector2(el.clientWidth, el.clientHeight),
 		scene,
@@ -85,7 +87,7 @@ export function createBaseSceneAndRenderer(
 	secondaryOutlinePass.edgeThickness = 4;
 	secondaryOutlinePass.pulsePeriod = 3;
 	secondaryOutlinePass.visibleEdgeColor = new Color(0x00caca);
-	secondaryOutlinePass.hiddenEdgeColor = new Color(0x00caca);
+	secondaryOutlinePass.hiddenEdgeColor = new Color(0x000000);
 
 	const observer = new ResizeObserver((entries) => {
 		if (entries.find((e) => e.target === resizeContainer)) {

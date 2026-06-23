@@ -37,6 +37,13 @@ export function dieFromJSON(json: string): Dice {
 	return JSON.parse(json, reviver) as Dice;
 }
 
+export function diceToJSON(dice: Dice[]): string {
+	return toJson(dice);
+}
+export function diceFromJSON(json: string): Dice[] {
+	return JSON.parse(json, reviver) as Dice[];
+}
+
 function diceSetToJSON(diceSet: DiceSetForStorage): string {
 	return toJson(diceSet);
 }

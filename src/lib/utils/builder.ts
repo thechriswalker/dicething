@@ -164,6 +164,27 @@ export class Builder {
 		});
 	}
 
+	// Swap the front + wall materials to a "fancy" PBR material, or back to the
+	// default normal material when undefined. Engraved/symbol parts are left
+	// alone (engravings stay inked). Stored so future rebuilds keep the choice,
+	// and applied to the meshes already in the scene via a traverse (the face
+	// meshes live nested inside per-face groups).
+	setFancy(mat?: Material) {
+		this.frontMaterial = mat ?? _m1;
+		this.wallMaterial = mat ?? _m1;
+		this.diceGroup.traverse((o) => {
+			const mesh = o as Mesh;
+			if (!mesh.isMesh) {
+				return;
+			}
+			if (mesh.userData.diceThingPart === Part.Front) {
+				mesh.material = this.frontMaterial;
+			} else if (mesh.userData.diceThingPart === Part.Walls) {
+				mesh.material = this.wallMaterial;
+			}
+		});
+	}
+
 	build(dieParams: Record<string, number>, faceParams: Array<FaceParams>, opts: { explode: boolean } = { explode: true }): number {
 		dieParams = simplifyDieParams(dieParams, this.model.parameters);
 		const dieChanged = this.forceRerenderBlank || !dieParamsEqual(this.lastDieParams, dieParams);

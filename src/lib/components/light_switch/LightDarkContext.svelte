@@ -17,13 +17,19 @@
 		const isDark = document.documentElement.classList.contains('dark');
 		const style = window.getComputedStyle(document.body);
 		const bgColorCss = style.getPropertyValue('background-color');
-		const fgColorCss = style.getPropertyValue('background-color');
+		const fgColorCss = style.getPropertyValue('color');
 
 		ctx.fgColor = getRGB(fgColorCss);
 		ctx.bgColor = getRGB(bgColorCss);
 		ctx.isLight = !isDark;
 		ctx.isDark = isDark;
 		ctx.mode = mode;
+		console.log("light dark context updated", {
+			bgColorCss,
+			bgColor: ctx.bgColor,
+			fgColorCss,
+			fgColor: ctx.fgColor,
+		});
 	}
 	if (browser) {
 		darkModeListener();
