@@ -20,6 +20,7 @@ import { mergeGeometries, mergeVertices } from 'three/examples/jsm/utils/BufferG
 import { removeDuplicateTriangles } from './bad_edges';
 import { findBestLegendScalingFactor, getAreaOfShapeAtOrigin } from './shapes';
 import { uuid } from './uuid';
+import { Transform } from './3d';
 
 const _m1 = new MeshNormalMaterial({ wireframe: !true });
 const _m2 = new MeshBasicMaterial({ color: 0x000000 });
@@ -37,6 +38,11 @@ export class Builder {
 	private faces: Array<DieFaceModel> = [];
 	private faceObjects: Array<Object3D> = [];
 	private lastFaceParams: Array<FaceParams> = [];
+
+	// orientation/raise to apply when exporting for print. defaults to identity
+	// (a no-op) until each die model provides one. the future "drop to build
+	// plate" work hooks in here.
+	private printingTransform: Transform = new Transform();
 
 	// per-face solid ("n") and exploded ("e") target transforms, decomposed into
 	// position + quaternion so the view layer can interpolate between them.
@@ -338,9 +344,15 @@ export class Builder {
 		if (dieChanged) {
 			const x = this.model.build(dieParams);
 			this.face2face = x.faceToFaceDistance;
-			this.recalculateLegendScaling();
+			// NOTE: faces + individualLegendScaling must be set BEFORE recalculating
+			// the legend scaling, otherwise (on a freshly-built builder) no number
+			// face is found, glyphs stay at scale 1, overflow small faces and fail to
+			// engrave -> they silently fall back to blank (notably on the d20).
 			this.faces = x.faces;
 			this.individualLegendScaling = !!x.sizeLegendsIndividually;
+			this.recalculateLegendScaling();
+			// most dice omit this today; default to identity so export still works.
+			this.printingTransform = x.printingTransform ?? new Transform();
 			this.faceObjects.forEach((g) => g.children?.forEach((c) => g.remove(c)));
 			this.lastDieParams = dieParams;
 		}
@@ -367,6 +379,8 @@ export class Builder {
 		const combined = mergeGeometries(geos);
 		const merged = mergeVertices(combined);
 		const deduped = removeDuplicateTriangles(merged);
+		// bake the model's print orientation/raise in last (identity for now).
+		this.printingTransform.applyToGeometry(deduped);
 		return new Mesh(deduped, _m1);
 	}
 

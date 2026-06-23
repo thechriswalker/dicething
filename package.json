@@ -63,6 +63,7 @@
 		"xmldom": "^0.6.0"
 	},
 	"dependencies": {
+		"fflate": "^0.8.3",
 		"libtess": "^1.2.2"
 	}
 }

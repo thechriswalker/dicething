@@ -256,6 +256,16 @@ function buildCustom(H: number) {
 	};
 }
 
+// the whole equilateral triangle for a face, centroid at the origin, apex up.
+// (the centroid of these three vertices is already (0, 0).)
+function equilateralTriangleShape(e: number, h: number): Shape {
+	return new Shape([
+		new Vector2(0, (2 * h) / 3), // apex
+		new Vector2(-e / 2, -h / 3), // bottom-left
+		new Vector2(e / 2, -h / 3) // bottom-right
+	]);
+}
+
 function caltropModel(id: string, name: string, style: 'kite' | 'base' | 'custom'): DieModel {
 	return {
 		id,
@@ -264,6 +274,14 @@ function caltropModel(id: string, name: string, style: 'kite' | 'base' | 'custom
 		build(params) {
 			const H = params.caltrop_height ?? defaultCaltropHeight;
 			return style === 'custom' ? buildCustom(H) : buildSegmented(H, style);
+		},
+		// every caltrop face is a whole equilateral triangle, but the segmented
+		// styles model it as three separate faces, so the per-face shape is only a
+		// third of the real face. The platform base must be the full triangle.
+		platformShape(params) {
+			const H = params.caltrop_height ?? defaultCaltropHeight;
+			const { e, h } = tetrahedronDimensions(H);
+			return equilateralTriangleShape(e, h);
 		}
 	};
 }

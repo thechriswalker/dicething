@@ -16,6 +16,7 @@
 	import { debounce } from '$lib/utils/debounce';
 	import { hoverAndClickEvents } from '$lib/utils/events';
 	import { createGridHelper, type SceneRenderer } from '$lib/utils/scene';
+	import { download, exportSetJson } from '$lib/utils/export';
 	import { event } from '$lib/utils/use_event';
 	import {
 		Box,
@@ -434,6 +435,15 @@
 		]
 	};
 
+	function exportJson() {
+		if (!setData) {
+			return;
+		}
+		const json = exportSetJson(setData, { embedLegends: 'all' });
+		const name = (setData.name || 'set').replace(/[^a-z0-9-_]+/gi, '_');
+		download(new Blob([json], { type: 'application/json' }), `${name}.json`);
+	}
+
 	const exportMenu: MenuItemSubmenu = {
 		type: 'submenu',
 		title: m.menu_export(),
@@ -443,16 +453,14 @@
 				title: m.menu_export_as_json(),
 				icon: FileCode2,
 				type: 'action',
-				action: () => {
-					console.log('JSON');
-				}
+				action: exportJson
 			},
 			{
 				title: m.menu_export_as_stl(),
 				icon: FileBoxIcon,
 				type: 'action',
 				action: () => {
-					console.log('STL');
+					goto('/d/' + setId + '/export');
 				}
 			}
 		]

@@ -67,8 +67,8 @@
 		let boxDir = new Vector2(1, 1);
 
 		$effect(() => {
-			// all defaults
-			builder.build({}, []);
+			// all defaults, solid (not exploded) for the splash
+			builder.build({}, [], { explode: false });
 			if (lastBuild) {
 				scene.remove(lastBuild);
 			}

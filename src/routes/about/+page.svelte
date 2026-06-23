@@ -22,7 +22,7 @@
 	];
 </script>
 
-<AppBar></AppBar>
+<AppBar title="DiceThing"></AppBar>
 <Scroll class="text-xl">
 	<h1 class="h1 flex gap-4"><MessageCircleQuestion class="icon-text" /> About</h1>
 	<div class="card preset-filled-warning-500 mt-4 p-4 text-center">

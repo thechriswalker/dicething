@@ -627,7 +627,7 @@ function traceLoops(fragments: Fragment[]): Loop[] {
 		while (cur && !used.has(cur)) {
 			used.add(cur);
 			chain.push(cur);
-			const candidates = (outgoing.get(cur.endNode) || []).filter((f) => !used.has(f));
+			const candidates: Fragment[] = (outgoing.get(cur.endNode) || []).filter((f) => !used.has(f));
 			if (candidates.length === 0) {
 				cur = null;
 				break;

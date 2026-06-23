@@ -22,7 +22,8 @@ export type DieModel = {
 		// to move the object to the correct orientation and then a y translation to
 		// raise the object so the tip is on the xz plane.
 		// this is the orientation we want to use to print, keeping all dice on the same level, for when / if they are grouped.
-		printingTransform: Transform;
+		// optional: when omitted the exporter treats it as the identity (no-op).
+		printingTransform?: Transform;
 	};
 	// create parameters for building a blank using the "build" function that is
 	// offset from the given parameters by `offset`.
@@ -31,6 +32,12 @@ export type DieModel = {
 	// ones that are smaller than the regular ones and shell to the same size as regular.
 	// either way, the offset should be at least your engraving depth + wiggle room.
 	blankParameters?(params: Record<string, number>, offset: number): Record<string, number>;
+	// the 2D outline (centered at the origin) to use as the base of a printing
+	// "platform" for this die. when omitted, the export flow falls back to the
+	// die's largest built face shape. dice that split one physical face into
+	// several model faces (e.g. the caltrop d4 with 12 segment faces) MUST
+	// override this to return the true outer face outline.
+	platformShape?(params: Record<string, number>): Shape;
 };
 
 export type FaceParams = {
