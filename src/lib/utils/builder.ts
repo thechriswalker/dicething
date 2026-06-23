@@ -22,9 +22,9 @@ import { findBestLegendScalingFactor, getAreaOfShapeAtOrigin } from './shapes';
 import { uuid } from './uuid';
 import { Transform } from './3d';
 
-const _m1 = new MeshNormalMaterial({ wireframe: !true });
-const _m2 = new MeshBasicMaterial({ color: 0x000000 });
-const _m3 = new MeshBasicMaterial({ color: 0xff0000, side: DoubleSide });
+const _genericNormalMaterial = new MeshNormalMaterial({ wireframe: !true });
+const _engraveBackMaterial = new MeshBasicMaterial({ color: 0x666666 });
+const _badElementMaterial = new MeshBasicMaterial({ color: 0xff0000, side: DoubleSide });
 
 export class Builder {
 	private renderCount = 0;
@@ -62,12 +62,12 @@ export class Builder {
 	private static readonly EXPLODE_DURATION_MS = 400;
 
 	// these two default to mesh normal
-	private frontMaterial: Material = _m1;
-	private wallMaterial: Material = _m1;
+	private frontMaterial: Material = _genericNormalMaterial;
+	private wallMaterial: Material = _genericNormalMaterial;
 
 	// this to a flat grey
-	private engraveMaterial: Material = _m2;
-	private errorMaterial: Material = _m3;
+	private engraveMaterial: Material = _engraveBackMaterial;
+	private errorMaterial: Material = _badElementMaterial;
 
 	public readonly diceGroup = new Group();
 
@@ -170,8 +170,8 @@ export class Builder {
 	// and applied to the meshes already in the scene via a traverse (the face
 	// meshes live nested inside per-face groups).
 	setFancy(mat?: Material) {
-		this.frontMaterial = mat ?? _m1;
-		this.wallMaterial = mat ?? _m1;
+		this.frontMaterial = mat ?? _genericNormalMaterial;
+		this.wallMaterial = mat ?? _genericNormalMaterial;
 		this.diceGroup.traverse((o) => {
 			const mesh = o as Mesh;
 			if (!mesh.isMesh) {
@@ -402,7 +402,7 @@ export class Builder {
 		const deduped = removeDuplicateTriangles(merged);
 		// bake the model's print orientation/raise in last (identity for now).
 		this.printingTransform.applyToGeometry(deduped);
-		return new Mesh(deduped, _m1);
+		return new Mesh(deduped, _genericNormalMaterial);
 	}
 
 	public getDefaultScaleForLegend(l: Legend): number {

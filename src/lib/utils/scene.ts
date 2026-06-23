@@ -14,9 +14,11 @@ import {
 	Scene,
 	SRGBColorSpace,
 	type Texture,
+	UnsignedByteType,
 	Vector2,
 	Vector3,
-	WebGLRenderer
+	WebGLRenderer,
+	WebGLRenderTarget
 } from 'three';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
@@ -88,6 +90,75 @@ export function createBaseSceneAndRenderer(
 	secondaryOutlinePass.pulsePeriod = 3;
 	secondaryOutlinePass.visibleEdgeColor = new Color(0x00caca);
 	secondaryOutlinePass.hiddenEdgeColor = new Color(0x000000);
+
+	for (const pass of [primaryOutlinePass, secondaryOutlinePass]) {
+		// Fix: when several faces are selected, OutlinePass renders them all into
+		// one mask, and its prepare-mask shader marks "a selected object is here"
+		// (red channel) for every selected fragment regardless of whether it's
+		// occluded. The edge detector finds the legend outline purely from
+		// red-channel contrast. So a fully-hidden back face that projects into the
+		// front face's legend holes still fills those holes with "selected here",
+		// killing the contrast at the inner rim and punching the back face's shape
+		// out of the front face's glow. Because we draw hidden edges as black
+		// (invisible) anyway, simply discarding occluded fragments in the mask
+		// removes that false fill without changing how visible outlines look.
+		const maskMat = pass.prepareMaskMaterial;
+		const patched = maskMat.fragmentShader.replace(
+			'gl_FragColor = vec4(0.0, depthTest, 1.0, 1.0);',
+			'if (depthTest > 0.5) discard;\n\t\t\t\t\tgl_FragColor = vec4(0.0, depthTest, 1.0, 1.0);'
+		);
+		if (patched === maskMat.fragmentShader) {
+			console.warn(
+				'OutlinePass prepare-mask shader patch did not apply; multi-select outlines may break through holes.'
+			);
+		}
+		maskMat.fragmentShader = patched;
+		maskMat.needsUpdate = true;
+
+		// Complementary correctness fix: OutlinePass allocates this occluder depth
+		// buffer as HalfFloatType, but MeshDepthMaterial writes RGBADepthPacking,
+		// which is designed for an 8-bit-per-channel (UnsignedByteType) target.
+		// Half-float storage loses precision in the packed bytes, which makes the
+		// visible/hidden compare unreliable for near-coincident geometry (e.g. a
+		// rim sitting on its own engraving wall). setSize() only resizes (keeps
+		// the type), so this sticks across window resizes.
+		pass.renderTargetDepthBuffer.dispose();
+		const depthRT = new WebGLRenderTarget(el.clientWidth, el.clientHeight, {
+			type: UnsignedByteType
+		});
+		depthRT.texture.name = 'OutlinePass.depth';
+		depthRT.texture.generateMipmaps = false;
+		pass.renderTargetDepthBuffer = depthRT;
+
+		// Keep lines (the floor grid) out of the outline computation entirely.
+		// OutlinePass already hides lines for its mask pass ("lines should not
+		// affect the outline computation") but NOT for its occluder depth pass, so
+		// grid lines still write depth and count as occluders. The grid plane runs
+		// through the middle of the die, so grid lines sit in front of the lower
+		// part of a selected face; with the discard above those fragments would
+		// drop out of the mask and paint spurious outline-coloured edges along
+		// every grid line inside the face. Hiding lines for the whole pass render
+		// (the beauty RenderPass has already run) removes them as occluders while
+		// leaving the real mesh occluders that fix the hole bleed-through intact.
+		const originalRender = pass.render.bind(pass);
+		pass.render = (...args: Parameters<typeof originalRender>) => {
+			const hiddenLines: Object3D[] = [];
+			scene.traverse((o) => {
+				const line = o as { isLine?: boolean };
+				if (line.isLine && o.visible) {
+					o.visible = false;
+					hiddenLines.push(o);
+				}
+			});
+			try {
+				originalRender(...args);
+			} finally {
+				for (const o of hiddenLines) {
+					o.visible = true;
+				}
+			}
+		};
+	}
 
 	const observer = new ResizeObserver((entries) => {
 		if (entries.find((e) => e.target === resizeContainer)) {

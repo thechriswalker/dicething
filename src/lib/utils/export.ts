@@ -3,10 +3,17 @@ import { STLExporter } from 'three/examples/jsm/exporters/STLExporter.js';
 import { zipSync, type Zippable } from 'fflate';
 import dice from '$lib/dice';
 import type { DieFaceModel } from '$lib/interfaces/dice';
-import type { DiceSet } from '$lib/interfaces/storage.svelte';
+import type { Dice, DiceSet } from '$lib/interfaces/storage.svelte';
 import { Builder } from './builder';
-import { Legend, type LegendSet, type SerialisedLegendSet } from './legends';
+import {
+	Legend,
+	loadMutableLegends,
+	type LegendSet,
+	type SerialisedLegendSet
+} from './legends';
 import { extraBuildOptions, type OptionValues } from './build_options';
+import { blanks, isBuiltin, loadBuiltinById } from '$lib/fonts';
+import { uuid } from './uuid';
 
 export type ExportFormat = 'stl' | '3mf';
 
@@ -182,6 +189,55 @@ export function exportSetJson(set: DiceSet, opts: { embedLegends: EmbedLegends }
 		}
 		return value;
 	});
+}
+
+// Revive the compact Vector2 markers produced by exportSetJson back into real
+// Vector2 instances.
+function importReviver(_key: string, value: any) {
+	if (value && typeof value === 'object' && value._ === 'v2') {
+		return new Vector2(value.x, value.y);
+	}
+	return value;
+}
+
+// Parse a JSON string previously produced by exportSetJson back into a DiceSet.
+// A fresh set id and fresh die ids are assigned so importing never clobbers an
+// existing saved set, mirroring how presets create brand-new sets.
+export async function importSetJson(json: string): Promise<DiceSet> {
+	let payload: any;
+	try {
+		payload = JSON.parse(json, importReviver);
+	} catch {
+		throw new Error('The file is not valid JSON.');
+	}
+
+	const set = payload?.set;
+	if (!set || !Array.isArray(set.dice)) {
+		throw new Error('This does not look like an exported set.');
+	}
+
+	const legends = await resolveImportedLegends(payload.legends);
+
+	return {
+		id: uuid(),
+		name: typeof set.name === 'string' && set.name ? set.name : 'Imported set',
+		updated: Date.now(),
+		dice: (set.dice as Array<Dice>).map((die) => ({ ...die, id: uuid() })),
+		legends
+	};
+}
+
+// Resolve the legend set referenced by an imported file: prefer the matching
+// built-in font when the id is built-in, otherwise rebuild the embedded
+// (custom) legends so they get persisted alongside the set.
+async function resolveImportedLegends(legends: SerialisedLegendSet | undefined): Promise<LegendSet> {
+	if (!legends || !legends.id) {
+		return blanks;
+	}
+	if (isBuiltin(legends.id)) {
+		return loadBuiltinById(legends.id);
+	}
+	return loadMutableLegends(legends);
 }
 
 // Build a SerialisedLegendSet containing only the legends used by the set's

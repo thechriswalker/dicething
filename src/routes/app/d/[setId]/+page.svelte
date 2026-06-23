@@ -18,6 +18,7 @@
 		type Dice,
 		type DiceSet
 	} from '$lib/interfaces/storage.svelte';
+	import type { FaceParams } from '$lib/interfaces/dice';
 	import { m } from '$lib/paraglide/messages';
 	import { Builder } from '$lib/utils/builder';
 	import { debounce } from '$lib/utils/debounce';
@@ -46,7 +47,8 @@
 	} from '@lucide/svelte';
 	import { Button } from 'bits-ui';
 	import { onMount } from 'svelte';
-	import { Vector3 } from 'three';
+	import { Vector2, Vector3 } from 'three';
+	import { degToRad } from 'three/src/math/MathUtils.js';
 
 	let { setId = '' } = page.params;
 	let dieId = $derived(page.url.searchParams.get('die') ?? '');
@@ -268,6 +270,10 @@
 					if (ev.dice !== dieId) {
 						return;
 					}
+					if (formatPaintMode) {
+						paintFace(ev.face);
+						return;
+					}
 					if (ev._shift) {
 						toggleFaceSelection(ev.face);
 					} else if (selectMode !== 'single' || selectedFace !== ev.face) {
@@ -444,6 +450,14 @@
 
 	$effect(() => {
 		const onKeyDown = (e: KeyboardEvent) => {
+			if (e.key === 'Escape' && formatPaintMode) {
+				e.preventDefault();
+				exitFormatPaint();
+				return;
+			}
+			if (handleFaceShortcut(e)) {
+				return;
+			}
 			if (!(e.metaKey || e.ctrlKey)) {
 				return;
 			}
@@ -508,6 +522,184 @@
 		ctx?.setPrimarySelectedItems(
 			targetFaces.flatMap((f) => currentBuilder?.getOutlineObjects(f) ?? [])
 		);
+	}
+
+	// --- format painter ---------------------------------------------------
+	// while active, clicking a face copies the captured configuration (all face
+	// params except the legend) onto it. other parameter editing is disabled and
+	// undo/redo is clamped to the operations made since the mode was entered.
+	let formatPaintMode = $state(false);
+	let formatPaintSource = $state<FaceParams | undefined>(undefined);
+
+	// copy a face's params, dropping the legend and cloning the offset vector.
+	function copyFaceParamsExcludingLegend(fp: FaceParams | undefined): FaceParams {
+		return {
+			scale: fp?.scale,
+			offset: fp?.offset?.clone(),
+			rotation: fp?.rotation,
+			extraDepth: fp?.extraDepth
+		};
+	}
+
+	// the face we copy a configuration from (the primary/displayed face).
+	function currentSourceFace(): number {
+		return targetFaces.length > 0 ? targetFaces[0] : -1;
+	}
+
+	function currentDie(): Dice | undefined {
+		return setData?.dice.find((x) => x.id === dieId);
+	}
+
+	// write the given params onto a face, preserving that face's existing legend.
+	function paintFaceParams(die: Dice, face: number, source: FaceParams) {
+		const existing = die.face_parameters[face] ?? {};
+		die.face_parameters[face] = {
+			legend: existing.legend,
+			scale: source.scale,
+			offset: source.offset?.clone(),
+			rotation: source.rotation,
+			extraDepth: source.extraDepth
+		};
+	}
+
+	function applyCurrentToAllFaces() {
+		const die = currentDie();
+		const face = currentSourceFace();
+		if (!setData || !die || face < 0) {
+			return;
+		}
+		const source = copyFaceParamsExcludingLegend(die.face_parameters[face]);
+		const faceCount = currentBuilder?.getFaces().length ?? 0;
+		for (let i = 0; i < faceCount; i++) {
+			paintFaceParams(die, i, source);
+		}
+		save(setData);
+	}
+
+	function enterFormatPaint() {
+		const die = currentDie();
+		const face = currentSourceFace();
+		if (!die || face < 0) {
+			return;
+		}
+		// settle any in-flight edit so it isn't lumped into the first paint.
+		debounceSave.flush();
+		formatPaintSource = copyFaceParamsExcludingLegend(die.face_parameters[face]);
+		formatPaintMode = true;
+		// clamp undo so we can only step back over paint ops while in this mode.
+		history.setFloor();
+	}
+
+	function exitFormatPaint() {
+		if (!formatPaintMode) {
+			return;
+		}
+		debounceSave.flush();
+		formatPaintMode = false;
+		formatPaintSource = undefined;
+		history.releaseFloor();
+	}
+
+	function paintFace(face: number) {
+		const die = currentDie();
+		if (!setData || !die || !formatPaintSource) {
+			return;
+		}
+		paintFaceParams(die, face, formatPaintSource);
+		save(setData);
+	}
+
+	// set every selected face to the primary face's params (excluding legend), so
+	// a multi-selection stops holding per-face deltas and shares one configuration.
+	function synchroniseSelectedFaces() {
+		const die = currentDie();
+		const face = currentSourceFace();
+		if (!setData || !die || face < 0 || targetFaces.length === 0) {
+			return;
+		}
+		const source = copyFaceParamsExcludingLegend(die.face_parameters[face]);
+		for (const i of targetFaces) {
+			paintFaceParams(die, i, source);
+		}
+		save(setData);
+	}
+
+	// --- keyboard nudging of the selected face(s) ------------------------
+	// arrows nudge the x/y offset; shift+left/right rotates; shift+up/down scales.
+	// step sizes / clamps mirror the slider ranges in DiceParameters.
+	const NUDGE_OFFSET = 0.5;
+	const NUDGE_ROTATION_DEG = 1;
+	const NUDGE_SCALE = 0.05;
+	const OFFSET_LIMIT = 20;
+	const SCALE_MIN = 0.1;
+	const SCALE_MAX = 5;
+
+	const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+
+	function nudgeSelectedFaces(opts: {
+		dx?: number;
+		dy?: number;
+		dRotDeg?: number;
+		dScale?: number;
+	}) {
+		const die = currentDie();
+		if (!setData || !die || targetFaces.length === 0) {
+			return;
+		}
+		for (const i of targetFaces) {
+			const p = die.face_parameters[i] ?? {};
+			if (opts.dx || opts.dy) {
+				const offset = p.offset?.clone() ?? new Vector2(0, 0);
+				offset.setX(clamp(offset.x + (opts.dx ?? 0), -OFFSET_LIMIT, OFFSET_LIMIT));
+				offset.setY(clamp(offset.y + (opts.dy ?? 0), -OFFSET_LIMIT, OFFSET_LIMIT));
+				p.offset = offset;
+			}
+			if (opts.dRotDeg) {
+				p.rotation = clamp((p.rotation ?? 0) + degToRad(opts.dRotDeg), -Math.PI, Math.PI);
+			}
+			if (opts.dScale) {
+				const legend = p.legend ?? currentBuilder?.getFaces()[i]?.defaultLegend;
+				const def = legend ? (currentBuilder?.getDefaultScaleForLegend(legend) ?? 1) : 1;
+				p.scale = clamp((p.scale ?? def) + opts.dScale, SCALE_MIN, SCALE_MAX);
+			}
+			die.face_parameters[i] = p;
+		}
+		save(setData);
+	}
+
+	// handle the arrow-key shortcuts; returns true if the event was consumed.
+	function handleFaceShortcut(e: KeyboardEvent): boolean {
+		if (e.metaKey || e.ctrlKey || e.altKey || formatPaintMode || targetFaces.length === 0) {
+			return false;
+		}
+		const target = e.target as HTMLElement | null;
+		if (
+			target &&
+			(target.tagName === 'INPUT' ||
+				target.tagName === 'TEXTAREA' ||
+				target.isContentEditable)
+		) {
+			return false;
+		}
+		const shift = e.shiftKey;
+		switch (e.key) {
+			case 'ArrowUp':
+				nudgeSelectedFaces(shift ? { dScale: NUDGE_SCALE } : { dy: NUDGE_OFFSET });
+				break;
+			case 'ArrowDown':
+				nudgeSelectedFaces(shift ? { dScale: -NUDGE_SCALE } : { dy: -NUDGE_OFFSET });
+				break;
+			case 'ArrowLeft':
+				nudgeSelectedFaces(shift ? { dRotDeg: -NUDGE_ROTATION_DEG } : { dx: -NUDGE_OFFSET });
+				break;
+			case 'ArrowRight':
+				nudgeSelectedFaces(shift ? { dRotDeg: NUDGE_ROTATION_DEG } : { dx: NUDGE_OFFSET });
+				break;
+			default:
+				return false;
+		}
+		e.preventDefault();
+		return true;
 	}
 
 	// shift-click on the 3d view toggles a face in/out of the selection.
@@ -658,7 +850,11 @@
 		<Menu data={menu} submenuOnLeft></Menu>
 	{/snippet}
 	<div class="flex h-full flex-col">
-		<div class="flex flex-row flex-wrap items-center justify-start gap-4 pb-4">
+		<div
+			class={'flex flex-row flex-wrap items-center justify-start gap-4 pb-4' +
+				(formatPaintMode ? ' opacity-50' : '')}
+			inert={formatPaintMode}
+		>
 			{#each setData?.dice as die}
 				<!-- svelte-ignore a11y_click_events_have_key_events, a11y_interactive_supports_focus -->
 				<div
@@ -789,7 +985,22 @@
 					>
 				</li>
 			</ul>
-			<div class="absolute top-2 right-2 flex flex-col">
+			{#if formatPaintMode}
+				<div
+					class="card preset-filled-primary-500 absolute top-2 left-1/2 flex max-w-[90%] -translate-x-1/2 items-center gap-3 p-2 shadow-md"
+				>
+					<span class="text-sm">{m.format_painter_toast()}</span>
+					<button
+						type="button"
+						class="btn btn-sm preset-filled flex items-center gap-1"
+						onclick={exitFormatPaint}
+					>
+						<XIcon size={16} />
+						{m.format_painter_exit()}
+					</button>
+				</div>
+			{/if}
+			<div class="absolute top-2 right-2 flex flex-col" inert={formatPaintMode}>
 				{#if setData && currentBuilder}
 					{@const die = setData.dice!.find((x) => x.id === dieId)}
 					{#if die}
@@ -804,6 +1015,9 @@
 							bind:selectedFace
 							bind:selectedFaces
 							onChangeSelectedFace={(f) => lookAtFace(f)}
+							onApplyToAll={applyCurrentToAllFaces}
+							onEnterFormatPaint={enterFormatPaint}
+							onSyncFaces={synchroniseSelectedFaces}
 						/>
 					{/if}
 				{/if}

@@ -8,10 +8,14 @@ export function createHistory(limit = 100) {
 	let index = $state(-1);
 	// one-shot guard so an apply-triggered commit doesn't record itself.
 	let suppress = false;
+	// a temporary lower bound for undo. while set, undo cannot step before this
+	// snapshot. used by format-painter mode so only paint ops are undoable, but
+	// the earlier history is preserved and reachable again once released.
+	let floor = $state(0);
 
 	return {
 		get canUndo() {
-			return index > 0;
+			return index > floor;
 		},
 		get canRedo() {
 			return index >= 0 && index < entries.length - 1;
@@ -21,6 +25,16 @@ export function createHistory(limit = 100) {
 			entries = [initial];
 			index = 0;
 			suppress = false;
+			floor = 0;
+		},
+
+		// pin the undo floor to the current position (e.g. on entering a mode).
+		setFloor() {
+			floor = index;
+		},
+		// release the floor so the full history is undoable again.
+		releaseFloor() {
+			floor = 0;
 		},
 
 		push(snapshot: string) {
@@ -36,14 +50,17 @@ export function createHistory(limit = 100) {
 			next.push(snapshot);
 			// evict from the front if we've grown past the cap.
 			if (next.length > limit) {
-				next.splice(0, next.length - limit);
+				const removed = next.length - limit;
+				next.splice(0, removed);
+				// keep the floor pointing at the same snapshot after eviction.
+				floor = Math.max(0, floor - removed);
 			}
 			entries = next;
 			index = entries.length - 1;
 		},
 
 		undo(): string | undefined {
-			if (index <= 0) {
+			if (index <= floor) {
 				return undefined;
 			}
 			index -= 1;

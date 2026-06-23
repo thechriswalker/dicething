@@ -147,7 +147,7 @@ The first flow will be
 
 - [x] new set from preset
 - [x] load saved set
-- [ ] import JSON
+- [x] import JSON
 - [ ] set view
   - [x] previews of die
   - [x] main selected die view

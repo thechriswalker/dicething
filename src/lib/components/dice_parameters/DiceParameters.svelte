@@ -26,6 +26,9 @@
 		builder: Builder;
 		renderPass: number;
 		onChangeSelectedFace?: (n: number) => void;
+		onApplyToAll?: () => void;
+		onEnterFormatPaint?: () => void;
+		onSyncFaces?: () => void;
 	};
 
 	let {
@@ -38,7 +41,10 @@
 		selectedFaces = $bindable(),
 		builder,
 		renderPass,
-		onChangeSelectedFace
+		onChangeSelectedFace,
+		onApplyToAll,
+		onEnterFormatPaint,
+		onSyncFaces
 	}: Props = $props();
 
 	let model = $derived(dice[kind]);
@@ -236,32 +242,40 @@
 	that we bind to the faceparams
 	
 	-->
-			<label class="my-2 flex items-center justify-between">
-				<!-- >{
+			{#if selectMode === 'multi'}
+				<button
+					type="button"
+					class="btn preset-tonal-primary my-2 w-full justify-start"
+					onclick={() => onSyncFaces?.()}>{m.face_parameters_sync()}</button
+				>
+			{:else}
+				<label class="my-2 flex items-center justify-between">
+					<!-- >{
 			//m['face_params.legend']()
 			} -->
-				{m.face_parameters_selected_legend()}
-				<Modal>
-					{#snippet title()}
-						{m.face_parameters_pick_legend()}
-					{/snippet}
-					{#snippet trigger(props)}
-						<button {...props} class="btn preset-filled-primary-500 p-0">
-							<LegendPreview {legends} legend={faceLegend} class="size-12" />
-						</button>
-					{/snippet}
-					{#snippet inner(close)}
-						<LegendViewer
-							{legends}
-							selectedLegend={faceLegend}
-							onSelectedLegend={(next) => {
-								updateTargetFaces((p) => (p.legend = next));
-								close();
-							}}
-						/>
-					{/snippet}
-				</Modal>
-			</label>
+					{m.face_parameters_selected_legend()}
+					<Modal>
+						{#snippet title()}
+							{m.face_parameters_pick_legend()}
+						{/snippet}
+						{#snippet trigger(props)}
+							<button {...props} class="btn preset-filled-primary-500 p-0">
+								<LegendPreview {legends} legend={faceLegend} class="size-12" />
+							</button>
+						{/snippet}
+						{#snippet inner(close)}
+							<LegendViewer
+								{legends}
+								selectedLegend={faceLegend}
+								onSelectedLegend={(next) => {
+									updateTargetFaces((p) => (p.legend = next));
+									close();
+								}}
+							/>
+						{/snippet}
+					</Modal>
+				</label>
+			{/if}
 			<label class="flex flex-col">
 				<p class="flex justify-between">
 					<span>
@@ -348,5 +362,19 @@
 				></Slider>
 			</label>
 		{/if}
-	</Collapsible>
+	{#if displayFace >= 0}
+			<div class="mt-4 flex flex-col gap-2">
+				<button
+					type="button"
+					class="btn preset-tonal-primary justify-start"
+					onclick={() => onApplyToAll?.()}>{m.format_painter_apply_all()}</button
+				>
+				<button
+					type="button"
+					class="btn preset-tonal-primary justify-start"
+					onclick={() => onEnterFormatPaint?.()}>{m.format_painter_enter()}</button
+				>
+			</div>
+			{/if}
+		</Collapsible>
 </div>

@@ -8,15 +8,40 @@
 	import { getSavedSets, saveSet, waitForInitialLoad } from '$lib/interfaces/storage.svelte';
 	import { m } from '$lib/paraglide/messages';
 	import { fromPreset, presets } from '$lib/presets';
+	import { importSetJson } from '$lib/utils/export';
 	import { Progress } from '@skeletonlabs/skeleton-svelte';
 
 	let savedSets = getSavedSets();
+
+	let fileInput = $state<HTMLInputElement>();
+	let importing = $state(false);
 
 	function handlePreset(fn: Preset) {
 		// options
 		return async (opts: PresetOption[]) => {
 			const set = await fn.factory(opts);
 		};
+	}
+
+	async function onImportFile(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		const file = input.files?.[0];
+		// reset so picking the same file again still fires a change event.
+		input.value = '';
+		if (!file) {
+			return;
+		}
+		importing = true;
+		try {
+			const text = await file.text();
+			const set = await importSetJson(text);
+			saveSet(set);
+			await goto('/d/' + set.id);
+		} catch (e) {
+			alert(m.start_import_error({ error: e instanceof Error ? e.message : String(e) }));
+		} finally {
+			importing = false;
+		}
 	}
 </script>
 
@@ -62,16 +87,25 @@
 				{/each}
 			</div>
 			<hr class="hr my-4" />
+			<input
+				bind:this={fileInput}
+				type="file"
+				accept="application/json,.json"
+				class="hidden"
+				onchange={onImportFile}
+			/>
 			<h2 class="h2 my-4 flex flex-row items-center justify-between">
 				<span>{m.start_load_set_header()}</span>
 				<button
 					class="btn btn-lg preset-tonal-secondary hidden font-normal sm:block"
-					onclick={() => alert('not implemented yet :(')}>{m.start_import()}</button
+					disabled={importing}
+					onclick={() => fileInput?.click()}>{m.start_import()}</button
 				>
 			</h2>
 			<button
 				class="btn preset-tonal-secondary btn-lg my-4 block w-full sm:hidden"
-				onclick={() => alert('not implemented yet :(')}>{m.start_import()}</button
+				disabled={importing}
+				onclick={() => fileInput?.click()}>{m.start_import()}</button
 			>
 			{#await waitForInitialLoad()}
 				<Progress value={null} />
