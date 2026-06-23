@@ -1,11 +1,19 @@
 import {
+	ACESFilmicToneMapping,
 	AmbientLight,
 	Color,
 	DirectionalLight,
 	GridHelper,
+	HemisphereLight,
+	type Material,
+	Mesh,
+	MeshPhysicalMaterial,
 	Object3D,
 	PerspectiveCamera,
+	PMREMGenerator,
 	Scene,
+	SRGBColorSpace,
+	type Texture,
 	Vector2,
 	Vector3,
 	WebGLRenderer
@@ -13,6 +21,8 @@ import {
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { OutlinePass } from 'three/addons/postprocessing/OutlinePass.js';
+import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { TrackballControls } from 'three/examples/jsm/controls/TrackballControls.js';
 import { getRGB } from './color';
 
@@ -143,6 +153,7 @@ export function createBaseSceneAndRenderer(
 		camera,
 		controls,
 		renderer,
+		composer,
 		render,
 		setPrimarySelectedItems(selectedItems: Array<Object3D>) {
 			primaryOutlinePass.selectedObjects = selectedItems;
@@ -155,6 +166,116 @@ export function createBaseSceneAndRenderer(
 		},
 		onBeforeDispose(fn: () => any) {
 			onDispose.push(fn);
+		}
+	};
+}
+
+// A toggleable "fancy" rendering layer for a scene: swaps meshes to a PBR
+// material lit by image-based lighting and a key light, plus a subtle
+// ambient-occlusion pass so recessed engravings read clearly. Turning it off
+// restores each mesh's original material and the plain renderer state, so the
+// default normal-material look is unchanged.
+export function createFancyRender(ctx: SceneRenderer) {
+	const { scene, renderer, camera, composer } = ctx;
+
+	// resin-like die material; the clearcoat + IBL highlights pick out the
+	// bevelled walls of the engravings.
+	const material = new MeshPhysicalMaterial({
+		color: 0x6b7b94,
+		roughness: 1.0,
+		metalness: 0.25,
+		clearcoat: 0.81,
+		clearcoatRoughness: 0.5,
+		envMapIntensity: 0.9
+	});
+
+	// soft, even environment lighting so every face is legible regardless of
+	// orientation. generated once from the built-in room scene.
+	const pmrem = new PMREMGenerator(renderer);
+	const envTexture: Texture = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+
+	// key light for directional shading that picks out the engraving walls.
+	const keyLight = new DirectionalLight(0xffffff, 2.2);
+	keyLight.position.set(28, 60, 24);
+
+	// second key light from a different angle (roughly opposite, lower) to
+	// illuminate the side that faces away from the main key light.
+	const keyLight2 = new DirectionalLight(0xffffff, 8);
+	keyLight2.position.set(-34, 18, -28);
+
+	// hemisphere fill so the side facing away from the key light isn't black;
+	// keeps a soft top->bottom gradient so engraving relief is preserved.
+	const fillLight = new HemisphereLight(0xffffff, 0x404048, 1.5);
+
+	// ambient occlusion darkens the crevices between glyph strokes and the
+	// engraving walls, which is what makes the numbers pop.
+	const ao = new GTAOPass(scene, camera, renderer.domElement.width, renderer.domElement.height);
+	ao.output = GTAOPass.OUTPUT.Default;
+	ao.enabled = false;
+	ao.updateGtaoMaterial({
+		radius: 2.5,
+		distanceExponent: 1,
+		thickness: 1,
+		distanceFallOff: 1,
+		scale: 1,
+		samples: 16,
+		screenSpaceRadius: false
+	});
+	// run AO right after the scene render, before the outline overlays.
+	composer.insertPass(ao, 1);
+
+	let enabled = false;
+	const baseToneMapping = renderer.toneMapping;
+
+	function setEnabled(on: boolean) {
+		enabled = on;
+		ao.enabled = on;
+		scene.environment = on ? envTexture : null;
+		renderer.toneMapping = on ? ACESFilmicToneMapping : baseToneMapping;
+		if (on) {
+			scene.add(keyLight);
+			scene.add(keyLight2);
+			scene.add(fillLight);
+		} else {
+			scene.remove(keyLight);
+			scene.remove(keyLight2);
+			scene.remove(fillLight);
+		}
+	}
+
+	// Apply the current render style to a mesh, remembering its original
+	// material so it can be restored when fancy mode is turned off.
+	function styleMesh(mesh: Mesh) {
+		if (!mesh.userData.baseMaterial) {
+			mesh.userData.baseMaterial = mesh.material;
+		}
+		mesh.material = enabled ? material : (mesh.userData.baseMaterial as Material);
+	}
+
+	function dispose() {
+		pmrem.dispose();
+		envTexture.dispose();
+		material.dispose();
+	}
+
+	// TEMP: set the material base colour from 0..1 sRGB components.
+	function setColor(r: number, g: number, b: number) {
+		material.color.setRGB(r, g, b, SRGBColorSpace);
+	}
+
+	return {
+		setEnabled,
+		styleMesh,
+		dispose,
+		setColor,
+		// exposed for the temporary tuning panel on the export page.
+		material,
+		ao,
+		keyLight,
+		keyLight2,
+		fillLight,
+		get enabled() {
+			return enabled;
 		}
 	};
 }
