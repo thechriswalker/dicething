@@ -9,9 +9,18 @@
 		onSelectedLegend?: (legend: Legend) => void;
 		// optional content rendered after the glyphs (e.g. an "add legend" button).
 		append?: Snippet;
+		// whether to show the (immutable) BLANK tile. It's a valid choice when
+		// picking a face's legend, but can't be edited, so the editor hides it.
+		showBlank?: boolean;
 	};
 
-	let { legends, selectedLegend = -1, onSelectedLegend, append }: Props = $props();
+	let {
+		legends,
+		selectedLegend = -1,
+		onSelectedLegend,
+		append,
+		showBlank = true
+	}: Props = $props();
 </script>
 
 {#snippet preview(l: Legend, selected: Legend)}
@@ -29,7 +38,9 @@
 {/snippet}
 
 <div class="flex max-h-128 max-w-256 flex-row flex-wrap gap-4 overflow-y-auto p-4">
-	{@render preview(Legend.BLANK, selectedLegend)}
+	{#if showBlank}
+		{@render preview(Legend.BLANK, selectedLegend)}
+	{/if}
 	{#each legends as l}
 		{@render preview(l, selectedLegend)}
 	{/each}

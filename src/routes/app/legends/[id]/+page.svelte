@@ -34,7 +34,15 @@
 	} from '$lib/utils/legends';
 	import { shapeToJSON } from '$lib/utils/to_json';
 	import { addUnderline, defaultUnderline } from '$lib/utils/underline';
-	import { ArrowLeftIcon, ImageIcon, PlusIcon, SaveIcon, Trash2Icon, TypeIcon } from '@lucide/svelte';
+	import {
+		ArrowLeftIcon,
+		ImageIcon,
+		PlusIcon,
+		SaveIcon,
+		SquareIcon,
+		Trash2Icon,
+		TypeIcon
+	} from '@lucide/svelte';
 
 	let id = $derived(page.params.id ?? '');
 	let returnTo = $derived(page.url.searchParams.get('return') || '/legends');
@@ -231,6 +239,17 @@
 	}
 	const regenerateDebounced = debounce<void>(200, () => regenerateFromFont());
 
+	// clear the selected slot to a blank (no shapes), e.g. to remove a glyph you
+	// don't want without deleting the slot (which would re-index later legends).
+	function makeBlank() {
+		if (!set) {
+			return;
+		}
+		set.setSerialized(selectedLegend, set.getLegendName(selectedLegend), [], null);
+		charText = '';
+		commit();
+	}
+
 	// SVG import. The simple path previews the "border" (filled boundary)
 	// interpretation. If that's wrong, the complex importer splits the SVG into
 	// individual pieces (compound paths separated) that can each be traced,
@@ -417,6 +436,7 @@
 							<LegendViewer
 								legends={set}
 								{selectedLegend}
+								showBlank={false}
 								onSelectedLegend={(l) => (selectedLegend = l)}
 							>
 								{#snippet append()}
@@ -544,6 +564,15 @@
 
 						<div class="flex flex-col gap-2 border-t pt-2">
 							<span class="text-sm font-semibold">{m.legends_editor_replace_with()}</span>
+							<!-- blank: clear the slot's shapes without re-indexing later legends -->
+							<button
+								type="button"
+								class="btn preset-tonal-surface w-full justify-start"
+								onclick={makeBlank}
+							>
+								<SquareIcon class="size-4" />
+								{m.legends_editor_make_blank()}
+							</button>
 							<!-- import SVG: border first, complex (per-piece) on demand -->
 							<Modal>
 								{#snippet title()}

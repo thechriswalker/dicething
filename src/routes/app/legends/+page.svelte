@@ -2,7 +2,6 @@
 	import { goto } from '$app/navigation';
 	import DeleteLegendSetDialog from '$lib/components/delete_legends/DeleteLegendSetDialog.svelte';
 	import Layout from '$lib/components/layout/Layout.svelte';
-	import LegendPreview from '$lib/components/legend_viewer/LegendPreview.svelte';
 	import Modal from '$lib/components/modal/Modal.svelte';
 	import builtins, { type Builtin } from '$lib/fonts';
 	import { putFont } from '$lib/interfaces/fontstore';
@@ -13,9 +12,9 @@
 		saveLegendSet
 	} from '$lib/interfaces/storage.svelte';
 	import { m } from '$lib/paraglide/messages';
-	import { legendSetFromFont, type LegendPreset } from '$lib/utils/create_legends';
+	import { legendSetFromFont, legendSetPreview, type LegendPreset } from '$lib/utils/create_legends';
 	import { download, exportLegendSetJson } from '$lib/utils/export';
-	import { Legend, type LegendSet } from '$lib/utils/legends';
+	import { type LegendSet } from '$lib/utils/legends';
 	import {
 		CopyIcon,
 		DownloadIcon,
@@ -30,9 +29,6 @@
 
 	// builtins shown in the manager (everything except the empty "blanks" set).
 	const builtinList = Object.values(builtins).filter((b) => b.id !== 'blanks');
-
-	// a few representative slots to preview a set at a glance.
-	const previewLegends: Legend[] = [Legend.ONE, Legend.TWO, Legend.THREE, Legend.TWENTY];
 
 	let fileInput = $state<HTMLInputElement>();
 	let importInput = $state<HTMLInputElement>();
@@ -119,11 +115,7 @@
 </script>
 
 {#snippet setPreview(legends: LegendSet)}
-	<div class="flex flex-row flex-wrap gap-1">
-		{#each previewLegends as l}
-			<LegendPreview {legends} legend={l} class="size-8" />
-		{/each}
-	</div>
+	<img height="20px" src={legendSetPreview(legends)} alt="" class="h-8 self-start dark:invert" />
 {/snippet}
 
 <Layout>

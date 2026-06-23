@@ -292,6 +292,7 @@
 	"legends_editor_underline_width": "Width",
 	"legends_editor_underline_flip": "Flip side",
 	"legends_editor_replace_with": "Replace with",
+	"legends_editor_make_blank": "Blank",
 	"legends_editor_import_svg": "Import SVG",
 	"legends_editor_svg_error": "Couldn't import that SVG: {error}",
 	"legends_editor_svg_stroke_only": "This SVG uses stroked outlines, so there are no filled shapes to use as an outline. Please use the Complex Import",

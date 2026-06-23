@@ -297,13 +297,20 @@ export function loadMutableLegends(s: SerialisedLegendSet): MutableLegendSet {
 			}
 		},
 		toJSON() {
+			// Read the mutable scalars off `this` rather than the captured `set`.
+			// When this set is wrapped in a Svelte $state proxy (the editor),
+			// assignments like `set.name = …` update the proxy's signals but NOT
+			// the underlying target object, so the closure's `set.name` would be
+			// stale. `this` resolves through the proxy (or the plain instance when
+			// called directly), so it always sees the latest value.
+			const self = this as MutableLegendSet;
 			return {
 				id: s.id,
-				name: set.name,
+				name: self.name,
 				names: names,
 				shapes: data,
-				updated: set.updated,
-				font: set.font,
+				updated: self.updated,
+				font: self.font,
 				sources: sources,
 				tags: tags
 			};

@@ -562,6 +562,33 @@ export function shapesToSVGData(shapes: Array<Shape>): string {
 	</svg>`;
 }
 
+// Lay out a sequence of glyph shape-sets (each centered on the origin) in a
+// single row, left to right, with a uniform gap, and render them to an SVG data
+// string. This mirrors the builtin previews (which render a string straight
+// from the font) so custom legend sets can be given a comparable, evenly-spaced
+// preview generated on the fly from their stored glyphs.
+export function shapesRowToSVGData(glyphs: Array<Array<Shape>>, gap: number = 1.5): string {
+	const placed: Array<Shape> = [];
+	const box = new Box2();
+	const size = new Vector2();
+	let cursor = 0;
+	for (const glyph of glyphs) {
+		if (glyph.length === 0) {
+			continue;
+		}
+		box.makeEmpty();
+		glyph.forEach((s) => expandByPoints(box, s.getPoints()));
+		if (box.isEmpty()) {
+			continue;
+		}
+		box.getSize(size);
+		// shift the glyph so its left edge sits at the running cursor.
+		placed.push(...translateShapes(new Vector2(cursor - box.min.x, 0), ...glyph));
+		cursor += size.x + gap;
+	}
+	return shapesToSVGData(placed);
+}
+
 function toSVGPath(s: Shape): string {
 	const segments = appendSVGPathSegments([], s);
 	s.holes.forEach((h) => {

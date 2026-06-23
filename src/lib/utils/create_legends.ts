@@ -12,6 +12,7 @@ import {
 	defaultStrings,
 	finalizeImportedShapes,
 	numberStringToWords,
+	svgIconScale,
 	svgPieces,
 	unsupportedSVGElements,
 	zeroToNinetyNine,
@@ -19,9 +20,12 @@ import {
 } from './font';
 
 export type { SvgPiece, SvgPieceAction } from './font';
+import type { Shape } from 'three';
+import { shapesRowToSVGData } from './shapes';
 import {
 	loadMutableLegends,
 	type LegendFontOrigin,
+	type LegendSet,
 	type LegendSource,
 	type MutableLegendSet,
 	type SerialisedLegendSet
@@ -48,8 +52,11 @@ export function legendSetFromFont(
 	}));
 
 	if (preset === 'std') {
-		// icons are authored at 24px, our standard glyph size is 10px.
-		shapes.push(createShapesFromSVG(dicethingLogo, 10 / 24) as unknown as Array<unknown>);
+		// scale the logo from its own viewBox down to our standard glyph size,
+		// matching the offline builtin generator (see build_builtins loadSVGIcon).
+		shapes.push(
+			createShapesFromSVG(dicethingLogo, svgIconScale(dicethingLogo)) as unknown as Array<unknown>
+		);
 		names.push('Logo');
 		sources.push({ kind: 'svg' });
 	}
@@ -65,6 +72,44 @@ export function legendSetFromFont(
 		tags: [preset === '100' ? '0-99' : 'std']
 	};
 	return loadMutableLegends(serial);
+}
+
+// Rebuild the per-slot generation recipe (sources) for a builtin legend set from
+// its classification tag. Builtins are generated offline from a known set of
+// strings (see build_builtins.ts) but the bundled JSON doesn't carry the
+// per-slot sources, so a fresh clone has no "characters" to show/edit. We
+// reconstruct them here from the tag (which tells us the FontString[] used).
+export function defaultSourcesForTag(tag: string): Array<LegendSource | null> {
+	const strings = addRenderOptions(tag === '0-99' ? zeroToNinetyNine : defaultStrings);
+	const sources: Array<LegendSource | null> = strings.map((s) => ({
+		kind: 'font',
+		text: s.text,
+		letterSpacing: s.renderOptions?.letterSpacing
+	}));
+	// the "std" preset appends the app logo (the MAKER_LOGO slot), imported as SVG.
+	if (tag !== '0-99') {
+		sources.push({ kind: 'svg' });
+	}
+	return sources;
+}
+
+// Generate a preview image (an SVG data URL) for a legend set on the fly, by
+// laying out its first `count` non-blank glyphs in a row. Builtins ship a
+// prebuilt preview SVG; this gives custom sets a matching, evenly-spaced one
+// without needing a stored image.
+export function legendSetPreview(set: LegendSet, count: number = 10): string {
+	const glyphs: Array<Array<Shape>> = [];
+	for (const l of set) {
+		if (glyphs.length >= count) {
+			break;
+		}
+		const shapes = set.get(l);
+		if (shapes.length > 0) {
+			glyphs.push(shapes);
+		}
+	}
+	const svg = shapesRowToSVGData(glyphs);
+	return 'data:image/svg+xml;utf8,' + encodeURIComponent(svg);
 }
 
 // Resolve the source font for a legend set so the editor can generate more

@@ -8,7 +8,8 @@ import {
 	defaultStrings,
 	defaultRenderOptions,
 	type FontString,
-	numberStringToWords
+	numberStringToWords,
+	svgIconScale
 } from '$lib/utils/font';
 import { dirname, sep } from 'node:path';
 
@@ -72,8 +73,9 @@ async function loadSVGIcon(
 	name: string
 ): Promise<{ name: string; shapes: Array<Shape> }> {
 	const data = await readFile(path, { encoding: 'utf8' });
-	// svg icons should be 24x24 px, but our standard size is 10px
-	const shapes = createShapesFromSVG(data, 10 / 24);
+	// the icons could be any size; scale their viewBox down to our standard
+	// glyph size (10px). same helper the browser-side generator uses.
+	const shapes = createShapesFromSVG(data, svgIconScale(data));
 	return { name, shapes };
 }
 

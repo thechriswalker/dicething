@@ -3,14 +3,12 @@
 	import type { PresetOption } from '$lib/interfaces/presets';
 	import { Switch } from '@skeletonlabs/skeleton-svelte';
 	import Slider from '../slider/Slider.svelte';
-	import LegendPreview from '../legend_viewer/LegendPreview.svelte';
 	import { onMount } from 'svelte';
 	import { m } from '$lib/paraglide/messages';
 	import { getSavedLegends } from '$lib/interfaces/storage.svelte';
-	import { Legend } from '$lib/utils/legends';
+	import { legendSetPreview } from '$lib/utils/create_legends';
 
 	const savedLegends = getSavedLegends();
-	const previewLegends = [Legend.ONE, Legend.TWO, Legend.THREE, Legend.TWENTY];
 
 	let {
 		options,
@@ -92,7 +90,33 @@
 			</select>
 		{/if}
 		{#if opt.kind == 'legend'}
+			{@const customMatches = savedLegends.filter((set) => set.tags.includes(opt.filter))}
 			<p class="h5">{m.preset_options_pick_legends()}</p>
+			{#if customMatches.length > 0}
+				<div class="grid grid-cols-3 gap-4">
+					{#each customMatches as set}
+						{@const border =
+							set.id == (values[idx] ?? opt.value)
+								? 'preset-filled-primary-500 preset-outlined-primary-500'
+								: 'preset-filled-surface-50-950 preset-outlined hover:preset-outlined-primary-500'}
+						<button
+							class={'flex flex-col justify-between gap-2 rounded-md p-2  ' + border}
+							onclick={() => {
+								values[idx] = set.id;
+							}}
+						>
+							<strong>{set.name}</strong>
+							<img
+								height="10px"
+								src={legendSetPreview(set)}
+								alt={m.preset_options_font_preview()}
+								class="dark:invert"
+							/>
+						</button>
+					{/each}
+				</div>
+				<hr class="hr" />
+			{/if}
 			<div class="grid grid-cols-3 gap-4">
 				{#each Object.values(builtins) as f}
 					{#if f.tags.includes(opt.filter)}
@@ -108,27 +132,6 @@
 						>
 							<strong>{f.name}</strong>
 							<img height="10px" src={f.preview} alt={m.preset_options_font_preview()} class="dark:invert" />
-						</button>
-					{/if}
-				{/each}
-				{#each savedLegends as set}
-					{#if set.tags.includes(opt.filter)}
-						{@const border =
-							set.id == (values[idx] ?? opt.value)
-								? 'preset-filled-primary-500 preset-outlined-primary-500'
-								: 'preset-filled-surface-50-950 preset-outlined hover:preset-outlined-primary-500'}
-						<button
-							class={'flex flex-col justify-between gap-2 rounded-md p-2  ' + border}
-							onclick={() => {
-								values[idx] = set.id;
-							}}
-						>
-							<strong>{set.name}</strong>
-							<div class="flex flex-row flex-wrap gap-1">
-								{#each previewLegends as l}
-									<LegendPreview legends={set} legend={l} class="size-6" />
-								{/each}
-							</div>
 						</button>
 					{/if}
 				{/each}

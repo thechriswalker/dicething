@@ -154,6 +154,20 @@ export function createShapesFromSVG(svg: string, scale: number = 1): Array<Shape
 	return svgToShapes(svg, scale, false);
 }
 
+// Scale factor that fits an SVG icon's viewBox into `target` units (our standard
+// glyph size). Icons are authored at arbitrary sizes, so we read the actual
+// viewBox rather than assuming a fixed size. Falls back to 1 (no scaling) when
+// no usable viewBox is present.
+export function svgIconScale(svg: string, target: number = 10): number {
+	const viewbox = svg.match(/viewBox="([^"]+)"/);
+	if (!viewbox) {
+		return 1;
+	}
+	const parts = viewbox[1].trim().split(/[\s,]+/).map(Number);
+	const max = Math.max(parts[2], parts[3]);
+	return max > 0 && isFinite(max) ? target / max : 1;
+}
+
 // As createShapesFromSVG, but throws StrokeOnlySVGError when the SVG only has
 // stroked paths so callers can advise the user (we only support filled shapes).
 export function createShapesFromSVGChecked(svg: string, scale: number = 1): Array<Shape> {
