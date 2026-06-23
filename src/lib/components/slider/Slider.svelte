@@ -19,7 +19,7 @@
 </script>
 
 <Slider
-	defaultValue={[value]}
+	value={[value]}
 	onValueChange={(e) => onChange(e.value[0])}
 	{min}
 	{max}

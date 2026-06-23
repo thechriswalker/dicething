@@ -59,7 +59,7 @@ export class Builder {
 	private targetProgress = 0;
 	private lastAnimTime = 0;
 	private hasBuilt = false;
-	private static readonly EXPLODE_DURATION_MS = 400;
+	private static readonly EXPLODE_DURATION_MS = 800;
 
 	// these two default to mesh normal
 	private frontMaterial: Material = _genericNormalMaterial;
@@ -196,6 +196,10 @@ export class Builder {
 			this.recalculateLegendScaling();
 			this.computeFaceTransforms();
 			this.lastDieParams = dieParams;
+			// the new blank may have fewer faces than the last one (e.g. lowering
+			// the coin's segment count). drop any leftover face groups so their
+			// stale geometry doesn't linger in the scene.
+			this.pruneFaceObjects(this.faces.length);
 		}
 		for (let i = 0; i < this.faces.length; i++) {
 			const newFaceParams = simplifyFaceParams(faceParams[i], this.faces[i]);
@@ -262,6 +266,30 @@ export class Builder {
 
 		this.renderCount++;
 		return this.renderCount;
+	}
+
+	// remove face groups at indices >= keep, detaching them from the scene and
+	// disposing their geometries. used when a rebuild produces fewer faces than
+	// the previous one so old geometry isn't left floating in the diceGroup.
+	private pruneFaceObjects(keep: number) {
+		if (this.faceObjects.length <= keep) {
+			return;
+		}
+		for (let i = keep; i < this.faceObjects.length; i++) {
+			const g = this.faceObjects[i];
+			if (!g) {
+				continue;
+			}
+			g.traverse((o) => {
+				const mesh = o as Mesh;
+				if (mesh.isMesh) {
+					mesh.geometry?.dispose();
+				}
+			});
+			this.diceGroup.remove(g);
+		}
+		this.faceObjects.length = keep;
+		this.lastFaceParams.length = keep;
 	}
 
 	private computeFaceTransforms() {

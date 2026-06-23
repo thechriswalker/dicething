@@ -56,7 +56,7 @@
 	let renderPass = $state(0);
 
 	// per-session undo/redo of the dice state (params, face params, add/remove).
-	const history = createHistory(100);
+	const history = createHistory(250);
 
 	function gotoDie(id: string) {
 		const p = page.url;
@@ -165,7 +165,7 @@
 	// smooth ease-in-out (cubic) shared by the camera transition.
 	const easeInOut = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
 
-	const CAMERA_TRANSITION_MS = 400;
+	const CAMERA_TRANSITION_MS = 1000;
 
 	// active camera tween, stepped each frame in onBeforeRender.
 	let camTween: {
@@ -308,10 +308,19 @@
 				ctx.camera,
 				currentBuilder.diceGroup,
 				(ev) => {
+					// don't hover-highlight faces hidden from the UI (e.g. coin rim).
+					if (isHiddenFace(ev.face)) {
+						ctx?.setSecondarySeletedItems([]);
+						return;
+					}
 					ctx?.setSecondarySeletedItems(currentBuilder?.getOutlineObjects(ev.face) ?? []);
 				},
 				(ev) => {
 					if (ev.dice !== dieId) {
+						return;
+					}
+					// hidden faces aren't selectable/editable.
+					if (isHiddenFace(ev.face)) {
 						return;
 					}
 					if (formatPaintMode) {
@@ -331,6 +340,12 @@
 			);
 		}
 	});
+
+	// faces flagged `hidden` (e.g. the coin's rim segments) are part of the
+	// geometry but must never be selected or edited from the UI.
+	function isHiddenFace(idx: number): boolean {
+		return !!currentBuilder?.getFaces()[idx]?.hidden;
+	}
 
 	function lookAtFace(idx: number) {
 		if (explodeMode) {
@@ -386,7 +401,9 @@
 				}
 				if (d.id === dieId) {
 					console.log('rendering in init', d.id);
-					renderPass = builder.build({ ...d.parameters }, d.face_parameters.slice(), { explode: explodeMode });
+					renderPass = builder.build({ ...d.parameters }, d.face_parameters.slice(), {
+						explode: explodeMode
+					});
 					ctx.scene.add(builder.diceGroup);
 					renderedDice = d.id;
 					currentBuilder = builder;
@@ -418,7 +435,9 @@
 					const d = setData?.dice.find((x) => x.id === dieId)!;
 					console.log('rendering on change', dieId, ctx.scene);
 					currentBuilder?.changeLegends(setData!.legends);
-					renderPass = builder.build({ ...d.parameters }, d.face_parameters.slice(), { explode: explodeMode });
+					renderPass = builder.build({ ...d.parameters }, d.face_parameters.slice(), {
+						explode: explodeMode
+					});
 					save(setData); // ensure we save!
 					const updated = dieId != renderedDice;
 					renderedDice = dieId;
@@ -508,9 +527,7 @@
 			const target = e.target as HTMLElement | null;
 			if (
 				target &&
-				(target.tagName === 'INPUT' ||
-					target.tagName === 'TEXTAREA' ||
-					target.isContentEditable)
+				(target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)
 			) {
 				return;
 			}
@@ -615,6 +632,9 @@
 		const source = copyFaceParamsExcludingLegend(die.face_parameters[face]);
 		const faceCount = currentBuilder?.getFaces().length ?? 0;
 		for (let i = 0; i < faceCount; i++) {
+			if (isHiddenFace(i)) {
+				continue;
+			}
 			paintFaceParams(die, i, source);
 		}
 		save(setData);
@@ -719,9 +739,7 @@
 		const target = e.target as HTMLElement | null;
 		if (
 			target &&
-			(target.tagName === 'INPUT' ||
-				target.tagName === 'TEXTAREA' ||
-				target.isContentEditable)
+			(target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)
 		) {
 			return false;
 		}
@@ -868,7 +886,6 @@
 			}
 		]
 	};
-
 </script>
 
 <Layout>
@@ -897,7 +914,7 @@
 		<Menu data={legendsMenu} submenuOnLeft></Menu>
 		<Menu data={exportMenu} submenuOnLeft></Menu>
 		{#if setData}
-			<DeleteSetDialog setId={setId} setName={setData.name} onDeleted={() => goto('/')}>
+			<DeleteSetDialog {setId} setName={setData.name} onDeleted={() => goto('/')}>
 				{#snippet trigger(props)}
 					<button
 						{...props}

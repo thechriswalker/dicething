@@ -60,6 +60,11 @@
 		return nf.format(x);
 	}
 	let faces = $derived(renderPass ? builder.getFaces() : []);
+	// faces that the user can actually see/edit. `hidden` faces (e.g. the coin's
+	// rim segments) are built and exported but never listed or selectable.
+	let visibleFaces = $derived(
+		faces.map((face, i) => ({ face, i })).filter(({ face }) => !face.hidden)
+	);
 	// 1 ml = 1 cm³ = 1000 mm³, and we treat the three.js unit as a mm.
 	let vol = $derived(renderPass ? builder.getApproximateVolume() / 1000 : '-');
 	let f2f = $derived(renderPass ? builder.getFace2FaceDistance() : '-');
@@ -102,138 +107,138 @@
 <div class="card preset-tonal-surface flex w-72 flex-col gap-2 p-4">
 	<CollapsibleGroup defaultValue="dice">
 		<Collapsible value="dice" title={m.dice_name({ kind })} defaultOpen={false}>
-		<p class="flex justify-between">
-			<span>{m.dice_parameters_approx_volume()}:</span>
-			<span>{numberFormat(vol)}{typeof vol === 'number' ? ' ml' : ''}</span>
-		</p>
-		<p class="flex justify-between">
-			<span>{m.dice_parameters_face_to_face_distance()}:</span> <span>{numberFormat(f2f)}</span>
-		</p>
-		{#each model.parameters as p}
-			{@const currentValue = dparams[p.id] ?? p.defaultValue}
+			<p class="flex justify-between">
+				<span>{m.dice_parameters_approx_volume()}:</span>
+				<span>{numberFormat(vol)}{typeof vol === 'number' ? ' ml' : ''}</span>
+			</p>
+			<p class="flex justify-between">
+				<span>{m.dice_parameters_face_to_face_distance()}:</span> <span>{numberFormat(f2f)}</span>
+			</p>
+			{#each model.parameters as p}
+				{@const currentValue = dparams[p.id] ?? p.defaultValue}
+				<label
+					id="parameter-{p.id}"
+					class="flex flex-col"
+					title={m.dice_parameters_description({ id: p.id })}
+				>
+					<p class="flex justify-between">
+						<span>{m.dice_parameters_name({ id: p.id })}:</span> <span>({currentValue})</span>
+					</p>
+					<!-- Bits UI Slider component! -->
+
+					<Slider
+						class="py-1"
+						value={currentValue}
+						onChange={(newValue) => (dparams[p.id] = newValue)}
+						min={p.min}
+						max={p.max}
+						step={p.step}
+					/>
+				</label>
+			{/each}
 			<label
-				id="parameter-{p.id}"
+				id="parameter-{engravingParam.id}"
 				class="flex flex-col"
-				title={m.dice_parameters_description({ id: p.id })}
+				title={m.dice_parameters_description({ id: engravingParam.id })}
 			>
 				<p class="flex justify-between">
-					<span>{m.dice_parameters_name({ id: p.id })}:</span> <span>({currentValue})</span>
+					<span>
+						{m.dice_parameters_name({ id: engravingParam.id })}:
+					</span>
+					<span>
+						({engravingDepth})
+					</span>
 				</p>
 				<!-- Bits UI Slider component! -->
 
 				<Slider
 					class="py-1"
-					value={currentValue}
-					onChange={(newValue) => (dparams[p.id] = newValue)}
-					min={p.min}
-					max={p.max}
-					step={p.step}
-				/>
+					value={engravingDepth}
+					onChange={(e) => (dparams[engravingParam.id] = e)}
+					min={engravingParam.min}
+					max={engravingParam.max}
+					step={engravingParam.step}
+				></Slider>
 			</label>
-		{/each}
-		<label
-			id="parameter-{engravingParam.id}"
-			class="flex flex-col"
-			title={m.dice_parameters_description({ id: engravingParam.id })}
-		>
-			<p class="flex justify-between">
-				<span>
-					{m.dice_parameters_name({ id: engravingParam.id })}:
-				</span>
-				<span>
-					({engravingDepth})
-				</span>
-			</p>
-			<!-- Bits UI Slider component! -->
-
-			<Slider
-				class="py-1"
-				value={engravingDepth}
-				onChange={(e) => (dparams[engravingParam.id] = e)}
-				min={engravingParam.min}
-				max={engravingParam.max}
-				step={engravingParam.step}
-			></Slider>
-		</label>
-	</Collapsible>
-	<Collapsible value="face" title={m.dice_current_face()} defaultOpen={false}>
-		<label class="mt-4 flex flex-col">
-			<select
-				class="select"
-				onchange={(e) => {
-					const v = (e.target as HTMLSelectElement).value;
-					if (v === 'none') {
-						selectMode = 'none';
-						selectedFaces = [];
-					} else if (v === 'multi') {
-						// seed the multi selection with the current single face, if any.
-						if (selectMode !== 'multi') {
-							selectedFaces = selectMode === 'single' && selectedFace >= 0 ? [selectedFace] : [];
+		</Collapsible>
+		<Collapsible value="face" title={m.dice_current_face()} defaultOpen={false}>
+			<label class="mt-4 flex flex-col">
+				<select
+					class="select"
+					onchange={(e) => {
+						const v = (e.target as HTMLSelectElement).value;
+						if (v === 'none') {
+							selectMode = 'none';
+							selectedFaces = [];
+						} else if (v === 'multi') {
+							// seed the multi selection with the current single face, if any.
+							if (selectMode !== 'multi') {
+								selectedFaces = selectMode === 'single' && selectedFace >= 0 ? [selectedFace] : [];
+							}
+							selectMode = 'multi';
+						} else {
+							selectMode = 'single';
+							selectedFaces = [];
+							selectedFace = Number(v);
+							onChangeSelectedFace?.(selectedFace);
 						}
-						selectMode = 'multi';
-					} else {
-						selectMode = 'single';
-						selectedFaces = [];
-						selectedFace = Number(v);
-						onChangeSelectedFace?.(selectedFace);
-					}
-				}}
-			>
-				<option value="none" selected={selectMode === 'none'}>{m.face_select_none()}</option>
-				<option value="multi" selected={selectMode === 'multi'}>{m.face_select_multi()}</option>
-				{#each faces as face, i}
-					<option value={i} selected={selectMode === 'single' && i === selectedFace}
-						>{faceName(face, i)}</option
+					}}
+				>
+					<option value="none" selected={selectMode === 'none'}>{m.face_select_none()}</option>
+					<option value="multi" selected={selectMode === 'multi'}>{m.face_select_multi()}</option>
+					{#each visibleFaces as { face, i } (i)}
+						<option value={i} selected={selectMode === 'single' && i === selectedFace}
+							>{faceName(face, i)}</option
+						>
+					{/each}
+				</select>
+			</label>
+			{#if selectMode === 'multi'}
+				<div class="mt-2 flex items-center justify-end gap-2 text-sm">
+					<button
+						type="button"
+						class="anchor"
+						onclick={() => {
+							selectedFaces = visibleFaces.map(({ i }) => i);
+						}}>{m.face_select_all()}</button
 					>
-				{/each}
-			</select>
-		</label>
-		{#if selectMode === 'multi'}
-			<div class="mt-2 flex items-center justify-end gap-2 text-sm">
-				<button
-					type="button"
-					class="anchor"
-					onclick={() => {
-						selectedFaces = faces.map((_, i) => i);
-					}}>{m.face_select_all()}</button
-				>
-				<span>/</span>
-				<button
-					type="button"
-					class="anchor"
-					onclick={() => {
-						selectedFaces = [];
-					}}>{m.face_select_clear()}</button
-				>
-			</div>
-			<div class="border-surface-300-700 mt-1 max-h-32 overflow-y-auto rounded border">
-				{#each faces as face, i}
-					<label class="hover:bg-surface-200-800 flex items-center gap-2 px-2 py-1">
-						<input
-							type="checkbox"
-							class="checkbox"
-							checked={selectedFaces.includes(i)}
-							onchange={(e) => {
-								const checked = (e.target as HTMLInputElement).checked;
-								const set = new Set(selectedFaces);
-								if (checked) {
-									set.add(i);
-									selectedFace = i;
-									onChangeSelectedFace?.(i);
-								} else {
-									set.delete(i);
-								}
-								// staying in multi mode even when 0 or 1 remain selected.
-								selectedFaces = [...set].sort((a, b) => a - b);
-							}}
-						/>
-						<span>{faceName(face, i)}</span>
-					</label>
-				{/each}
-			</div>
-		{/if}
-		{#if targetFaces.length > 0}
-			<!-- 
+					<span>/</span>
+					<button
+						type="button"
+						class="anchor"
+						onclick={() => {
+							selectedFaces = [];
+						}}>{m.face_select_clear()}</button
+					>
+				</div>
+				<div class="border-surface-300-700 mt-1 max-h-32 overflow-y-auto rounded border">
+					{#each visibleFaces as { face, i } (i)}
+						<label class="hover:bg-surface-200-800 flex items-center gap-2 px-2 py-1">
+							<input
+								type="checkbox"
+								class="checkbox"
+								checked={selectedFaces.includes(i)}
+								onchange={(e) => {
+									const checked = (e.target as HTMLInputElement).checked;
+									const set = new Set(selectedFaces);
+									if (checked) {
+										set.add(i);
+										selectedFace = i;
+										onChangeSelectedFace?.(i);
+									} else {
+										set.delete(i);
+									}
+									// staying in multi mode even when 0 or 1 remain selected.
+									selectedFaces = [...set].sort((a, b) => a - b);
+								}}
+							/>
+							<span>{faceName(face, i)}</span>
+						</label>
+					{/each}
+				</div>
+			{/if}
+			{#if targetFaces.length > 0}
+				<!-- 
 	face params are specific:
 	
 	legend
@@ -244,139 +249,139 @@
 	that we bind to the faceparams
 	
 	-->
-			{#if selectMode === 'multi'}
-				<button
-					type="button"
-					class="btn preset-tonal-primary my-2 w-full justify-start"
-					onclick={() => onSyncFaces?.()}>{m.face_parameters_sync()}</button
-				>
-			{:else}
-				<label class="my-2 flex items-center justify-between">
-					<!-- >{
+				{#if selectMode === 'multi'}
+					<button
+						type="button"
+						class="btn preset-tonal-primary my-2 w-full justify-start"
+						onclick={() => onSyncFaces?.()}>{m.face_parameters_sync()}</button
+					>
+				{:else}
+					<label class="my-2 flex items-center justify-between">
+						<!-- >{
 			//m['face_params.legend']()
 			} -->
-					{m.face_parameters_selected_legend()}
-					<Modal>
-						{#snippet title()}
-							{m.face_parameters_pick_legend()}
-						{/snippet}
-						{#snippet trigger(props)}
-							<button {...props} class="btn preset-filled-primary-500 p-0">
-								<LegendPreview {legends} legend={faceLegend} class="size-12" />
-							</button>
-						{/snippet}
-						{#snippet inner(close)}
-							<LegendViewer
-								{legends}
-								selectedLegend={faceLegend}
-								onSelectedLegend={(next) => {
-									updateTargetFaces((p) => (p.legend = next));
-									close();
-								}}
-							/>
-						{/snippet}
-					</Modal>
+						{m.face_parameters_selected_legend()}
+						<Modal>
+							{#snippet title()}
+								{m.face_parameters_pick_legend()}
+							{/snippet}
+							{#snippet trigger(props)}
+								<button {...props} class="btn preset-filled-primary-500 p-0">
+									<LegendPreview {legends} legend={faceLegend} class="size-12" />
+								</button>
+							{/snippet}
+							{#snippet inner(close)}
+								<LegendViewer
+									{legends}
+									selectedLegend={faceLegend}
+									onSelectedLegend={(next) => {
+										updateTargetFaces((p) => (p.legend = next));
+										close();
+									}}
+								/>
+							{/snippet}
+						</Modal>
+					</label>
+				{/if}
+				<label class="flex flex-col">
+					<p class="flex justify-between">
+						<span>
+							{m.face_parameters_scale()}
+						</span>
+						<span>
+							({numberFormat(faceLegendScale)})
+						</span>
+					</p>
+
+					<Slider
+						class="py-1"
+						value={faceLegendScale}
+						onChange={(nextScale) => {
+							updateTargetFaces((p) => (p.scale = nextScale));
+						}}
+						min={0.1}
+						max={5.0}
+						step={0.01}
+					></Slider>
+				</label>
+				<label class="flex flex-col">
+					<p class="flex justify-between">
+						<span>
+							{m.face_parameters_offset_x()}
+						</span>
+						<span>
+							({faceLegendOffset.x.toFixed(2)})
+						</span>
+					</p>
+					<Slider
+						class="py-1"
+						value={faceLegendOffset.x}
+						onChange={(nextOffset) => {
+							updateTargetFaces((p) => {
+								p.offset = (p.offset?.clone() ?? new Vector2(0, 0)).setX(nextOffset);
+							});
+						}}
+						min={-20}
+						max={20}
+						step={0.1}
+					></Slider>
+				</label>
+				<label class="flex flex-col">
+					<p class="flex justify-between">
+						<span>
+							{m.face_parameters_offset_y()}
+						</span>
+						<span>
+							({faceLegendOffset.y.toFixed(2)})
+						</span>
+					</p>
+					<Slider
+						class="py-1"
+						value={faceLegendOffset.y}
+						onChange={(nextOffset) => {
+							updateTargetFaces((p) => {
+								p.offset = (p.offset?.clone() ?? new Vector2(0, 0)).setY(nextOffset);
+							});
+						}}
+						min={-20}
+						max={20}
+						step={0.1}
+					></Slider>
+				</label>
+				<label class="flex flex-col">
+					<p class="flex justify-between">
+						<span>
+							{m.face_parameters_rotation()}
+						</span>
+						<span>
+							({faceRotationDegrees.toFixed(2)})
+						</span>
+					</p>
+					<Slider
+						class="py-1"
+						value={faceRotationDegrees}
+						onChange={(nextRotation) => {
+							updateTargetFaces((p) => (p.rotation = degToRad(nextRotation)));
+						}}
+						min={-180}
+						max={180}
+						step={0.1}
+					></Slider>
 				</label>
 			{/if}
-			<label class="flex flex-col">
-				<p class="flex justify-between">
-					<span>
-						{m.face_parameters_scale()}
-					</span>
-					<span>
-						({numberFormat(faceLegendScale)})
-					</span>
-				</p>
-
-				<Slider
-					class="py-1"
-					value={faceLegendScale}
-					onChange={(nextScale) => {
-						updateTargetFaces((p) => (p.scale = nextScale));
-					}}
-					min={0.1}
-					max={5.0}
-					step={0.01}
-				></Slider>
-			</label>
-			<label class="flex flex-col">
-				<p class="flex justify-between">
-					<span>
-						{m.face_parameters_offset_x()}
-					</span>
-					<span>
-						({faceLegendOffset.x.toFixed(2)})
-					</span>
-				</p>
-				<Slider
-					class="py-1"
-					value={faceLegendOffset.x}
-					onChange={(nextOffset) => {
-						updateTargetFaces((p) => {
-							p.offset = (p.offset?.clone() ?? new Vector2(0, 0)).setX(nextOffset);
-						});
-					}}
-					min={-20}
-					max={20}
-					step={0.1}
-				></Slider>
-			</label>
-			<label class="flex flex-col">
-				<p class="flex justify-between">
-					<span>
-						{m.face_parameters_offset_y()}
-					</span>
-					<span>
-						({faceLegendOffset.y.toFixed(2)})
-					</span>
-				</p>
-				<Slider
-					class="py-1"
-					value={faceLegendOffset.y}
-					onChange={(nextOffset) => {
-						updateTargetFaces((p) => {
-							p.offset = (p.offset?.clone() ?? new Vector2(0, 0)).setY(nextOffset);
-						});
-					}}
-					min={-20}
-					max={20}
-					step={0.1}
-				></Slider>
-			</label>
-			<label class="flex flex-col">
-				<p class="flex justify-between">
-					<span>
-						{m.face_parameters_rotation()}
-					</span>
-					<span>
-						({faceRotationDegrees.toFixed(2)})
-					</span>
-				</p>
-				<Slider
-					class="py-1"
-					value={faceRotationDegrees}
-					onChange={(nextRotation) => {
-						updateTargetFaces((p) => (p.rotation = degToRad(nextRotation)));
-					}}
-					min={-180}
-					max={180}
-					step={0.1}
-				></Slider>
-			</label>
-		{/if}
-	{#if displayFace >= 0}
-			<div class="mt-4 flex flex-col gap-2">
-				<button
-					type="button"
-					class="btn preset-tonal-primary justify-start"
-					onclick={() => onApplyToAll?.()}>{m.format_painter_apply_all()}</button
-				>
-				<button
-					type="button"
-					class="btn preset-tonal-primary justify-start"
-					onclick={() => onEnterFormatPaint?.()}>{m.format_painter_enter()}</button
-				>
-			</div>
+			{#if displayFace >= 0}
+				<div class="mt-4 flex flex-col gap-2">
+					<button
+						type="button"
+						class="btn preset-tonal-primary justify-start"
+						onclick={() => onApplyToAll?.()}>{m.format_painter_apply_all()}</button
+					>
+					<button
+						type="button"
+						class="btn preset-tonal-primary justify-start"
+						onclick={() => onEnterFormatPaint?.()}>{m.format_painter_enter()}</button
+					>
+				</div>
 			{/if}
 		</Collapsible>
 	</CollapsibleGroup>

@@ -53,6 +53,12 @@ export type DieFaceModel = {
 	// it could still be blank, and a non-number face can have a symbol...
 	// but this informs the UI
 	isNumberFace: boolean;
+	// "non-face" faces: still built into the geometry and exported, but never
+	// surfaced in the UI (not listed, not selectable). used for the many tiny
+	// rim segments that make a coin (D2) look round without flooding the face
+	// list with hundreds of un-editable "faces". always implies a non-number,
+	// blank face. defaults to false/undefined.
+	hidden?: boolean;
 	// the convex outer shape for this face
 	shape: Shape;
 	// the default Legend for this face (user can change of course)
