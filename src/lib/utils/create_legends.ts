@@ -5,13 +5,20 @@ import { getFont } from '$lib/interfaces/fontstore';
 import dicethingLogo from '$lib/fonts/icons/dicething.svg?raw';
 import {
 	addRenderOptions,
+	createOutlineFromSVG,
 	createShapesFromFont,
 	createShapesFromSVG,
 	createShapesFromSVGChecked,
 	defaultStrings,
+	finalizeImportedShapes,
 	numberStringToWords,
-	zeroToNinetyNine
+	svgPieces,
+	unsupportedSVGElements,
+	zeroToNinetyNine,
+	type SvgPiece
 } from './font';
+
+export type { SvgPiece, SvgPieceAction } from './font';
 import {
 	loadMutableLegends,
 	type LegendFontOrigin,
@@ -92,8 +99,29 @@ export function shapesFromFontText(
 	return result[0] as unknown as Array<unknown>;
 }
 
-// Parse an SVG string (paths with fill) into (serialized) shapes for one slot.
-// Throws StrokeOnlySVGError if the SVG only has stroked paths.
+// Parse an SVG string (paths with fill) into (serialized) shapes for one slot,
+// fitted to legend size. Throws StrokeOnlySVGError if the SVG only has strokes.
 export function shapesFromSVG(svg: string): Array<unknown> {
-	return createShapesFromSVGChecked(svg) as unknown as Array<unknown>;
+	return finalizeImportedShapes(createShapesFromSVGChecked(svg) as unknown as Array<unknown>);
+}
+
+// Trace the outline of an SVG's stroked paths into shapes, fitted to legend size.
+export function outlineFromSVG(svg: string): Array<unknown> {
+	return createOutlineFromSVG(svg) as unknown as Array<unknown>;
+}
+
+// Split an SVG into individually selectable pieces (compound paths separated),
+// each offering a traced-stroke and/or filled interpretation.
+export function svgImportPieces(svg: string): Array<SvgPiece> {
+	return svgPieces(svg);
+}
+
+// Combine the user's per-piece selections into fitted shapes for one slot.
+export function combineImportPieces(shapes: Array<unknown>): Array<unknown> {
+	return finalizeImportedShapes(shapes);
+}
+
+// Elements in an SVG we can't import (text, images, etc.).
+export function svgUnsupportedElements(svg: string): Array<string> {
+	return unsupportedSVGElements(svg);
 }

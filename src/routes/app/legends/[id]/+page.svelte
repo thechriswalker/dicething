@@ -4,6 +4,7 @@
 	import Layout from '$lib/components/layout/Layout.svelte';
 	import LegendPreview from '$lib/components/legend_viewer/LegendPreview.svelte';
 	import LegendViewer from '$lib/components/legend_viewer/LegendViewer.svelte';
+	import ShapesPreview from '$lib/components/legend_viewer/ShapesPreview.svelte';
 	import Modal from '$lib/components/modal/Modal.svelte';
 	import builtins, { type Builtin } from '$lib/fonts';
 	import {
@@ -13,9 +14,14 @@
 	} from '$lib/interfaces/storage.svelte';
 	import { m } from '$lib/paraglide/messages';
 	import {
+		combineImportPieces,
 		getEditableFont,
 		shapesFromFontText,
-		shapesFromSVG
+		shapesFromSVG,
+		svgImportPieces,
+		svgUnsupportedElements,
+		type SvgPiece,
+		type SvgPieceAction
 	} from '$lib/utils/create_legends';
 	import { StrokeOnlySVGError } from '$lib/utils/font';
 	import { debounce } from '$lib/utils/debounce';
@@ -151,28 +157,84 @@
 	}
 	const regenerateDebounced = debounce<void>(200, () => regenerateFromFont());
 
-	async function importSvg(event: Event) {
+	// SVG import. The simple path previews the "border" (filled boundary)
+	// interpretation. If that's wrong, the complex importer splits the SVG into
+	// individual pieces (compound paths separated) that can each be traced,
+	// filled or ignored.
+	let svgText = $state('');
+	let svgBorder = $state<Array<unknown> | null>(null);
+	let svgNote = $state('');
+	let svgUnsupported = $state<Array<string>>([]);
+	let complexOpen = $state(false);
+	let pieces = $state<Array<SvgPiece>>([]);
+	let pieceActions = $state<Array<SvgPieceAction>>([]);
+
+	function resetImport() {
+		svgText = '';
+		svgBorder = null;
+		svgNote = '';
+		svgUnsupported = [];
+		complexOpen = false;
+		pieces = [];
+		pieceActions = [];
+	}
+
+	async function onSvgFilePicked(event: Event) {
 		const input = event.currentTarget as HTMLInputElement;
 		const file = input.files?.[0];
 		input.value = '';
-		if (!file || !set) {
+		resetImport();
+		if (!file) {
 			return;
 		}
+		svgText = await file.text();
+		svgUnsupported = svgUnsupportedElements(svgText);
 		try {
-			const shapes = shapesFromSVG(await file.text());
-			if (shapes.length === 0) {
-				alert(m.legends_editor_svg_empty());
-				return;
+			const b = shapesFromSVG(svgText);
+			svgBorder = b.length ? b : null;
+			if (!svgBorder) {
+				svgNote = m.legends_editor_svg_empty();
 			}
-			set.setSerialized(selectedLegend, set.getLegendName(selectedLegend), shapes, { kind: 'svg' });
-			commit();
 		} catch (e) {
-			if (e instanceof StrokeOnlySVGError) {
-				alert(m.legends_editor_svg_stroke_only());
-			} else {
-				alert(m.legends_editor_svg_error({ error: e instanceof Error ? e.message : String(e) }));
-			}
+			svgNote =
+				e instanceof StrokeOnlySVGError
+					? m.legends_editor_svg_stroke_only()
+					: m.legends_editor_svg_error({ error: e instanceof Error ? e.message : String(e) });
+			svgBorder = null;
 		}
+	}
+
+	function openComplex() {
+		if (!svgText) {
+			return;
+		}
+		pieces = svgImportPieces(svgText);
+		pieceActions = pieces.map((p) => p.defaultAction);
+		complexOpen = true;
+	}
+
+	function pieceShapes(piece: SvgPiece, action: SvgPieceAction): Array<unknown> {
+		if (action === 'trace') {
+			return piece.trace ?? [];
+		}
+		if (action === 'fill') {
+			return piece.fill ?? [];
+		}
+		return [];
+	}
+
+	let complexCombined = $derived(
+		pieces.flatMap((p, i) => pieceShapes(p, pieceActions[i] ?? 'ignore'))
+	);
+
+	function applyShapes(shapes: Array<unknown>, close: () => void) {
+		if (!set || shapes.length === 0) {
+			return;
+		}
+		set.setSerialized(selectedLegend, set.getLegendName(selectedLegend), shapes, { kind: 'svg' });
+		commit();
+		resetImport();
+		close();
 	}
 
 	// --- copy a glyph from another legend set --------------------------------
@@ -381,11 +443,149 @@
 
 						<div class="flex flex-col gap-2 border-t pt-2">
 							<span class="text-sm font-semibold">{m.legends_editor_replace_with()}</span>
-							<label class="btn preset-tonal-surface w-full cursor-pointer justify-start">
-								<ImageIcon class="size-4" />
-								{m.legends_editor_import_svg()}
-								<input type="file" accept=".svg,image/svg+xml" class="hidden" onchange={importSvg} />
-							</label>
+							<!-- import SVG: border first, complex (per-piece) on demand -->
+							<Modal>
+								{#snippet title()}
+									{m.legends_editor_import_svg()}
+								{/snippet}
+								{#snippet trigger(props)}
+									<button {...props} type="button" class="btn preset-tonal-surface w-full justify-start">
+										<ImageIcon class="size-4" />
+										{m.legends_editor_import_svg()}
+									</button>
+								{/snippet}
+								{#snippet inner(close)}
+									<div class="flex w-[34rem] max-w-full flex-col gap-3">
+										<label class="label">
+											<span class="label-text">{m.legends_editor_svg_choose()}</span>
+											<input
+												class="input"
+												type="file"
+												accept=".svg,image/svg+xml"
+												onchange={onSvgFilePicked}
+											/>
+										</label>
+										{#if svgUnsupported.length}
+											<div
+												class="preset-tonal-warning rounded p-2 text-sm"
+												role="note"
+											>
+												{m.legends_editor_svg_unsupported({
+													elements: svgUnsupported.join(', ')
+												})}
+											</div>
+										{/if}
+										{#if svgNote}
+											<p class="text-warning-700-300 text-sm">{svgNote}</p>
+										{/if}
+
+										{#if !complexOpen}
+											{#if svgBorder}
+												<div class="flex flex-col items-center gap-2">
+													<span class="text-sm font-semibold">{m.legends_editor_svg_border()}</span>
+													<ShapesPreview shapes={svgBorder} class="size-28" />
+													<button
+														type="button"
+														class="btn btn-sm preset-filled-primary-500"
+														onclick={() => applyShapes(svgBorder!, close)}
+													>
+														{m.legends_editor_svg_use_border()}
+													</button>
+												</div>
+											{/if}
+											{#if svgText}
+												<div class="border-surface-200-800 flex flex-col gap-2 border-t pt-3">
+													<p class="text-surface-600-400 text-sm">
+														{svgBorder
+															? m.legends_editor_svg_complex_hint_some()
+															: m.legends_editor_svg_complex_hint_none()}
+													</p>
+													<button
+														type="button"
+														class="btn btn-sm preset-tonal-surface self-start"
+														onclick={openComplex}
+													>
+														{m.legends_editor_svg_open_complex()}
+													</button>
+												</div>
+											{/if}
+										{:else}
+											<!-- complex import: per-piece trace / fill / ignore -->
+											<div class="flex flex-col items-center gap-1">
+												<span class="text-sm font-semibold">{m.legends_editor_svg_result()}</span>
+												{#if complexCombined.length}
+													<ShapesPreview shapes={complexCombined} class="size-28" />
+												{:else}
+													<p class="text-surface-500 text-xs">{m.legends_editor_svg_empty()}</p>
+												{/if}
+											</div>
+											<div class="flex max-h-[40vh] flex-col gap-2 overflow-y-auto">
+												{#each pieces as piece, i (i)}
+													<div
+														class="border-surface-200-800 flex items-center gap-3 rounded border p-2"
+													>
+														<div
+															class="bg-surface-100-900 size-12 shrink-0 rounded {pieceActions[i] ===
+															'ignore'
+																? 'opacity-30'
+																: ''}"
+														>
+															<ShapesPreview
+																shapes={pieceShapes(piece, pieceActions[i] === 'ignore'
+																	? piece.trace
+																		? 'trace'
+																		: 'fill'
+																	: pieceActions[i])}
+																class="size-12"
+															/>
+														</div>
+														<span class="text-surface-600-400 w-10 text-xs">{piece.label}</span>
+														<div class="ml-auto flex gap-1">
+															<button
+																type="button"
+																class="btn btn-sm {pieceActions[i] === 'trace'
+																	? 'preset-filled-primary-500'
+																	: 'preset-tonal-surface'}"
+																disabled={!piece.trace}
+																onclick={() => (pieceActions[i] = 'trace')}
+															>
+																{m.legends_editor_svg_trace()}
+															</button>
+															<button
+																type="button"
+																class="btn btn-sm {pieceActions[i] === 'fill'
+																	? 'preset-filled-primary-500'
+																	: 'preset-tonal-surface'}"
+																disabled={!piece.fill}
+																onclick={() => (pieceActions[i] = 'fill')}
+															>
+																{m.legends_editor_svg_fill()}
+															</button>
+															<button
+																type="button"
+																class="btn btn-sm {pieceActions[i] === 'ignore'
+																	? 'preset-filled-surface-500'
+																	: 'preset-tonal-surface'}"
+																onclick={() => (pieceActions[i] = 'ignore')}
+															>
+																{m.legends_editor_svg_ignore()}
+															</button>
+														</div>
+													</div>
+												{/each}
+											</div>
+											<button
+												type="button"
+												class="btn preset-filled-primary-500"
+												disabled={complexCombined.length === 0}
+												onclick={() => applyShapes(combineImportPieces(complexCombined), close)}
+											>
+												{m.legends_editor_apply()}
+											</button>
+										{/if}
+									</div>
+								{/snippet}
+							</Modal>
 
 							<!-- copy from another set -->
 							<Modal>
