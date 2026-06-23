@@ -531,6 +531,10 @@ export function shapesToSVG(shapes: Array<Shape>): SVGSVGElement {
 	paths.forEach((p) => {
 		const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
 		path.setAttribute('d', p);
+		// even-odd so holes are cut regardless of their winding. SVGs authored with
+		// fill-rule:evenodd can yield holes wound the same way as the outer contour
+		// (createShapes still tags them as holes); nonzero would leave them filled.
+		path.setAttribute('fill-rule', 'evenodd');
 		svg.appendChild(path);
 	});
 	return svg;
@@ -553,7 +557,7 @@ export function shapesToSVGData(shapes: Array<Shape>): string {
 	const boxSize = box.getSize(_v);
 	return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${box.min.x} ${box.min.y} ${boxSize.x} ${boxSize.y}">
 		<g transform="scale(1,-1)">
-			${paths.map((p) => `<path d="${p}" />`).join('\n')}
+			${paths.map((p) => `<path fill-rule="evenodd" d="${p}" />`).join('\n')}
 		</g>
 	</svg>`;
 }

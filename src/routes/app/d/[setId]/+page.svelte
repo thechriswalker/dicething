@@ -875,11 +875,19 @@
 		goto('/legends/' + id + '?return=' + encodeURIComponent(ret));
 	}
 
+	let legendIsBuiltin = $derived.by(() => (setData ? isBuiltin(setData.legends.id) : false));
 	const legendsMenu = $derived<MenuItemSubmenu>({
 		type: 'submenu',
 		title: m.menu_legends(),
 		icon: FileType,
 		children: [
+			{
+				title: legendIsBuiltin ? m.legends_clone_builtin_edit() : m.legends_edit_legends(),
+				type: 'action',
+				icon: PencilIcon,
+				action: editOrCloneLegends
+			},
+			{ type: 'separator', title: '' },
 			{
 				title: m.menu_all_blanks(),
 				type: 'action',
@@ -985,17 +993,6 @@
 			</button>
 		{/if}
 		<Menu data={legendsMenu} submenuOnLeft></Menu>
-		{#if setData}
-			<button
-				type="button"
-				class="btn preset-outlined-surface-500"
-				title={isBuiltin(setData.legends.id) ? m.legends_clone() : m.legends_edit()}
-				onclick={editOrCloneLegends}
-			>
-				<PencilIcon class="size-4" />
-				{isBuiltin(setData.legends.id) ? m.legends_clone() : m.legends_edit()}
-			</button>
-		{/if}
 		<Menu data={exportMenu} submenuOnLeft></Menu>
 		{#if setData}
 			<DeleteSetDialog {setId} setName={setData.name} onDeleted={() => goto('/')}>

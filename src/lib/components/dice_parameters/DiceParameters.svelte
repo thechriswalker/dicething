@@ -285,8 +285,10 @@
 												onEditLegends?.();
 											}}
 										>
-											<PencilIcon class="size-4" />
-											{isBuiltin(legends.id) ? m.legends_clone() : m.legends_edit()}
+										<PencilIcon class="size-4" />
+										{isBuiltin(legends.id)
+											? m.legends_clone_builtin_edit()
+											: m.legends_edit_legends()}
 										</button>
 									</div>
 								{/if}

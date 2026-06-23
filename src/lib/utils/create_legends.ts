@@ -61,7 +61,8 @@ export function legendSetFromFont(
 		shapes,
 		font: { kind: 'uploaded' },
 		updated: Date.now(),
-		sources
+		sources,
+		tags: [preset === '100' ? '0-99' : 'std']
 	};
 	return loadMutableLegends(serial);
 }

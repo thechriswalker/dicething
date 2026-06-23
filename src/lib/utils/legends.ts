@@ -122,6 +122,9 @@ export type LegendSet = {
 	readonly name: string;
 	readonly mutable: boolean;
 	readonly length: number;
+	// classification tags (e.g. "std", "0-99") so custom sets can be filtered
+	// alongside builtins, e.g. in the preset legend picker.
+	readonly tags: Array<string>;
 	get(l: Legend): Array<Shape>;
 	getLegendName(l: Legend): string;
 	toJSON(): SerialisedLegendSet;
@@ -139,6 +142,8 @@ export type SerialisedLegendSet = {
 	font?: LegendFontOrigin;
 	// per-slot generation recipe (custom sets only). aligned with shapes/names.
 	sources?: Array<LegendSource | null>;
+	// classification tags (e.g. "std", "0-99").
+	tags?: Array<string>;
 };
 
 // these are the inbuilt ones.
@@ -181,6 +186,7 @@ export function loadImmutableLegends(s: SerialisedLegendSet): ImmutableLegendSet
 		id: s.id,
 		name: s.name,
 		mutable: false,
+		tags: s.tags ?? [],
 		get length() {
 			return data.length;
 		},
@@ -211,7 +217,8 @@ export function loadImmutableLegends(s: SerialisedLegendSet): ImmutableLegendSet
 				names: s.names,
 				shapes: s.shapes,
 				font: s.font,
-				sources: s.sources
+				sources: s.sources,
+				tags: s.tags
 			});
 		},
 		toJSON() {
@@ -241,10 +248,12 @@ export function loadMutableLegends(s: SerialisedLegendSet): MutableLegendSet {
 	};
 	const names = s.names.slice();
 	const sources = (s.sources ?? []).slice();
+	const tags = (s.tags ?? []).slice();
 	const set: MutableLegendSet = {
 		id: s.id,
 		name: s.name,
 		mutable: true,
+		tags,
 		font: s.font,
 		updated: s.updated,
 		get length() {
@@ -295,7 +304,8 @@ export function loadMutableLegends(s: SerialisedLegendSet): MutableLegendSet {
 				shapes: data,
 				updated: set.updated,
 				font: set.font,
-				sources: sources
+				sources: sources,
+				tags: tags
 			};
 		},
 		*[Symbol.iterator]() {

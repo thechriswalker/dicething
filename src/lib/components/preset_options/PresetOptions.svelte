@@ -3,8 +3,14 @@
 	import type { PresetOption } from '$lib/interfaces/presets';
 	import { Switch } from '@skeletonlabs/skeleton-svelte';
 	import Slider from '../slider/Slider.svelte';
+	import LegendPreview from '../legend_viewer/LegendPreview.svelte';
 	import { onMount } from 'svelte';
 	import { m } from '$lib/paraglide/messages';
+	import { getSavedLegends } from '$lib/interfaces/storage.svelte';
+	import { Legend } from '$lib/utils/legends';
+
+	const savedLegends = getSavedLegends();
+	const previewLegends = [Legend.ONE, Legend.TWO, Legend.THREE, Legend.TWENTY];
 
 	let {
 		options,
@@ -102,6 +108,27 @@
 						>
 							<strong>{f.name}</strong>
 							<img height="10px" src={f.preview} alt={m.preset_options_font_preview()} class="dark:invert" />
+						</button>
+					{/if}
+				{/each}
+				{#each savedLegends as set}
+					{#if set.tags.includes(opt.filter)}
+						{@const border =
+							set.id == (values[idx] ?? opt.value)
+								? 'preset-filled-primary-500 preset-outlined-primary-500'
+								: 'preset-filled-surface-50-950 preset-outlined hover:preset-outlined-primary-500'}
+						<button
+							class={'flex flex-col justify-between gap-2 rounded-md p-2  ' + border}
+							onclick={() => {
+								values[idx] = set.id;
+							}}
+						>
+							<strong>{set.name}</strong>
+							<div class="flex flex-row flex-wrap gap-1">
+								{#each previewLegends as l}
+									<LegendPreview legends={set} legend={l} class="size-6" />
+								{/each}
+							</div>
 						</button>
 					{/if}
 				{/each}

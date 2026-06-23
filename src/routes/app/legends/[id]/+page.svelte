@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { goto } from '$app/navigation';
+	import { beforeNavigate, goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import Layout from '$lib/components/layout/Layout.svelte';
 	import LegendPreview from '$lib/components/legend_viewer/LegendPreview.svelte';
@@ -28,17 +28,29 @@
 	import {
 		debugLegendName,
 		Legend,
+		loadMutableLegends,
 		type LegendSet,
 		type MutableLegendSet
 	} from '$lib/utils/legends';
 	import { shapeToJSON } from '$lib/utils/to_json';
 	import { addUnderline, defaultUnderline } from '$lib/utils/underline';
-	import { ArrowLeftIcon, ImageIcon, PlusIcon, TypeIcon } from '@lucide/svelte';
+	import { ArrowLeftIcon, ImageIcon, PlusIcon, SaveIcon, Trash2Icon, TypeIcon } from '@lucide/svelte';
 
 	let id = $derived(page.params.id ?? '');
 	let returnTo = $derived(page.url.searchParams.get('return') || '/legends');
 
-	let set = $derived<MutableLegendSet | undefined>(getCustomLegendSet(id));
+	// The editor owns a live instance (kept in sync with the store via autosave).
+	// It's loaded once per id and may carry a trailing blank slot you're mid-way
+	// through adding; the persisted copy trims those (see trimmedForStore).
+	let set = $state<MutableLegendSet | undefined>(undefined);
+	let loadedSetId = '';
+	$effect(() => {
+		if (id === loadedSetId) {
+			return;
+		}
+		loadedSetId = id;
+		set = getCustomLegendSet(id);
+	});
 	let selectedLegend = $state<Legend>(Legend.ONE);
 	// bumped after any edit so the previews (which read from a non-reactive
 	// legend set) re-render.
@@ -65,11 +77,10 @@
 			name = set.name;
 		}
 	});
-	const saveDebounced = debounce<MutableLegendSet>(400, (s) => saveLegendSet(s));
 	function onNameInput() {
 		if (set) {
 			set.name = name;
-			saveDebounced(set);
+			commit();
 		}
 	}
 
@@ -113,12 +124,50 @@
 		}
 	});
 
-	function commit() {
-		if (set) {
-			saveLegendSet(set);
-			version++;
+	// --- autosave -----------------------------------------------------------
+	// Edits autosave (debounced). The persisted copy is always trimmed of trailing
+	// blank slots so the builder/legend picker never see empty entries, while the
+	// live editor set keeps any trailing blank you're part-way through adding.
+	let saving = $state(false);
+
+	// Trim *trailing* blank (shape-less) slots for storage. Interior blanks are
+	// preserved so later legends keep their index (trimming them would re-order
+	// the set).
+	function trimmedForStore(s: MutableLegendSet): MutableLegendSet {
+		const json = s.toJSON();
+		let len = json.shapes.length;
+		while (len > 0 && (json.shapes[len - 1]?.length ?? 0) === 0) {
+			len--;
 		}
+		return loadMutableLegends({
+			...json,
+			shapes: json.shapes.slice(0, len),
+			names: json.names.slice(0, len),
+			sources: (json.sources ?? []).slice(0, len)
+		});
 	}
+
+	function doPersist() {
+		if (set) {
+			saveLegendSet(trimmedForStore(set));
+		}
+		saving = false;
+	}
+	const persistDebounced = debounce<void>(400, doPersist);
+
+	// mark an edit: refresh previews, show the saving indicator and schedule a save.
+	function commit() {
+		version++;
+		saving = true;
+		persistDebounced();
+	}
+
+	// Never lose edits when leaving the editor (e.g. returning to the builder):
+	// flush pending regeneration + save so the builder reads the latest shapes.
+	beforeNavigate(() => {
+		regenerateDebounced.flush();
+		persistDebounced.flush();
+	});
 
 	// append a new, blank legend slot to the set and select it for editing.
 	function addLegend() {
@@ -128,6 +177,31 @@
 		const idx = set.length;
 		set.setSerialized(idx, debugLegendName(idx), [], null);
 		selectedLegend = idx;
+		commit();
+	}
+
+	// delete the selected legend. The final slot is removed entirely; an interior
+	// slot is converted to a blank so later legends keep their index. Trailing
+	// blanks left behind are trimmed when persisted (trimmedForStore).
+	function deleteLegend(l: Legend) {
+		if (!set) {
+			return;
+		}
+		const last = set.length - 1;
+		if (l >= last) {
+			const json = set.toJSON();
+			set = loadMutableLegends({
+				...json,
+				shapes: json.shapes.slice(0, last),
+				names: json.names.slice(0, last),
+				sources: (json.sources ?? []).slice(0, last)
+			});
+		} else {
+			set.setSerialized(l, debugLegendName(l), [], null);
+		}
+		if (selectedLegend > set.length - 1) {
+			selectedLegend = Math.max(0, set.length - 1);
+		}
 		commit();
 	}
 
@@ -214,13 +288,25 @@
 	}
 
 	function pieceShapes(piece: SvgPiece, action: SvgPieceAction): Array<unknown> {
-		if (action === 'trace') {
-			return piece.trace ?? [];
+		if (action === 'traceOutline') {
+			return piece.traceOutline ?? [];
 		}
-		if (action === 'fill') {
-			return piece.fill ?? [];
+		if (action === 'usePath') {
+			return piece.usePath ?? [];
+		}
+		if (action === 'fillPath') {
+			return piece.fillPath ?? [];
 		}
 		return [];
+	}
+
+	// What to show in a piece thumbnail (preview the would-be selection even when
+	// currently ignored).
+	function piecePreviewShapes(piece: SvgPiece, action: SvgPieceAction): Array<unknown> {
+		if (action !== 'ignore') {
+			return pieceShapes(piece, action);
+		}
+		return piece.usePath ?? piece.traceOutline ?? piece.fillPath ?? [];
 	}
 
 	let complexCombined = $derived(
@@ -304,6 +390,9 @@
 			{m.legends_back()}
 		</a>
 		<h1 class="h4 text-primary-500">{set?.name ?? m.legends_title()}</h1>
+		{#if saving}
+			<SaveIcon class="text-surface-500 size-4 animate-pulse" />
+		{/if}
 	{/snippet}
 
 	<div class="mx-auto w-full max-w-5xl p-4">
@@ -350,7 +439,19 @@
 							{#key selectedLegend + ':' + version}
 								<LegendPreview legends={set} legend={selectedLegend} class="size-28" />
 							{/key}
-							<span class="font-semibold">{set.getLegendName(selectedLegend)}</span>
+							<div class="flex items-center gap-2">
+								<span class="font-semibold">{set.getLegendName(selectedLegend)}</span>
+								{#if set.length > 0}
+									<button
+										type="button"
+										class="btn-icon btn-icon-sm preset-tonal-error"
+										title={m.legends_editor_delete_legend()}
+										onclick={() => deleteLegend(selectedLegend)}
+									>
+										<Trash2Icon class="size-4" />
+									</button>
+								{/if}
+							</div>
 						</div>
 
 						{#if fontBuffer}
@@ -531,35 +632,44 @@
 																: ''}"
 														>
 															<ShapesPreview
-																shapes={pieceShapes(piece, pieceActions[i] === 'ignore'
-																	? piece.trace
-																		? 'trace'
-																		: 'fill'
-																	: pieceActions[i])}
+																shapes={piecePreviewShapes(piece, pieceActions[i])}
 																class="size-12"
 															/>
 														</div>
 														<span class="text-surface-600-400 w-10 text-xs">{piece.label}</span>
-														<div class="ml-auto flex gap-1">
+														<div class="ml-auto flex flex-wrap justify-end gap-1">
 															<button
 																type="button"
-																class="btn btn-sm {pieceActions[i] === 'trace'
+																class="btn btn-sm {pieceActions[i] === 'traceOutline'
 																	? 'preset-filled-primary-500'
 																	: 'preset-tonal-surface'}"
-																disabled={!piece.trace}
-																onclick={() => (pieceActions[i] = 'trace')}
+																disabled={!piece.traceOutline}
+																title={m.legends_editor_svg_trace_outline_help()}
+																onclick={() => (pieceActions[i] = 'traceOutline')}
 															>
-																{m.legends_editor_svg_trace()}
+																{m.legends_editor_svg_trace_outline()}
 															</button>
 															<button
 																type="button"
-																class="btn btn-sm {pieceActions[i] === 'fill'
+																class="btn btn-sm {pieceActions[i] === 'usePath'
 																	? 'preset-filled-primary-500'
 																	: 'preset-tonal-surface'}"
-																disabled={!piece.fill}
-																onclick={() => (pieceActions[i] = 'fill')}
+																disabled={!piece.usePath}
+																title={m.legends_editor_svg_use_path_help()}
+																onclick={() => (pieceActions[i] = 'usePath')}
 															>
-																{m.legends_editor_svg_fill()}
+																{m.legends_editor_svg_use_path()}
+															</button>
+															<button
+																type="button"
+																class="btn btn-sm {pieceActions[i] === 'fillPath'
+																	? 'preset-filled-primary-500'
+																	: 'preset-tonal-surface'}"
+																disabled={!piece.fillPath}
+																title={m.legends_editor_svg_fill_path_help()}
+																onclick={() => (pieceActions[i] = 'fillPath')}
+															>
+																{m.legends_editor_svg_fill_path()}
 															</button>
 															<button
 																type="button"

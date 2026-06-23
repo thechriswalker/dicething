@@ -15,6 +15,7 @@ import {
 import { SVGLoader } from 'three/examples/jsm/loaders/SVGLoader.js';
 import { resolveShapeBoundaries } from './path_resolve';
 import { centerShapes, scaleShapes } from './shapes';
+import { unionBoundaryLoops } from './tessellate';
 import { shapeFromJSON, shapeToJSON } from './to_json';
 
 // these are in the same order as the "Legend" enum values
@@ -202,12 +203,13 @@ type ParsedPath = {
 	subPaths: Array<{ getPoints(divisions?: number): Array<Vector2> }>;
 };
 
-// Recover the stroke boundary loops for every subpath of a path. Keeping a
-// whole path's subpaths together is important: a compound path (e.g. an "O"
-// outline, or an icon with cut-outs) relies on inner subpaths becoming holes,
-// which only works when they're nested with their outer contour.
-function pathStrokeLoops(path: ParsedPath, style: unknown): Array<Array<Vector2>> {
-	const loops: Array<Array<Vector2>> = [];
+// "Trace outline" a path: stroke each subpath independently into ribbon
+// geometry (caps/joins/miters), recover its boundary loops and nest them so a
+// closed stroke becomes a hollow ring. Subpaths are traced separately and the
+// bands simply overlap; nesting them together would fill internal regions of a
+// multi-part shape (e.g. an icon's inner detail strokes).
+function tracePath(path: ParsedPath, style: unknown): Array<Shape> {
+	const shapes: Array<Shape> = [];
 	for (const sub of path.subPaths) {
 		const pts = sub.getPoints();
 		if (pts.length < 2) {
@@ -216,18 +218,20 @@ function pathStrokeLoops(path: ParsedPath, style: unknown): Array<Array<Vector2>
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 		const geom = SVGLoader.pointsToStroke(pts, style as any);
 		if (geom) {
-			loops.push(...strokeGeometryToLoops(geom));
+			shapes.push(...loopsToShapes(strokeGeometryToLoops(geom)));
 		}
 	}
-	return loops;
+	return shapes;
 }
 
-// "Trace outline" a whole path: let three tessellate each subpath's stroke into
-// ribbon geometry (caps/joins/miters), recover the boundary loops, then nest
-// them all by containment so closed strokes become hollow rings and compound
-// cut-outs become holes.
-function tracePath(path: ParsedPath, style: unknown): Array<Shape> {
-	return loopsToShapes(pathStrokeLoops(path, style));
+// Drop holes so each outer contour becomes a solid fill (a solid silhouette).
+function solidOuter(shapes: Array<Shape>): Array<Shape> {
+	return shapes.map((s) => {
+		const c = new Shape();
+		c.curves = s.curves.slice();
+		c.autoClose = s.autoClose;
+		return c;
+	});
 }
 
 // Center a set of shapes about the origin and scale so the larger of their
@@ -271,31 +275,31 @@ export function finalizeImportedShapes(
 // Kept for convenience; the editor's complex import lets users pick per-piece.
 export function createOutlineFromSVG(svg: string, target: number = 10): Array<Shape> {
 	const paths = _svg.parse(injectSVGTransform(svg)).paths;
-	const loops: Array<Array<Vector2>> = [];
+	const shapes: Array<Shape> = [];
 	for (const p of paths) {
 		if (!isStrokedPath(p)) {
 			continue;
 		}
 		const path = p as unknown as ParsedPath;
-		loops.push(...pathStrokeLoops(path, path.userData?.style));
+		shapes.push(...tracePath(path, path.userData?.style));
 	}
-	return fitCentered(loopsToShapes(loops), target).map(shapeToJSON);
+	return fitCentered(shapes, target).map(shapeToJSON);
 }
 
-export type SvgPieceAction = 'trace' | 'fill' | 'ignore';
+export type SvgPieceAction = 'traceOutline' | 'usePath' | 'fillPath' | 'ignore';
 
-// One separable piece of an SVG: a whole path/shape element (its subpaths are
-// kept together so compound paths' holes survive). Carries both the
-// traced-stroke and filled interpretations as serialized shapes in a shared
-// coordinate frame, so the UI can preview each and combine the chosen pieces
-// before fitting.
+// One separable piece of an SVG (one path/shape element). Carries each
+// interpretation as serialized shapes in a shared coordinate frame, so the UI
+// can preview them and combine the chosen pieces before fitting:
+//   traceOutline - stroke the path's edges (closed strokes become hollow rings)
+//   usePath      - the path exactly as authored, keeping its holes
+//   fillPath     - the path filled solid (holes removed)
 export type SvgPiece = {
 	label: string;
-	stroked: boolean;
-	filled: boolean;
 	defaultAction: SvgPieceAction;
-	trace: Array<unknown> | null;
-	fill: Array<unknown> | null;
+	traceOutline: Array<unknown> | null;
+	usePath: Array<unknown> | null;
+	fillPath: Array<unknown> | null;
 };
 
 // Split an SVG into individually-selectable pieces (one per path/shape element)
@@ -308,121 +312,52 @@ export function svgPieces(svg: string): Array<SvgPiece> {
 		const path = p as unknown as ParsedPath;
 		const stroked = isStrokedPath(p);
 		const filled = isFilledPath(p);
-		// Fill uses SVGLoader's own shape builder so compound paths keep holes.
-		const filledShapes = SVGLoader.createShapes(p);
 		const traced = tracePath(path, path.userData?.style);
-		if (traced.length === 0 && filledShapes.length === 0) {
+		// SVGLoader's own shape builder keeps compound paths' holes.
+		const pathShapes = SVGLoader.createShapes(p);
+		if (traced.length === 0 && pathShapes.length === 0) {
 			continue;
 		}
 		n++;
 		pieces.push({
 			label: `#${n}`,
-			stroked,
-			filled,
-			defaultAction: stroked ? 'trace' : filled ? 'fill' : 'ignore',
-			trace: traced.length ? traced.map(shapeToJSON) : null,
-			fill: filledShapes.length ? filledShapes.map(shapeToJSON) : null
+			defaultAction: stroked ? 'traceOutline' : filled ? 'usePath' : 'ignore',
+			traceOutline: traced.length ? traced.map(shapeToJSON) : null,
+			usePath: pathShapes.length ? pathShapes.map(shapeToJSON) : null,
+			fillPath: pathShapes.length ? solidOuter(pathShapes).map(shapeToJSON) : null
 		});
 	}
 	return pieces;
 }
 
-// Recover the boundary contour loops of a (non-indexed) triangle mesh: edges
-// used by exactly one triangle are on the boundary; stitch them into loops.
+// Recover the boundary contour loops of a (non-indexed) triangle mesh. An edge
+// used by exactly one triangle is on the boundary; we orient each such edge so
+// the triangle (mesh interior) is on its LEFT, then walk the directed edges
+// into loops. At self-touch junctions we pick the most-clockwise continuation,
+// which correctly separates crossing loops (a naive undirected walk fragments
+// self-intersecting strokes into spurious pieces).
 function strokeGeometryToLoops(geom: BufferGeometry): Array<Array<Vector2>> {
 	const pos = geom.getAttribute('position');
 	if (!pos) {
 		return [];
 	}
-	const Q = 1e4;
-	const key = (x: number, y: number) => Math.round(x * Q) + ':' + Math.round(y * Q);
-	const ek = (a: string, b: string) => (a < b ? a + '#' + b : b + '#' + a);
-	const coord = new Map<string, Vector2>();
-	const edgeCount = new Map<string, number>();
-
-	const keyAt = (i: number) => {
-		const x = pos.getX(i);
-		const y = pos.getY(i);
-		const k = key(x, y);
-		if (!coord.has(k)) {
-			coord.set(k, new Vector2(x, y));
-		}
-		return k;
-	};
-
+	// Feed each (CCW-normalised) triangle to libtess and let it compute the union
+	// boundary. A self-overlapping stroke mesh (any non-trivial outline) is a
+	// triangle soup that meshes/walks can't cleanly trace; nonzero winding over
+	// consistently-oriented triangles yields the correct outer + hole loops.
+	const tris: Array<Array<Vector2>> = [];
 	const triCount = Math.floor(pos.count / 3);
 	for (let t = 0; t < triCount; t++) {
-		const ks = [keyAt(3 * t), keyAt(3 * t + 1), keyAt(3 * t + 2)];
-		for (let i = 0; i < 3; i++) {
-			const a = ks[i];
-			const b = ks[(i + 1) % 3];
-			if (a === b) {
-				continue;
-			}
-			const e = ek(a, b);
-			edgeCount.set(e, (edgeCount.get(e) ?? 0) + 1);
-		}
-	}
-
-	const neighbors = new Map<string, string[]>();
-	const boundary: Array<[string, string]> = [];
-	const pushNeighbor = (a: string, b: string) => {
-		const arr = neighbors.get(a);
-		if (arr) {
-			arr.push(b);
-		} else {
-			neighbors.set(a, [b]);
-		}
-	};
-	for (const [e, c] of edgeCount) {
-		if (c !== 1) {
+		const a = new Vector2(pos.getX(3 * t), pos.getY(3 * t));
+		const b = new Vector2(pos.getX(3 * t + 1), pos.getY(3 * t + 1));
+		const c = new Vector2(pos.getX(3 * t + 2), pos.getY(3 * t + 2));
+		const area = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+		if (Math.abs(area) < 1e-12) {
 			continue;
 		}
-		const [a, b] = e.split('#');
-		boundary.push([a, b]);
-		pushNeighbor(a, b);
-		pushNeighbor(b, a);
+		tris.push(area > 0 ? [a, b, c] : [a, c, b]);
 	}
-
-	const used = new Set<string>();
-	const loops: Array<Array<Vector2>> = [];
-	for (const [a0, b0] of boundary) {
-		if (used.has(ek(a0, b0))) {
-			continue;
-		}
-		used.add(ek(a0, b0));
-		const loop = [a0, b0];
-		let prev = a0;
-		let cur = b0;
-		while (true) {
-			const nbrs = neighbors.get(cur) ?? [];
-			let next: string | null = null;
-			for (const n of nbrs) {
-				if (n === prev) {
-					continue;
-				}
-				if (used.has(ek(cur, n))) {
-					continue;
-				}
-				next = n;
-				break;
-			}
-			if (next === null) {
-				break;
-			}
-			used.add(ek(cur, next));
-			if (next === a0) {
-				break; // closed the loop
-			}
-			loop.push(next);
-			prev = cur;
-			cur = next;
-		}
-		if (loop.length >= 3) {
-			loops.push(loop.map((k) => coord.get(k)!.clone()));
-		}
-	}
-	return loops;
+	return unionBoundaryLoops(tris);
 }
 
 function signedArea(pts: Array<Vector2>): number {

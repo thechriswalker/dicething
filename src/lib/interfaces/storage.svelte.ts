@@ -165,6 +165,16 @@ function upsertLegendsInList(set: MutableLegendSet) {
 	} else {
 		savedLegends.splice(idx, 1, set);
 	}
+	// Each cached DiceSet holds its own LegendSet instance (resolved when the set
+	// was loaded), separate from the one being edited. Point any set using this id
+	// at the freshly-saved instance so a builder reading waitForSet() after an edit
+	// (e.g. returning from the legend editor route) picks up the new shapes instead
+	// of the stale ones it was first built with.
+	for (const s of savedSets) {
+		if (s.legends.id === set.id) {
+			s.legends = set;
+		}
+	}
 }
 
 function removeLegendsFromList(id: string) {

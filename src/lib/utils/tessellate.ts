@@ -75,6 +75,72 @@ function triangulateContours(contours: Array<Array<Vector2>>): Array<number> {
 	return out;
 }
 
+const GL_LINE_LOOP = 2;
+
+let boundaryTess: any;
+let blLoops: Array<Array<Vector2>>;
+let blCurrent: Array<Vector2>;
+
+// A second tessellator configured for boundary extraction (GL_LINE_LOOP output)
+// rather than triangles.
+function getBoundaryTesselator(): any {
+	if (boundaryTess) {
+		return boundaryTess;
+	}
+	const t = new libtess.GluTesselator();
+	t.gluTessCallback(libtess.gluEnum.GLU_TESS_BEGIN, (type: number) => {
+		if (type !== GL_LINE_LOOP) {
+			throw new Error('libtess: expected GL_LINE_LOOP, got ' + type);
+		}
+		blCurrent = [];
+	});
+	t.gluTessCallback(libtess.gluEnum.GLU_TESS_VERTEX_DATA, (data: number[]) => {
+		blCurrent.push(new Vector2(data[0], data[1]));
+	});
+	t.gluTessCallback(libtess.gluEnum.GLU_TESS_END, () => {
+		if (blCurrent.length >= 3) {
+			blLoops.push(blCurrent);
+		}
+	});
+	t.gluTessCallback(libtess.gluEnum.GLU_TESS_ERROR, (errno: number) => {
+		throw new Error('libtess error: ' + errno);
+	});
+	t.gluTessCallback(libtess.gluEnum.GLU_TESS_COMBINE, (coords: number[]) => {
+		return [coords[0], coords[1], coords[2]];
+	});
+	boundaryTess = t;
+	return t;
+}
+
+// Compute the boundary contours of the union of a set of input contours, using
+// libtess in boundary-only nonzero mode. This robustly merges a self-overlapping
+// soup (e.g. the triangles of a stroke mesh) into clean nested loops, where a
+// naive boundary-edge walk would fragment at self-touch points. Returns loops as
+// emitted (outer/holes mixed); nest them by containment downstream.
+export function unionBoundaryLoops(contours: Array<Array<Vector2>>): Array<Array<Vector2>> {
+	const t = getBoundaryTesselator();
+	blLoops = [];
+	t.gluTessNormal(0, 0, 1);
+	t.gluTessProperty(
+		libtess.gluEnum.GLU_TESS_WINDING_RULE,
+		libtess.windingRule.GLU_TESS_WINDING_NONZERO
+	);
+	t.gluTessProperty(libtess.gluEnum.GLU_TESS_BOUNDARY_ONLY, true);
+	t.gluTessBeginPolygon([]);
+	for (const contour of contours) {
+		if (contour.length < 3) {
+			continue;
+		}
+		t.gluTessBeginContour();
+		for (const p of contour) {
+			t.gluTessVertex([p.x, p.y, 0], [p.x, p.y]);
+		}
+		t.gluTessEndContour();
+	}
+	t.gluTessEndPolygon();
+	return blLoops;
+}
+
 // Drop-in replacement for `new ShapeGeometry(shapes, divisions)`. Returns a
 // non-indexed BufferGeometry in the z=0 plane with computed normals.
 export function shapeGeometry(shapes: Shape | Array<Shape>, divisions: number): BufferGeometry {
