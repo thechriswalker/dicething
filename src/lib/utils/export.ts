@@ -168,9 +168,23 @@ export type EmbedLegends = 'all' | 'used';
 
 // Serialize a set to a self-contained JSON string, embedding either the entire
 // legend set or only the legends actually referenced by the dice.
+// Strip editor-only metadata (revision, source font, per-slot recipes) so an
+// exported file only carries the legends themselves.
+function stripLegendsForExport(s: SerialisedLegendSet): SerialisedLegendSet {
+	return { id: s.id, name: s.name, names: s.names, shapes: s.shapes };
+}
+
+// Serialize a single legend set to JSON, containing only the legend shapes and
+// names (no source font / editor metadata).
+export function exportLegendSetJson(legends: LegendSet): string {
+	return JSON.stringify(stripLegendsForExport(legends.toJSON()));
+}
+
 export function exportSetJson(set: DiceSet, opts: { embedLegends: EmbedLegends }): string {
 	const legends =
-		opts.embedLegends === 'all' ? set.legends.toJSON() : reduceLegends(set, set.legends);
+		opts.embedLegends === 'all'
+			? stripLegendsForExport(set.legends.toJSON())
+			: reduceLegends(set, set.legends);
 
 	const payload = {
 		version: 1,

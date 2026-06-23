@@ -102,10 +102,18 @@ export type LegendFontOrigin =
 	| { kind: 'builtin'; builtinId: string }
 	| { kind: 'uploaded' };
 
+// Options for the generated underline modifier (e.g. for marked 6/9).
+export type UnderlineOptions = {
+	thickness: number;
+	gap: number;
+	widthScale: number;
+	flip: boolean;
+};
+
 // The recipe used to (re)generate an individual legend, so the editor can tweak
 // e.g. the characters or letter spacing later. Optional/per-slot.
 export type LegendSource =
-	| { kind: 'font'; text: string; letterSpacing?: number }
+	| { kind: 'font'; text: string; letterSpacing?: number; underline?: UnderlineOptions }
 	| { kind: 'svg' }
 	| { kind: 'glyph'; from: string; legend: Legend };
 
@@ -151,6 +159,14 @@ export type MutableLegendSet = LegendSet & {
 	updated?: number;
 	getSource(l: Legend): LegendSource | undefined;
 	set(l: Legend, name: string, shapes: Array<Shape>, source?: LegendSource | null): void;
+	// like set(), but accepts shapes already in the compact serialized form
+	// (as produced by createShapesFromFont / createShapesFromSVG).
+	setSerialized(
+		l: Legend,
+		name: string,
+		shapes: Array<unknown>,
+		source?: LegendSource | null
+	): void;
 };
 
 export function loadImmutableLegends(s: SerialisedLegendSet): ImmutableLegendSet {
@@ -258,6 +274,14 @@ export function loadMutableLegends(s: SerialisedLegendSet): MutableLegendSet {
 		set(l, name, shapes, source) {
 			cache.set(l, shapes);
 			data[l] = shapes.map(shapeToJSON);
+			names[l] = name;
+			if (source !== undefined) {
+				sources[l] = source;
+			}
+		},
+		setSerialized(l, name, shapes, source) {
+			cache.delete(l); // will be re-decoded from `data` on next get()
+			data[l] = shapes as Array<any>;
 			names[l] = name;
 			if (source !== undefined) {
 				sources[l] = source;

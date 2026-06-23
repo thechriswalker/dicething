@@ -1,16 +1,20 @@
 // Browser-side helpers for seeding new custom legend sets from a font file.
 // (The offline builtin generator lives in $lib/fonts/build_builtins.ts.)
+import builtins from '$lib/fonts';
+import { getFont } from '$lib/interfaces/fontstore';
 import dicethingLogo from '$lib/fonts/icons/dicething.svg?raw';
 import {
 	addRenderOptions,
 	createShapesFromFont,
 	createShapesFromSVG,
+	createShapesFromSVGChecked,
 	defaultStrings,
 	numberStringToWords,
 	zeroToNinetyNine
 } from './font';
 import {
 	loadMutableLegends,
+	type LegendFontOrigin,
 	type LegendSource,
 	type MutableLegendSet,
 	type SerialisedLegendSet
@@ -53,4 +57,43 @@ export function legendSetFromFont(
 		sources
 	};
 	return loadMutableLegends(serial);
+}
+
+// Resolve the source font for a legend set so the editor can generate more
+// glyphs: builtin fonts are fetched from the bundle, uploaded fonts come from
+// IndexedDB. Returns undefined if there's no source font available.
+export async function getEditableFont(set: {
+	id: string;
+	font?: LegendFontOrigin;
+}): Promise<ArrayBuffer | undefined> {
+	const f = set.font;
+	if (!f) {
+		return undefined;
+	}
+	if (f.kind === 'builtin') {
+		const b = builtins[f.builtinId as keyof typeof builtins];
+		if (!b?.fontUrl) {
+			return undefined;
+		}
+		const res = await fetch(b.fontUrl);
+		return res.arrayBuffer();
+	}
+	return getFont(set.id);
+}
+
+// Render a single string from a font into (serialized) shapes for one slot.
+export function shapesFromFontText(
+	buffer: ArrayBufferLike,
+	text: string,
+	letterSpacing?: number
+): Array<unknown> {
+	const renderOptions = letterSpacing != null ? { letterSpacing } : undefined;
+	const result = createShapesFromFont(buffer, [{ text, renderOptions }]);
+	return result[0] as unknown as Array<unknown>;
+}
+
+// Parse an SVG string (paths with fill) into (serialized) shapes for one slot.
+// Throws StrokeOnlySVGError if the SVG only has stroked paths.
+export function shapesFromSVG(svg: string): Array<unknown> {
+	return createShapesFromSVGChecked(svg) as unknown as Array<unknown>;
 }

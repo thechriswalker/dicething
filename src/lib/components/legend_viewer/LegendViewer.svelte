@@ -1,15 +1,17 @@
 <script lang="ts">
-	import type { Dice } from '$lib/interfaces/storage.svelte';
-	import { debugLegendName, Legend, type LegendSet } from '$lib/utils/legends';
+	import { Legend, type LegendSet } from '$lib/utils/legends';
+	import type { Snippet } from 'svelte';
 	import LegendPreview from './LegendPreview.svelte';
 
 	type Props = {
 		legends: LegendSet;
 		selectedLegend?: Legend;
 		onSelectedLegend?: (legend: Legend) => void;
+		// optional content rendered after the glyphs (e.g. an "add legend" button).
+		append?: Snippet;
 	};
 
-	let { legends, selectedLegend = -1, onSelectedLegend }: Props = $props();
+	let { legends, selectedLegend = -1, onSelectedLegend, append }: Props = $props();
 </script>
 
 {#snippet preview(l: Legend, selected: Legend)}
@@ -31,4 +33,5 @@
 	{#each legends as l}
 		{@render preview(l, selectedLegend)}
 	{/each}
+	{@render append?.()}
 </div>

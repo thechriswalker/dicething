@@ -14,8 +14,17 @@
 	} from '$lib/interfaces/storage.svelte';
 	import { m } from '$lib/paraglide/messages';
 	import { legendSetFromFont, type LegendPreset } from '$lib/utils/create_legends';
+	import { download, exportLegendSetJson } from '$lib/utils/export';
 	import { Legend, type LegendSet } from '$lib/utils/legends';
-	import { CopyIcon, FileTextIcon, PencilIcon, PlusIcon, Trash2Icon, UploadIcon } from '@lucide/svelte';
+	import {
+		CopyIcon,
+		DownloadIcon,
+		FileTextIcon,
+		PencilIcon,
+		PlusIcon,
+		Trash2Icon,
+		UploadIcon
+	} from '@lucide/svelte';
 
 	const savedLegends = getSavedLegends();
 
@@ -53,6 +62,12 @@
 		} finally {
 			busy = false;
 		}
+	}
+
+	function exportCustom(set: LegendSet) {
+		const json = exportLegendSetJson(set);
+		const name = (set.name || 'legends').replace(/[^a-z0-9-_]+/gi, '_');
+		download(new Blob([json], { type: 'application/json' }), `${name}.legends.json`);
 	}
 
 	async function onImportFile(event: Event) {
@@ -207,6 +222,10 @@
 							<button class="btn btn-sm preset-tonal-surface" disabled={busy} onclick={() => cloneCustom(set)}>
 								<CopyIcon class="size-4" />
 								{m.legends_clone()}
+							</button>
+							<button class="btn btn-sm preset-tonal-surface" onclick={() => exportCustom(set)}>
+								<DownloadIcon class="size-4" />
+								{m.legends_export()}
 							</button>
 							<DeleteLegendSetDialog legendId={set.id} legendName={set.name}>
 								{#snippet trigger(props)}

@@ -2,11 +2,13 @@
 	import dice from '$lib/dice';
 	import type { Dice } from '$lib/interfaces/storage.svelte';
 	import type { FaceParams } from '$lib/interfaces/dice';
+	import { isBuiltin } from '$lib/fonts';
 	import { m } from '$lib/paraglide/messages';
 	import { engravingParam, type Builder } from '$lib/utils/builder';
 	import { type LegendSet } from '$lib/utils/legends';
 	import { Vector2 } from 'three';
 	import { degToRad, radToDeg } from 'three/src/math/MathUtils.js';
+	import { PencilIcon } from '@lucide/svelte';
 	import Slider from '$lib/components/slider/Slider.svelte';
 	import Modal from '$lib/components/modal/Modal.svelte';
 	import LegendViewer from '../legend_viewer/LegendViewer.svelte';
@@ -30,6 +32,7 @@
 		onApplyToAll?: () => void;
 		onEnterFormatPaint?: () => void;
 		onSyncFaces?: () => void;
+		onEditLegends?: () => void;
 	};
 
 	let {
@@ -45,7 +48,8 @@
 		onChangeSelectedFace,
 		onApplyToAll,
 		onEnterFormatPaint,
-		onSyncFaces
+		onSyncFaces,
+		onEditLegends
 	}: Props = $props();
 
 	let model = $derived(dice[kind]);
@@ -271,6 +275,21 @@
 								</button>
 							{/snippet}
 							{#snippet inner(close)}
+								{#if onEditLegends}
+									<div class="mb-2 flex justify-end">
+										<button
+											type="button"
+											class="btn btn-sm preset-tonal-secondary"
+											onclick={() => {
+												close();
+												onEditLegends?.();
+											}}
+										>
+											<PencilIcon class="size-4" />
+											{isBuiltin(legends.id) ? m.legends_clone() : m.legends_edit()}
+										</button>
+									</div>
+								{/if}
 								<LegendViewer
 									{legends}
 									selectedLegend={faceLegend}

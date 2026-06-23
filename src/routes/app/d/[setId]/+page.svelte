@@ -1182,6 +1182,7 @@
 							onApplyToAll={applyCurrentToAllFaces}
 							onEnterFormatPaint={enterFormatPaint}
 							onSyncFaces={synchroniseSelectedFaces}
+							onEditLegends={editOrCloneLegends}
 						/>
 					{/if}
 				{/if}

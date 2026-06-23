@@ -102,11 +102,41 @@ const _svg = new SVGLoader();
 const svgOpen = /(<svg[^>]*>)/m;
 const svgClose = /(<\/svg>)/;
 
+// Thrown when an SVG contains only stroked (unfilled) paths, which we can't
+// turn into engravable boundary shapes without offsetting the strokes.
+export class StrokeOnlySVGError extends Error {
+	constructor() {
+		super('SVG contains only stroked paths (no fills)');
+		this.name = 'StrokeOnlySVGError';
+	}
+}
+
+// SVGLoader defaults an unspecified fill to black, so a path is "filled" unless
+// it explicitly opts out with fill:none.
+function isFilledPath(p: { userData?: { style?: { fill?: string } } }): boolean {
+	const fill = p.userData?.style?.fill;
+	return fill !== 'none' && fill !== undefined && fill !== 'transparent';
+}
+function isStrokedPath(p: { userData?: { style?: { stroke?: string } } }): boolean {
+	const stroke = p.userData?.style?.stroke;
+	return !!stroke && stroke !== 'none';
+}
+
 //the problem with "parse" is that is makes them inverted and flipped.
 // so we need to inject a transform.
 // scale is base on a "10x10" viewbox (like we use for fonts)
 // our icons are 20x20 so we need to scale by 0.5
 export function createShapesFromSVG(svg: string, scale: number = 1): Array<Shape> {
+	return svgToShapes(svg, scale, false);
+}
+
+// As createShapesFromSVG, but throws StrokeOnlySVGError when the SVG only has
+// stroked paths so callers can advise the user (we only support filled shapes).
+export function createShapesFromSVGChecked(svg: string, scale: number = 1): Array<Shape> {
+	return svgToShapes(svg, scale, true);
+}
+
+function svgToShapes(svg: string, scale: number, checkStroke: boolean): Array<Shape> {
 	// find the first closing tag.
 	svg = svg.replace(svgOpen, (m) => {
 		return m + `<g transform="rotate(180) scale(-1,1)">`;
@@ -114,9 +144,22 @@ export function createShapesFromSVG(svg: string, scale: number = 1): Array<Shape
 	svg = svg.replace(svgClose, (m) => {
 		return `</g>` + m;
 	});
-	// now we can use the parseo
+	// now we can use the parser
 	const fromSVG = _svg.parse(svg).paths;
-	const shapes = fromSVG.flatMap((p) => SVGLoader.createShapes(p));
+	// only filled paths can become boundary shapes; stroked-but-unfilled paths
+	// would otherwise be closed and filled by createShapes (a "black square").
+	const filled = fromSVG.filter(isFilledPath);
+	// pure-stroke paths (stroke, but no fill) carry content we can't represent.
+	// If any are present we'd silently drop them (and any background fill would
+	// import as a solid square), so advise the user instead.
+	const strokeOnly = fromSVG.filter((p) => isStrokedPath(p) && !isFilledPath(p));
+	if (checkStroke && strokeOnly.length > 0) {
+		throw new StrokeOnlySVGError();
+	}
+	const shapes = filled.flatMap((p) => SVGLoader.createShapes(p));
+	if (shapes.length === 0) {
+		return [];
+	}
 	const cleaned = preprocessShapes(shapes);
 	let c = centerShapes(...cleaned);
 	if (scale != 1) {
