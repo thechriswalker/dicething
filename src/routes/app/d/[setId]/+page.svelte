@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
+	import DeleteSetDialog from '$lib/components/delete_set/DeleteSetDialog.svelte';
 	import DiceParameters from '$lib/components/dice_parameters/DiceParameters.svelte';
 	import DiePreview from '$lib/components/die_preview/DiePreview.svelte';
 	import Layout from '$lib/components/layout/Layout.svelte';
@@ -41,6 +42,7 @@
 		Redo2,
 		SaveIcon,
 		SparklesIcon,
+		Trash2Icon,
 		Undo2,
 		XIcon
 	} from '@lucide/svelte';
@@ -894,6 +896,21 @@
 		{/if}
 		<Menu data={legendsMenu} submenuOnLeft></Menu>
 		<Menu data={exportMenu} submenuOnLeft></Menu>
+		{#if setData}
+			<DeleteSetDialog setId={setId} setName={setData.name} onDeleted={() => goto('/')}>
+				{#snippet trigger(props)}
+					<button
+						{...props}
+						type="button"
+						class="btn preset-filled-error-500"
+						title={m.delete_set_button()}
+					>
+						<Trash2Icon class="size-4" />
+						{m.delete_set_button()}
+					</button>
+				{/snippet}
+			</DeleteSetDialog>
+		{/if}
 	{/snippet}
 	<div class="flex h-full flex-col">
 		<div

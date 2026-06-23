@@ -108,5 +108,7 @@
 			</div>
 		{/if}
 	{/each}
-	<button onclick={submit}>{m.preset_options_submit()}</button>
+	<button class="btn preset-filled-primary-500 w-full" onclick={submit}
+		>{m.preset_options_submit()}</button
+	>
 </div>

@@ -31,7 +31,7 @@
 	{/if}
 {/snippet}
 
-{#snippet menuitem(item: MenuItem)}
+{#snippet menuitem(item: MenuItem, id: string)}
 	{@const disabled = !!item.disabled}
 	{#if item.type === 'separator'}
 		<Menu.Separator />
@@ -43,8 +43,8 @@
 			{menuClass}
 		/>
 	{:else if item.type === 'link'}
-		<Menu.Item value="v" {disabled} class="{itemBase} {disabled ? itemDisabled : itemClass}">
-			<a href={item.href}>
+		<Menu.Item value={id} {disabled} class="{itemBase} {disabled ? itemDisabled : itemClass}">
+			<a href={item.href} class="contents">
 				{#if item.icon}
 					{@const Icon = item.icon}
 					<Menu.ItemIndicator>
@@ -58,7 +58,7 @@
 		</Menu.Item>
 	{:else if item.type === 'action'}
 		<Menu.Item
-			value="a"
+			value={id}
 			{disabled}
 			onclick={item.action}
 			class="{itemBase} {disabled ? itemDisabled : itemClass}"
@@ -75,7 +75,7 @@
 		</Menu.Item>
 	{:else if item.type === 'legend'}
 		<Menu.Item
-			value="l"
+			value={id}
 			{disabled}
 			onclick={item.action}
 			class="{itemBase} {disabled ? itemDisabled : itemClass}"
@@ -95,7 +95,7 @@
 		{@const subDisabled = disabled || item.children.length === 0}
 		<Menu>
 			<Menu.TriggerItem
-				value="sub"
+				value={id}
 				disabled={subDisabled}
 				class="{itemBase} {subDisabled ? itemDisabled : itemClass}"
 				>{#if submenuOnLeft}
@@ -121,8 +121,8 @@
 			<Portal>
 				<Menu.Positioner>
 					<Menu.Content>
-						{#each item.children as child}
-							{@render menuitem(child)}
+						{#each item.children as child, i}
+							{@render menuitem(child, `${id}-${i}`)}
 						{/each}
 					</Menu.Content>
 				</Menu.Positioner>
@@ -135,7 +135,7 @@
 			checked={!!item.checked}
 			onCheckedChange={(checked) => item.onToggle?.(checked)}
 			class="{itemBase} {disabled ? itemDisabled : itemClass}"
-			value={'test'}
+			value={id}
 		>
 			{#if item.icon}
 				{@const Icon = item.icon}
@@ -164,8 +164,8 @@
 	<Portal>
 		<Menu.Positioner>
 			<Menu.Content>
-				{#each data.children as item}
-					{@render menuitem(item)}
+				{#each data.children as item, i}
+					{@render menuitem(item, `item-${i}`)}
 				{/each}
 			</Menu.Content>
 		</Menu.Positioner>

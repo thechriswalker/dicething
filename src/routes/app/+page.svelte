@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
+	import DeleteSetDialog from '$lib/components/delete_set/DeleteSetDialog.svelte';
 	import Layout from '$lib/components/layout/Layout.svelte';
 	import Modal from '$lib/components/modal/Modal.svelte';
 	import PresetOptions from '$lib/components/preset_options/PresetOptions.svelte';
@@ -9,6 +10,7 @@
 	import { m } from '$lib/paraglide/messages';
 	import { fromPreset, presets } from '$lib/presets';
 	import { importSetJson } from '$lib/utils/export';
+	import { XIcon } from '@lucide/svelte';
 	import { Progress } from '@skeletonlabs/skeleton-svelte';
 
 	let savedSets = getSavedSets();
@@ -112,14 +114,28 @@
 			{:then}
 				{#if savedSets.length > 0}
 					<div class="my-2 grid auto-rows-fr grid-cols-1 gap-4 sm:grid-cols-2">
-						{#each savedSets as set}
-							<a
-								class="btn preset-tonal-primary flex flex-col justify-start gap-1 text-wrap"
-								href={'/d/' + set.id}
+						{#each savedSets as set (set.id)}
+							<div
+								class="btn preset-tonal-primary relative flex flex-col justify-start gap-1 text-wrap"
 							>
-								<h6 class="text-xl">{set.name}</h6>
-								<p><Time t={set.updated} /></p>
-							</a>
+								<a class="flex flex-col justify-start gap-1 pr-8 text-wrap" href={'/d/' + set.id}>
+									<h6 class="text-xl">{set.name}</h6>
+									<p><Time t={set.updated} /></p>
+								</a>
+								<DeleteSetDialog setId={set.id} setName={set.name}>
+									{#snippet trigger(props)}
+										<button
+											{...props}
+											type="button"
+											class="btn-icon absolute top-2 right-2 rounded-lg bg-red-500 text-white hover:bg-red-600"
+											title={m.delete_set_button()}
+											aria-label={m.delete_set_button()}
+										>
+											<XIcon class="size-4" />
+										</button>
+									{/snippet}
+								</DeleteSetDialog>
+							</div>
 						{/each}
 					</div>
 				{:else}

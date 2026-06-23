@@ -12,6 +12,7 @@
 	import LegendViewer from '../legend_viewer/LegendViewer.svelte';
 	import LegendPreview from '../legend_viewer/LegendPreview.svelte';
 	import Collapsible from '../collapsible/Collapsible.svelte';
+	import CollapsibleGroup from '../collapsible/CollapsibleGroup.svelte';
 
 	type SelectMode = 'single' | 'multi' | 'none';
 
@@ -99,7 +100,8 @@
 </script>
 
 <div class="card preset-tonal-surface flex w-72 flex-col gap-2 p-4">
-	<Collapsible title={m.dice_name({ kind })}>
+	<CollapsibleGroup defaultValue="dice">
+		<Collapsible value="dice" title={m.dice_name({ kind })} defaultOpen={false}>
 		<p class="flex justify-between">
 			<span>{m.dice_parameters_approx_volume()}:</span>
 			<span>{numberFormat(vol)}{typeof vol === 'number' ? ' ml' : ''}</span>
@@ -154,7 +156,7 @@
 			></Slider>
 		</label>
 	</Collapsible>
-	<Collapsible title={m.dice_current_face()}>
+	<Collapsible value="face" title={m.dice_current_face()} defaultOpen={false}>
 		<label class="mt-4 flex flex-col">
 			<select
 				class="select"
@@ -377,4 +379,5 @@
 			</div>
 			{/if}
 		</Collapsible>
+	</CollapsibleGroup>
 </div>
