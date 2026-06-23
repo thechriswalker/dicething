@@ -157,7 +157,7 @@
 		}
 	}
 </script>
-<Layout title="Legends">
+<Layout>
 
 	<div class="flex h-full flex-col">
 		<Scene class="w-full grow" sceneReady={onSceneReady} />

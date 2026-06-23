@@ -184,6 +184,7 @@
 	"controls_toggle_fancy_render": "Toggle Fancy Render",
 	"controls_undo": "Undo",
 	"controls_redo": "Redo",
+	"set_name_edit_hint": "Click to rename",
 	"face_parameters_selected_legend": "Selected Legend",
 	"face_parameters_sync": "Synchronise faces",
 	"face_parameters_pick_legend": "Pick Legend",

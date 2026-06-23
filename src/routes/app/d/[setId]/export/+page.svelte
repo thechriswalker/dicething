@@ -214,7 +214,7 @@
 	}
 </script>
 
-<Layout title={m.export_title()}>
+<Layout>
 	{#snippet header()}
 		<a class="btn preset-tonal-surface" href={'/d/' + setId}>
 			<ArrowLeftIcon class="size-4" />

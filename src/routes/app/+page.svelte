@@ -45,7 +45,7 @@
 	}
 </script>
 
-<Layout title="">
+<Layout>
 	<div class="flex min-h-full flex-col items-center justify-center">
 		<div class="card preset-filled-surface-100-900 p-4">
 			<h2 class="h2 my-4">{m.start_new_set_header()}</h2>

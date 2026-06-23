@@ -36,7 +36,6 @@
 		Focus,
 		Grid3X3,
 		LayoutGrid,
-		MenuIcon,
 		PencilIcon,
 		PlusIcon,
 		Redo2,
@@ -219,6 +218,49 @@
 			up.applyQuaternion(q).normalize();
 		}
 		return { pos, up };
+	}
+
+	// inline editing of the set name in the header. a draft holds the in-progress
+	// value so escape can cancel without touching the saved model.
+	let editingName = $state(false);
+	let nameDraft = $state('');
+	let nameInput = $state<HTMLInputElement>();
+	function startEditName() {
+		if (!setData) {
+			return;
+		}
+		nameDraft = setData.name;
+		editingName = true;
+		// focus + select once the input has rendered.
+		setTimeout(() => {
+			nameInput?.focus();
+			nameInput?.select();
+		});
+	}
+	function commitName() {
+		if (!editingName) {
+			return;
+		}
+		editingName = false;
+		if (setData) {
+			const name = nameDraft.trim();
+			if (name && name !== setData.name) {
+				setData.name = name;
+				saveSet(setData);
+			}
+		}
+	}
+	function cancelEditName() {
+		editingName = false;
+	}
+	function onNameKeydown(e: KeyboardEvent) {
+		if (e.key === 'Enter') {
+			e.preventDefault();
+			commitName();
+		} else if (e.key === 'Escape') {
+			e.preventDefault();
+			cancelEditName();
+		}
 	}
 
 	let saving = $state(false);
@@ -825,29 +867,33 @@
 		]
 	};
 
-	const menu: MenuItemSubmenu = {
-		type: 'submenu',
-		title: '',
-		icon: MenuIcon,
-		children: [
-			legendsMenu,
-			exportMenu,
-			{
-				type: 'lightswitch'
-			}
-		]
-	};
 </script>
 
-<Layout title={''}>
+<Layout>
 	{#snippet header()}
 		{#if saving}
 			<SaveIcon class="size-4" />
 		{/if}
-		<p class="text-primary-500 h4">
-			{setData?.name}
-		</p>
-		<Menu data={menu} submenuOnLeft></Menu>
+		{#if editingName}
+			<input
+				bind:this={nameInput}
+				bind:value={nameDraft}
+				class="text-primary-500 h4 bg-transparent outline-none"
+				onblur={commitName}
+				onkeydown={onNameKeydown}
+			/>
+		{:else}
+			<button
+				type="button"
+				class="text-primary-500 h4 cursor-text bg-transparent"
+				title={m.set_name_edit_hint()}
+				onclick={startEditName}
+			>
+				{setData?.name}
+			</button>
+		{/if}
+		<Menu data={legendsMenu} submenuOnLeft></Menu>
+		<Menu data={exportMenu} submenuOnLeft></Menu>
 	{/snippet}
 	<div class="flex h-full flex-col">
 		<div

@@ -8,15 +8,14 @@
 
 	let {
 		children,
-		header,
-		title = ''
-	}: { title?: string; children: Snippet; header?: Snippet } = $props();
+		header
+	}: { children: Snippet; header?: Snippet } = $props();
 </script>
 
 <LightMode />
 <LightDarkContext>
 	<div class="relative flex h-screen w-screen flex-col overflow-hidden">
-		<AppBar {title}
+		<AppBar
 			>{#if header}{@render header()}{/if}
 		</AppBar>
 		<Scroll>
