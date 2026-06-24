@@ -403,9 +403,12 @@ export function orientCoplanarVertices(vertices: Array<Vector3>): {
 	normal.copy(_p.normal);
 	normal.normalize();
 
-	const axis = plusZ.clone().cross(normal).normalize();
-	const angle = -plusZ.angleTo(normal);
-	_q.setFromAxisAngle(axis, angle);
+	// rotation that lays the face flat (maps its normal onto +z). using
+	// setFromUnitVectors handles the degenerate case where the normal is
+	// anti-parallel to +z (a face pointing straight down -z), where the old
+	// `plusZ.cross(normal)` axis collapses to zero and normalising it produced a
+	// NaN rotation - leaving that one face mis-oriented / invisible.
+	_q.setFromUnitVectors(normal, plusZ);
 	const inv = _q.clone().invert();
 	const next = moved.map((v) => {
 		if (_p.distanceToPoint(v) > 0.000001) {

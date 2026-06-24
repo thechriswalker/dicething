@@ -101,7 +101,13 @@
 				"id=crystal_width": "Length of the short edge of the body",
 				"id=crystal_cap": "Height of the caps above the long edges of the body",
 				"id=crystal_twist": "Rotation of the the cap with respect to the other faces",
+				"id=prism_length": "Length of the prism along its long axis",
+				"id=prism_width": "Width of each long (blank) side face",
+				"id=prism_cap": "Height of the numbered facets at each end",
+				"id=prism_twist": "Twist of the ends relative to the body. Skews the long faces into hexagons",
 				"id=polyhedron_size": "Distance between opposite faces",
+				"id=handedness": "Mirror form of the die: 0 is left-handed, 1 is right-handed",
+				"id=trunc_oct_truncation": "How far each corner of the octahedron is cut back, in mm. 0 is a sharp octahedron; higher grows the square faces",
 				"id=shard_height": "Length of the long edge of the body",
 				"id=shard_radius": "Distance from center to vertex",
 				"id=shard_cap": "Height of the caps above the long edges of the body",
@@ -116,6 +122,16 @@
 				"id=trunc_tetra_size": "Edge length of the underlying tetrahedron",
 				"id=trunc_tetra_truncation": "How far each corner is cut back. Higher gives larger number triangles",
 				"id=engraving_depth": "Depth of the legend engraving"
+			}
+		}
+	],
+	"dice_parameter_option": [
+		{
+			"declarations": ["input key"],
+			"selectors": ["key"],
+			"match": {
+				"key=handedness_left": "Left",
+				"key=handedness_right": "Right"
 			}
 		}
 	],
@@ -146,7 +162,20 @@
 				"kind=trapezohedron_d12": "D12 Trapezohedron",
 				"kind=shard_d4": "D4 Shard",
 				"kind=coin_d2": "D2 Coin",
-				"kind=truncated_tetrahedron_d4": "D4 Truncated"
+				"kind=truncated_tetrahedron_d4": "D4 Truncated",
+				"kind=odd_prism_d3": "D3 Prism",
+				"kind=odd_prism_d5": "D5 Prism",
+				"kind=odd_prism_d7": "D7 Prism",
+				"kind=skew_d6": "D6 Skew",
+				"kind=truncated_octahedron_d8": "D8 Truncated",
+				"kind=tetartoid_d12": "D12 Skew",
+				"kind=deltoidal_icositetrahedron_d24": "D24 Deltoidal",
+				"kind=tetrakis_hexahedron_d24": "D24 Tetrakis",
+				"kind=pentagonal_icositetrahedron_d24": "D24 Pentagonal",
+				"kind=rhombic_triacontahedron_d30": "D30 Rhombic",
+				"kind=deltoidal_hexecontahedron_d60": "D60 Deltoidal",
+				"kind=pentakis_dodecahedron_d60": "D60 Pentakis",
+				"kind=pentagonal_hexecontahedron_d60": "D60 Pentagonal"
 			}
 		}
 	],
@@ -200,7 +229,13 @@
 				"id=crystal_width": "Body Width",
 				"id=crystal_cap": "Cap Height",
 				"id=crystal_twist": "Cap Twist",
+				"id=prism_length": "Length",
+				"id=prism_width": "Side Width",
+				"id=prism_cap": "End Height",
+				"id=prism_twist": "End Twist",
 				"id=polyhedron_size": "Face to Face",
+				"id=handedness": "Handedness",
+				"id=trunc_oct_truncation": "Truncation",
 				"id=shard_height": "Body Length",
 				"id=shard_radius": "Body Radius",
 				"id=shard_cap": "Cap Height",

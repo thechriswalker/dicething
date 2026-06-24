@@ -84,6 +84,17 @@ export function pickForNumber(index: number, sides: number): Legend {
 	}
 }
 
+// numbering for large dice (d24/d30/d60) where the value exceeds 20. the
+// "0-99" builtin legend set stores each numeral at the index equal to its
+// value (with 6 and 9 pre-marked at indices 6 and 9), so the literal integer
+// IS the correct Legend index. `pickForNumber` can't be used here because it
+// remaps 6 -> SIX_MARKED (21), 9 -> NINE_MARKED (22) etc., which collide with
+// the literal numerals in a 0-99 set. requires a "0-99" legend set to render;
+// the default "std" set has no glyphs above 20 and these faces show blank.
+export function pickForNumberLarge(index: number): Legend {
+	return (index + 1) as Legend;
+}
+
 //  useful for debugging...
 export function debugLegendName(n: Legend): string {
 	const s = n in Legend ? Legend[n] : `CUSTOM_SYMBOL_(${n})`;

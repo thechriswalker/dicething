@@ -77,6 +77,20 @@ export type DieFaceModel = {
 	explodeTransform?: Transform; // transfor to put the face in the exploded position
 };
 
+// one selectable option of a "toggle" parameter.
+export type ParameterOption = {
+	// the numeric value stored for this option.
+	value: number;
+	// i18n key for the option's label, looked up via m.dice_parameter_option().
+	label: string;
+};
+
+// how a parameter is rendered. omitted/undefined means a plain range slider.
+export type ParameterDisplay = {
+	kind: 'toggle';
+	options: Array<ParameterOption>;
+};
+
 export type DiceParameter = {
 	id: string; // stable name
 	// for a "range" input
@@ -84,6 +98,8 @@ export type DiceParameter = {
 	min: number;
 	max: number;
 	step: number;
+	// optional alternate UI (e.g. a toggle); defaults to a slider when omitted.
+	display?: ParameterDisplay;
 };
 
 export type DieFactory<DieParams extends Record<string, number>> = (params: DieParams) => DieModel;

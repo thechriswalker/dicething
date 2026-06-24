@@ -9,6 +9,7 @@
 	import { Vector2 } from 'three';
 	import { degToRad, radToDeg } from 'three/src/math/MathUtils.js';
 	import { PencilIcon } from '@lucide/svelte';
+	import { SegmentedControl } from '@skeletonlabs/skeleton-svelte';
 	import Slider from '$lib/components/slider/Slider.svelte';
 	import Modal from '$lib/components/modal/Modal.svelte';
 	import LegendViewer from '../legend_viewer/LegendViewer.svelte';
@@ -91,6 +92,13 @@
 	// the face whose values are shown on the sliders. for multi we show the first.
 	let displayFace = $derived(targetFaces.length > 0 ? targetFaces[0] : -1);
 
+	// the current value of the face <select>. driving the select's `value`
+	// directly (rather than per-option `selected` attributes) keeps it in sync
+	// when the selection is changed programmatically, e.g. by clicking a face in
+	// the 3D view. values are strings so face indices and the 'none'/'multi'
+	// modes can share one control.
+	let faceSelectValue = $derived(selectMode === 'single' ? String(selectedFace) : selectMode);
+
 	// apply a mutation to the FaceParams of every currently targeted face.
 	function updateTargetFaces(mutate: (params: FaceParams) => void) {
 		for (const i of targetFaces) {
@@ -120,25 +128,57 @@
 			</p>
 			{#each model.parameters as p}
 				{@const currentValue = dparams[p.id] ?? p.defaultValue}
-				<label
-					id="parameter-{p.id}"
-					class="flex flex-col"
-					title={m.dice_parameters_description({ id: p.id })}
-				>
-					<p class="flex justify-between">
-						<span>{m.dice_parameters_name({ id: p.id })}:</span> <span>({currentValue})</span>
-					</p>
-					<!-- Bits UI Slider component! -->
+				{#if p.display?.kind === 'toggle'}
+					<div
+						id="parameter-{p.id}"
+						class="flex flex-col gap-1"
+						title={m.dice_parameters_description({ id: p.id })}
+					>
+						<p class="flex justify-between">
+							<span>{m.dice_parameters_name({ id: p.id })}:</span>
+						</p>
+						<SegmentedControl
+							value={String(currentValue)}
+							onValueChange={(e) => {
+								if (e.value != null) dparams[p.id] = Number(e.value);
+							}}
+						>
+							<SegmentedControl.Control>
+								<SegmentedControl.Indicator class="bg-primary-500" />
+								{#each p.display.options as opt}
+									<SegmentedControl.Item value={String(opt.value)}>
+										<SegmentedControl.ItemText
+											class="data-[state=checked]:text-primary-contrast-500"
+										>
+											{m.dice_parameter_option({ key: opt.label })}
+										</SegmentedControl.ItemText>
+										<SegmentedControl.ItemHiddenInput />
+									</SegmentedControl.Item>
+								{/each}
+							</SegmentedControl.Control>
+						</SegmentedControl>
+					</div>
+				{:else}
+					<label
+						id="parameter-{p.id}"
+						class="flex flex-col"
+						title={m.dice_parameters_description({ id: p.id })}
+					>
+						<p class="flex justify-between">
+							<span>{m.dice_parameters_name({ id: p.id })}:</span> <span>({currentValue})</span>
+						</p>
+						<!-- Bits UI Slider component! -->
 
-					<Slider
-						class="py-1"
-						value={currentValue}
-						onChange={(newValue) => (dparams[p.id] = newValue)}
-						min={p.min}
-						max={p.max}
-						step={p.step}
-					/>
-				</label>
+						<Slider
+							class="py-1"
+							value={currentValue}
+							onChange={(newValue) => (dparams[p.id] = newValue)}
+							min={p.min}
+							max={p.max}
+							step={p.step}
+						/>
+					</label>
+				{/if}
 			{/each}
 			<label
 				id="parameter-{engravingParam.id}"
@@ -169,6 +209,7 @@
 			<label class="mt-4 flex flex-col">
 				<select
 					class="select"
+					value={faceSelectValue}
 					onchange={(e) => {
 						const v = (e.target as HTMLSelectElement).value;
 						if (v === 'none') {
@@ -188,12 +229,10 @@
 						}
 					}}
 				>
-					<option value="none" selected={selectMode === 'none'}>{m.face_select_none()}</option>
-					<option value="multi" selected={selectMode === 'multi'}>{m.face_select_multi()}</option>
+					<option value="none">{m.face_select_none()}</option>
+					<option value="multi">{m.face_select_multi()}</option>
 					{#each visibleFaces as { face, i } (i)}
-						<option value={i} selected={selectMode === 'single' && i === selectedFace}
-							>{faceName(face, i)}</option
-						>
+						<option value={String(i)}>{faceName(face, i)}</option>
 					{/each}
 				</select>
 			</label>
@@ -285,10 +324,10 @@
 												onEditLegends?.();
 											}}
 										>
-										<PencilIcon class="size-4" />
-										{isBuiltin(legends.id)
-											? m.legends_clone_builtin_edit()
-											: m.legends_edit_legends()}
+											<PencilIcon class="size-4" />
+											{isBuiltin(legends.id)
+												? m.legends_clone_builtin_edit()
+												: m.legends_edit_legends()}
 										</button>
 									</div>
 								{/if}
