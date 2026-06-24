@@ -80,21 +80,12 @@ export function gridExplode(shapes: Array<Shape>, opts: GridOptions = {}): Array
 type ExplodableFace = {
 	isNumberFace: boolean;
 	// faces hidden from the UI (e.g. the coin's rim/bevel segments) are not laid
-	// out in the grid; they're flung out of shot instead.
+	// out in the grid. the builder merges them into a single clump and flies that
+	// out of shot as one rigid body, so they need no per-face explode transform.
 	hidden?: boolean;
 	shape: Shape;
 	explodeTransform?: Transform;
 };
-
-// hidden faces (e.g. the coin's rim/bevel segments) aren't laid out in the grid.
-// instead they fan out evenly around a big circle and fly to just behind the
-// explode-view camera plane, so they sweep out of shot along distinct paths
-// rather than all streaking along the same line (and far enough that the tween
-// reads as motion, not a teleport).
-const HIDDEN_EXPLODE_RADIUS = 250;
-// the explode-view camera sits at z = 100 looking at the origin; ending just
-// behind it (slightly larger z) clears the view with minimal extra travel.
-const HIDDEN_EXPLODE_Z = 110;
 
 export type StackedExplodeOptions = {
 	gap?: number;
@@ -110,20 +101,8 @@ export type StackedExplodeOptions = {
 // default number faces form a single row with the caps tucked underneath.
 export function stackedExplode(faces: Array<ExplodableFace>, opts: StackedExplodeOptions = {}) {
 	const gap = opts.gap ?? 2;
-	// hidden faces are never laid out in the grid. fan them evenly around a circle
-	// and fly them to just behind the explode camera, so they sweep out of shot
-	// along distinct paths.
-	const hidden = faces.filter((f) => f.hidden);
-	hidden.forEach((f, i) => {
-		const theta = (i / Math.max(1, hidden.length)) * Math.PI * 2;
-		f.explodeTransform = new Transform().translate(
-			new Vector3(
-				Math.cos(theta) * HIDDEN_EXPLODE_RADIUS,
-				Math.sin(theta) * HIDDEN_EXPLODE_RADIUS,
-				HIDDEN_EXPLODE_Z
-			)
-		);
-	});
+	// hidden faces are never laid out in the grid; the builder animates them as a
+	// single merged clump, so they get no per-face explode transform here.
 	const visible = faces.filter((f) => !f.hidden);
 	const numbers = visible.filter((f) => f.isNumberFace);
 	const caps = visible.filter((f) => !f.isNumberFace);

@@ -1,4 +1,10 @@
-import type { DiceParameter, DieFaceModel, DieModel, FaceParams } from '$lib/interfaces/dice';
+import type {
+	DiceParameter,
+	DieFaceModel,
+	DieModel,
+	FaceParams,
+	StringParameter
+} from '$lib/interfaces/dice';
 import {
 	BufferGeometry,
 	Group,
@@ -31,6 +37,7 @@ export class Builder {
 	private forceRerenderBlank = true;
 	private forceRerenderFaces = true;
 	private lastDieParams: Record<string, number> = {};
+	private lastStringParams: Record<string, string> = {};
 	private face2face: number = 0;
 	private individualLegendScaling = false;
 	public currentSmallestLegendScaling: number = 1;
@@ -57,6 +64,16 @@ export class Builder {
 		ePos: Vector3;
 		eQuat: Quaternion;
 	}> = [];
+
+	// hidden faces (e.g. the coin's many rim/bevel segments) are merged into a
+	// single group and animated as one rigid body, rather than animating hundreds
+	// of individual face groups every frame (which tanked the explode animation
+	// and the fancy renderer). they fly straight down and behind the camera.
+	private hiddenGroup: Group | undefined;
+	private hiddenAnim: { nPos: Vector3; ePos: Vector3 } | undefined;
+	// where the merged hidden-face clump travels to when exploded: down and back
+	// behind the explode-view camera (which sits at z = 100 looking at origin).
+	private static readonly HIDDEN_EXPLODE_OFFSET = new Vector3(0, -250, 120);
 
 	// animation state. progress goes 0 (solid) -> 1 (exploded).
 	private exploded = false;
@@ -204,11 +221,20 @@ export class Builder {
 		});
 	}
 
-	build(dieParams: Record<string, number>, faceParams: Array<FaceParams>, opts: { explode: boolean } = { explode: true }): number {
+	build(
+		dieParams: Record<string, number>,
+		faceParams: Array<FaceParams>,
+		opts: { explode: boolean } = { explode: true },
+		stringParams: Record<string, string> = {}
+	): number {
 		dieParams = simplifyDieParams(dieParams, this.model.parameters);
-		const dieChanged = this.forceRerenderBlank || !dieParamsEqual(this.lastDieParams, dieParams);
+		stringParams = simplifyStringParams(stringParams, this.model.stringParameters);
+		const dieChanged =
+			this.forceRerenderBlank ||
+			!dieParamsEqual(this.lastDieParams, dieParams) ||
+			!stringParamsEqual(this.lastStringParams, stringParams);
 		if (dieChanged) {
-			const x = this.model.build(dieParams);
+			const x = this.model.build(dieParams, stringParams);
 			this.face2face = x.faceToFaceDistance;
 			this.faces = x.faces;
 			this.individualLegendScaling = !!x.sizeLegendsIndividually;
@@ -216,12 +242,22 @@ export class Builder {
 			this.recalculateLegendScaling();
 			this.computeFaceTransforms();
 			this.lastDieParams = dieParams;
+			this.lastStringParams = stringParams;
 			// the new blank may have fewer faces than the last one (e.g. lowering
 			// the coin's segment count). drop any leftover face groups so their
 			// stale geometry doesn't linger in the scene.
 			this.pruneFaceObjects(this.faces.length);
+			// (re)build the merged clump of hidden faces. these never depend on
+			// face params (they're always blank), so only the blank changing matters.
+			this.rebuildHiddenClump(dieParams.engraving_depth);
 		}
 		for (let i = 0; i < this.faces.length; i++) {
+			// hidden faces are handled by the merged clump above; make sure no stale
+			// individual group lingers for this index, then skip it.
+			if (this.faces[i].hidden) {
+				this.removeFaceObject(i);
+				continue;
+			}
 			const newFaceParams = simplifyFaceParams(faceParams[i], this.faces[i]);
 			if (
 				dieChanged ||
@@ -312,6 +348,91 @@ export class Builder {
 		this.lastFaceParams.length = keep;
 	}
 
+	// detach and dispose the individual animated group for face `i` (if any). used
+	// when a face becomes hidden (handled by the merged clump instead).
+	private removeFaceObject(i: number) {
+		const g = this.faceObjects[i];
+		if (!g) {
+			return;
+		}
+		g.traverse((o) => {
+			const mesh = o as Mesh;
+			if (mesh.isMesh) {
+				mesh.geometry?.dispose();
+			}
+		});
+		this.diceGroup.remove(g);
+		this.faceObjects[i] = undefined as unknown as Object3D;
+		this.lastFaceParams[i] = {};
+	}
+
+	// Merge every hidden face into one geometry under a single group, with each
+	// face's solid transform baked in. Animating this one group (instead of the
+	// hundreds of individual rim-segment groups a high-segment / custom coin
+	// produces) keeps the explode animation cheap, and the single merged mesh
+	// keeps the (fancy) renderer's draw-call count low.
+	private rebuildHiddenClump(engravingDepth: number) {
+		if (this.hiddenGroup) {
+			this.hiddenGroup.traverse((o) => {
+				const mesh = o as Mesh;
+				if (mesh.isMesh) {
+					mesh.geometry?.dispose();
+				}
+			});
+			this.diceGroup.remove(this.hiddenGroup);
+			this.hiddenGroup = undefined;
+			this.hiddenAnim = undefined;
+		}
+		const geos: Array<BufferGeometry> = [];
+		for (let i = 0; i < this.faces.length; i++) {
+			const face = this.faces[i];
+			if (!face.hidden) {
+				continue;
+			}
+			// hidden faces are always blank, so build with empty params and bake the
+			// face's solid transform into the geometry (the clump group is the thing
+			// that animates).
+			this.buildFace(i, engravingDepth, {}, { forExport: false }).forEach((g) => {
+				face.transform.applyToGeometry(g);
+				geos.push(g);
+			});
+		}
+		if (geos.length === 0) {
+			return;
+		}
+		const group = new Group();
+		// note: the clump is deliberately NOT tagged with `diceThingId`, so the
+		// raycaster (see events.ts) ignores it: the rim is not a selectable face.
+		// it keeps `diceThingPart: Part.Front` so material/fancy swaps still apply.
+		// hidden faces are blank, so every part is a Front cap with the same
+		// material; merge into one mesh. fall back to separate meshes if the
+		// geometries can't be merged for some reason.
+		let merged: BufferGeometry | null = null;
+		try {
+			merged = mergeGeometries(geos);
+		} catch {
+			merged = null;
+		}
+		if (merged) {
+			geos.forEach((g) => g.dispose());
+			const mesh = new Mesh(merged, this.frontMaterial);
+			mesh.userData = { diceThingPart: Part.Front };
+			group.add(mesh);
+		} else {
+			geos.forEach((g) => {
+				const mesh = new Mesh(g, this.frontMaterial);
+				mesh.userData = { diceThingPart: Part.Front };
+				group.add(mesh);
+			});
+		}
+		this.diceGroup.add(group);
+		this.hiddenGroup = group;
+		this.hiddenAnim = {
+			nPos: new Vector3(0, 0, 0),
+			ePos: Builder.HIDDEN_EXPLODE_OFFSET.clone()
+		};
+	}
+
 	private computeFaceTransforms() {
 		this.faceTransforms = this.faces.map((f) => {
 			const explode = f.explodeTransform ?? f.transform;
@@ -365,6 +486,11 @@ export class Builder {
 			g.position.lerpVectors(t.nPos, t.ePos, eased);
 			g.quaternion.slerpQuaternions(t.nQuat, t.eQuat, eased);
 		}
+		// the merged hidden-face clump moves as a single rigid body (translation
+		// only), so one lerp animates all of it.
+		if (this.hiddenGroup && this.hiddenAnim) {
+			this.hiddenGroup.position.lerpVectors(this.hiddenAnim.nPos, this.hiddenAnim.ePos, eased);
+		}
 	}
 
 	private recalculateLegendScaling() {
@@ -385,10 +511,13 @@ export class Builder {
 				)
 			);
 
+			// fit against the (optional) convex fit-shape when present (e.g. a custom
+			// concave coin face), so the legend-fitting maths stays valid.
+			const fitTarget = face.fitShape ?? face.shape;
 			allLegends.forEach((l) => {
 				const shapes = this.legends.get(l);
 				if (shapes.length > 0) {
-					const scale = findBestLegendScalingFactor(face.shape, shapes);
+					const scale = findBestLegendScalingFactor(fitTarget, shapes);
 					this.currentLegendScaling.set(l, scale); // save for later
 					if (scale < smallest) {
 						smallest = scale;
@@ -405,13 +534,21 @@ export class Builder {
 		}
 	}
 
-	public export(dieParams: Record<string, number>, faceParams: Array<FaceParams>) {
+	public export(
+		dieParams: Record<string, number>,
+		faceParams: Array<FaceParams>,
+		stringParams: Record<string, string> = {}
+	) {
 		// we will rebuild everything at high quality for export, we also merge the geometries and use merge vertcies
 		// to ensure everything is tight.
 		dieParams = simplifyDieParams(dieParams, this.model.parameters);
-		const dieChanged = this.forceRerenderBlank || !dieParamsEqual(this.lastDieParams, dieParams);
+		stringParams = simplifyStringParams(stringParams, this.model.stringParameters);
+		const dieChanged =
+			this.forceRerenderBlank ||
+			!dieParamsEqual(this.lastDieParams, dieParams) ||
+			!stringParamsEqual(this.lastStringParams, stringParams);
 		if (dieChanged) {
-			const x = this.model.build(dieParams);
+			const x = this.model.build(dieParams, stringParams);
 			this.face2face = x.faceToFaceDistance;
 			// NOTE: faces + individualLegendScaling must be set BEFORE recalculating
 			// the legend scaling, otherwise (on a freshly-built builder) no number
@@ -424,6 +561,7 @@ export class Builder {
 			this.printingTransform = x.printingTransform ?? new Transform();
 			this.faceObjects.forEach((g) => g.children?.forEach((c) => g.remove(c)));
 			this.lastDieParams = dieParams;
+			this.lastStringParams = stringParams;
 		}
 		this.forceRerenderBlank = false;
 		const geos: Array<BufferGeometry> = [];
@@ -482,7 +620,8 @@ export class Builder {
 				params,
 				engravingDepth + (params.extraDepth ?? 0),
 				undefined, // clearance
-				opts.forExport ? DefaultDivisions : 2 * DefaultDivisions // will need to "up" this to make a "high quality" render.
+				opts.forExport ? DefaultDivisions : 2 * DefaultDivisions, // will need to "up" this to make a "high quality" render.
+				face.fitShape // convex containment region for non-convex faces
 			);
 		} catch (e) {
 			console.warn(
@@ -597,6 +736,42 @@ function simplifyDieParams(
 		output.engraving_depth = engravingParam.defaultValue;
 	}
 	return output;
+}
+
+// keep only string params that differ from their declared default, mirroring
+// simplifyDieParams, so change-detection ignores no-op/default values.
+function simplifyStringParams(
+	obj: Record<string, string>,
+	params: Array<StringParameter> | undefined
+): Record<string, string> {
+	const output: Record<string, string> = {};
+	if (!params) {
+		return output;
+	}
+	params.forEach((param) => {
+		const value = obj[param.id];
+		if (value != null && value !== param.defaultValue) {
+			output[param.id] = value;
+		}
+	});
+	return output;
+}
+
+function stringParamsEqual(
+	prev: Record<string, string>,
+	next: Record<string, string>
+): boolean {
+	const pk = Object.keys(prev);
+	const nk = Object.keys(next);
+	if (pk.length !== nk.length) {
+		return false;
+	}
+	for (const k of pk) {
+		if (prev[k] !== next[k]) {
+			return false;
+		}
+	}
+	return true;
 }
 
 function clampParam(val: number, param: DiceParameter): number {

@@ -7,8 +7,14 @@
 // That leaves just the two real faces (heads = 1, tails = 2) for the user to
 // edit, while a high segment count still renders a smooth disc.
 
-import type { DiceParameter, DieFaceModel, DieModel } from '$lib/interfaces/dice';
+import type {
+	DiceParameter,
+	DieFaceModel,
+	DieModel,
+	StringParameter
+} from '$lib/interfaces/dice';
 import { Transform } from '$lib/utils/3d';
+import { parseCoinPath, validateCoinPath } from '$lib/utils/coin_path';
 import { stackedExplode } from '$lib/utils/explode';
 import { Legend, pickForNumber } from '$lib/utils/legends';
 import { orientCoplanarVertices } from '$lib/utils/shapes';
@@ -17,6 +23,9 @@ import { Shape, Vector2, Vector3 } from 'three';
 const defaultDiameter = 24;
 const defaultThickness = 3;
 const defaultSegments = 7;
+// shape mode toggle values.
+const MODE_POLYGON = 0;
+const MODE_CUSTOM = 1;
 // a sensible default slope so a user only needs to raise the "amount" to get a
 // reasonable bevel.
 const defaultBevelAngle = 40;
@@ -26,6 +35,22 @@ const xAxis = new Vector3(1, 0, 0);
 const yAxis = new Vector3(0, 1, 0);
 
 const coinParameters: Array<DiceParameter> = [
+	{
+		// pick between a regular polygon (with a rim-segment count) and a custom
+		// user-supplied SVG path for the two faces.
+		id: 'coin_shape_mode',
+		defaultValue: MODE_POLYGON,
+		min: 0,
+		max: 1,
+		step: 1,
+		display: {
+			kind: 'toggle',
+			options: [
+				{ value: MODE_POLYGON, label: 'coin_shape_polygon' },
+				{ value: MODE_CUSTOM, label: 'coin_shape_custom' }
+			]
+		}
+	},
 	{
 		id: 'coin_diameter',
 		defaultValue: defaultDiameter,
@@ -46,7 +71,9 @@ const coinParameters: Array<DiceParameter> = [
 		defaultValue: defaultSegments,
 		min: 3,
 		max: 96,
-		step: 1
+		step: 1,
+		// only relevant for the polygon mode.
+		visibleWhen: { param: 'coin_shape_mode', equals: MODE_POLYGON }
 	},
 	{
 		id: 'coin_bevel_angle',
@@ -66,6 +93,16 @@ const coinParameters: Array<DiceParameter> = [
 		min: 0,
 		max: 100,
 		step: 1
+	}
+];
+
+const coinStringParameters: Array<StringParameter> = [
+	{
+		// a raw SVG path `d` string used for the two faces when in custom mode.
+		id: 'coin_path',
+		defaultValue: '',
+		visibleWhen: { param: 'coin_shape_mode', equals: MODE_CUSTOM },
+		validate: validateCoinPath
 	}
 ];
 
@@ -106,7 +143,8 @@ export const CoinD2: DieModel = {
 	id: 'coin_d2',
 	name: 'D2 Coin',
 	parameters: coinParameters,
-	build(params) {
+	stringParameters: coinStringParameters,
+	build(params, stringParams = {}) {
 		const diameter = params.coin_diameter ?? defaultDiameter;
 		const thickness = params.coin_thickness ?? defaultThickness;
 		const segments = Math.max(3, Math.round(params.coin_segments ?? defaultSegments));
@@ -129,27 +167,63 @@ export const CoinD2: DieModel = {
 		const hasBevel = inset > 1e-6 && bevelHeight > 1e-6;
 		const hasRim = rimHalf > 1e-6;
 
-		// the flat faces sit on the (possibly inset) inner ring; the bevel/rim use
-		// the full-radius outer ring. built from shared rings so the walls always
-		// meet the face edges exactly.
-		const innerRing = ngonPoints(rInner, segments);
-		const outerRing = ngonPoints(R, segments);
-		const faceShape = new Shape(innerRing.map((p) => p.clone()));
+		// resolve the outline. a valid custom path replaces the regular polygon;
+		// an empty/invalid path falls back to the polygon so the view stays stable.
+		// the unit outline (max bounding dimension = 1) is scaled by 2*radius so it
+		// spans the same bounding box the polygon's circumradius would.
+		const mode = Math.round(params.coin_shape_mode ?? MODE_POLYGON);
+		const custom = mode === MODE_CUSTOM ? parseCoinPath(stringParams.coin_path ?? '') : null;
 
-		// the two real faces. the back face is flipped 180° about the y-axis (not
-		// the x-axis): the polygon has a vertex at the top so it's symmetric about
-		// the y-axis, which keeps the flipped ring aligned with the rim quads (so
-		// the back face and walls connect) while the legend still reads upright.
+		let innerRing: Array<Vector2>;
+		let outerRing: Array<Vector2>;
+		// a concave outline needs a convex region for legend fitting/containment
+		// (scaled to match the inner face ring). a convex outline fits against
+		// itself. the back face is mirrored (see backFaceShape) so its fit region
+		// must be mirrored to match.
+		let frontFit: Shape | undefined;
+		let backFit: Shape | undefined;
+		if (custom) {
+			innerRing = custom.outline.map((p) => new Vector2(p.x * 2 * rInner, p.y * 2 * rInner));
+			outerRing = custom.outline.map((p) => new Vector2(p.x * 2 * R, p.y * 2 * R));
+			if (!custom.convex) {
+				frontFit = new Shape(
+					custom.fitOutline.map((p) => new Vector2(p.x * 2 * rInner, p.y * 2 * rInner))
+				);
+				backFit = new Shape(
+					custom.fitOutline.map((p) => new Vector2(-p.x * 2 * rInner, p.y * 2 * rInner)).reverse()
+				);
+			}
+		} else {
+			// the flat faces sit on the (possibly inset) inner ring; the bevel/rim use
+			// the full-radius outer ring. built from shared rings so the walls always
+			// meet the face edges exactly.
+			innerRing = ngonPoints(rInner, segments);
+			outerRing = ngonPoints(R, segments);
+		}
+		const n = innerRing.length;
+		const faceShape = new Shape(innerRing.map((p) => p.clone()));
+		// the back face is flipped 180° about the y-axis, so its outline must be
+		// mirrored in x (and reversed to keep the clockwise winding, so it still
+		// faces outward) for the flipped ring to land back on the inner ring. for a
+		// regular polygon this is identical to `faceShape` (it's y-symmetric); for a
+		// custom outline it keeps the back face aligned with the rim quads. the
+		// legend is engraved independently of the outline, so it still reads upright.
+		const backFaceShape = new Shape(
+			innerRing.map((p) => new Vector2(-p.x, p.y)).reverse()
+		);
+
 		const faces: Array<DieFaceModel> = [
 			{
 				isNumberFace: true,
-				shape: faceShape,
+				shape: backFaceShape,
+				fitShape: backFit,
 				defaultLegend: Legend.BLANK,
 				transform: new Transform().translateBy(0, 0, ht).rotateByAxisAngle(yAxis, Math.PI)
 			},
 			{
 				isNumberFace: true,
 				shape: faceShape,
+				fitShape: frontFit,
 				defaultLegend: Legend.MAKER_LOGO,
 				transform: new Transform().translateBy(0, 0, ht)
 			}
@@ -158,11 +232,11 @@ export const CoinD2: DieModel = {
 		// the edge, built per polygon segment as hidden facets so the walls meet
 		// the face edges exactly: an optional top + bottom bevel (chamfer) and an
 		// optional straight rim between them.
-		for (let k = 0; k < segments; k++) {
+		for (let k = 0; k < n; k++) {
 			const ai = innerRing[k];
-			const bi = innerRing[(k + 1) % segments];
+			const bi = innerRing[(k + 1) % n];
 			const ao = outerRing[k];
-			const bo = outerRing[(k + 1) % segments];
+			const bo = outerRing[(k + 1) % n];
 
 			if (hasBevel) {
 				// top bevel: inner ring at +ht out/down to outer ring at +rimHalf.

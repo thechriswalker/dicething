@@ -50,7 +50,11 @@ export function buildExportMeshes(set: DiceSet, args: BuildExportMeshesArgs = {}
 		// the main numbered die (optional).
 		if (includeDice) {
 			const mainBuilder = new Builder(model, set.legends, die.id);
-			const mainMesh = mainBuilder.export(die.parameters, die.face_parameters);
+			const mainMesh = mainBuilder.export(
+				die.parameters,
+				die.face_parameters,
+				die.string_parameters ?? {}
+			);
 			out.push({ name: baseName, mesh: mainMesh });
 		}
 
@@ -63,7 +67,12 @@ export function buildExportMeshes(set: DiceSet, args: BuildExportMeshesArgs = {}
 				continue;
 			}
 			const builder = new Builder(model, set.legends, die.id);
-			builder.build(die.parameters, die.face_parameters, { explode: false });
+			builder.build(
+				die.parameters,
+				die.face_parameters,
+				{ explode: false },
+				die.string_parameters ?? {}
+			);
 			const artifacts = option.generate({
 				die,
 				model,
@@ -283,7 +292,7 @@ function collectUsedLegends(set: DiceSet): Set<Legend> {
 		const model = dice[die.kind];
 		let faces: Array<DieFaceModel>;
 		try {
-			faces = model.build(die.parameters).faces;
+			faces = model.build(die.parameters, die.string_parameters ?? {}).faces;
 		} catch {
 			faces = [];
 		}

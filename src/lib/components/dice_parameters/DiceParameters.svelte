@@ -22,6 +22,7 @@
 	type Props = {
 		kind: Dice['kind'];
 		dparams: Dice['parameters'];
+		sparams: Record<string, string> | undefined;
 		fparams: Dice['face_parameters'];
 		legends: LegendSet;
 		selectMode: SelectMode;
@@ -40,6 +41,7 @@
 		legends,
 		kind,
 		dparams = $bindable(),
+		sparams = $bindable(),
 		fparams = $bindable(),
 		selectMode = $bindable(),
 		selectedFace = $bindable(),
@@ -54,6 +56,27 @@
 	}: Props = $props();
 
 	let model = $derived(dice[kind]);
+
+	// a parameter (numeric or string) may be gated on another numeric parameter's
+	// current value (e.g. show "Rim Segments" only in polygon mode).
+	function paramVisible(visibleWhen?: { param: string; equals: number }): boolean {
+		if (!visibleWhen) {
+			return true;
+		}
+		const current =
+			dparams[visibleWhen.param] ??
+			model.parameters.find((p) => p.id === visibleWhen.param)?.defaultValue;
+		return Math.round(Number(current)) === visibleWhen.equals;
+	}
+
+	// the string-parameter channel is optional on a die; initialize it lazily on
+	// first write so the value can be persisted (and bound back to the parent).
+	function setStringParam(id: string, value: string) {
+		if (!sparams) {
+			sparams = {};
+		}
+		sparams[id] = value;
+	}
 	const nf = Intl.NumberFormat(undefined, {
 		maximumFractionDigits: 2,
 		trailingZeroDisplay: 'stripIfInteger'
@@ -128,6 +151,7 @@
 			</p>
 			{#each model.parameters as p}
 				{@const currentValue = dparams[p.id] ?? p.defaultValue}
+				{#if paramVisible(p.visibleWhen)}
 				{#if p.display?.kind === 'toggle'}
 					<div
 						id="parameter-{p.id}"
@@ -177,6 +201,38 @@
 							max={p.max}
 							step={p.step}
 						/>
+					</label>
+				{/if}
+				{/if}
+			{/each}
+			{#each model.stringParameters ?? [] as p}
+				{#if paramVisible(p.visibleWhen)}
+					{@const value = sparams?.[p.id] ?? p.defaultValue}
+					{@const validation = p.validate?.(value)}
+					<label
+						id="parameter-{p.id}"
+						class="flex flex-col"
+						title={m.dice_parameters_description({ id: p.id })}
+					>
+						<p class="flex justify-between">
+							<span>{m.dice_parameters_name({ id: p.id })}:</span>
+						</p>
+						<textarea
+							class="textarea {validation && !validation.valid ? 'border-error-500' : ''}"
+							rows="3"
+							spellcheck="false"
+							value={value}
+							oninput={(e) => setStringParam(p.id, (e.target as HTMLTextAreaElement).value)}
+						></textarea>
+						{#if validation && !validation.valid && validation.error}
+							<span class="text-error-500 mt-1 text-sm">
+								{m.dice_parameter_message({ key: validation.error })}
+							</span>
+						{:else if validation && validation.warning}
+							<span class="text-warning-500 mt-1 text-sm">
+								{m.dice_parameter_message({ key: validation.warning })}
+							</span>
+						{/if}
 					</label>
 				{/if}
 			{/each}

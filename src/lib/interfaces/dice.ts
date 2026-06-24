@@ -17,8 +17,16 @@ export type DieModel = {
 	// optional on the type, but attached + validated for every registered die
 	// in src/lib/dice/index.ts (the unregistered legend pseudo-die has none).
 	tags?: DieTags;
-	// create a "blank" from the parameters
-	build(params: Record<string, number>): {
+	// optional string-valued parameters (e.g. a custom SVG path). these live in a
+	// separate channel from the numeric `parameters` since the rest of the system
+	// is built around `Record<string, number>`. defaults to none.
+	stringParameters?: Array<StringParameter>;
+	// create a "blank" from the parameters. `stringParams` carries any
+	// string-valued parameters declared in `stringParameters` (defaults to {}).
+	build(
+		params: Record<string, number>,
+		stringParams?: Record<string, string>
+	): {
 		faces: Array<DieFaceModel>;
 		faceToFaceDistance: number;
 
@@ -79,6 +87,11 @@ export type DieFaceModel = {
 	hidden?: boolean;
 	// the convex outer shape for this face
 	shape: Shape;
+	// optional convex region used purely for legend scaling/containment. defaults
+	// to `shape`. used when `shape` is non-convex (e.g. a custom coin outline) so
+	// the legend-fitting maths (which assumes a convex outer) stays valid and
+	// legends don't reach into concavities.
+	fitShape?: Shape;
 	// the default Legend for this face (user can change of course)
 	defaultLegend: Legend;
 	transform: Transform; // transform to put the face in position.
@@ -99,6 +112,15 @@ export type ParameterDisplay = {
 	options: Array<ParameterOption>;
 };
 
+// gate a parameter's visibility on the value of another (numeric) parameter.
+// e.g. only show the rim-segments slider when the shape-mode toggle is "polygon".
+export type VisibleWhen = {
+	// the id of the numeric parameter to test.
+	param: string;
+	// the value it must equal for this parameter to be shown.
+	equals: number;
+};
+
 export type DiceParameter = {
 	id: string; // stable name
 	// for a "range" input
@@ -108,6 +130,29 @@ export type DiceParameter = {
 	step: number;
 	// optional alternate UI (e.g. a toggle); defaults to a slider when omitted.
 	display?: ParameterDisplay;
+	// optional visibility gate; shown unconditionally when omitted.
+	visibleWhen?: VisibleWhen;
+};
+
+// the result of validating a string parameter's value.
+export type StringParameterValidation = {
+	// whether the value is acceptable (a valid path that builds a usable shape).
+	valid: boolean;
+	// optional i18n key for a (blocking) error message when invalid.
+	error?: string;
+	// optional i18n key for a non-blocking warning (e.g. concave shape may engrave
+	// poorly) shown even when the value is valid.
+	warning?: string;
+};
+
+// a string-valued parameter (e.g. a custom SVG path). rendered as a textbox.
+export type StringParameter = {
+	id: string; // stable name
+	defaultValue: string;
+	// optional visibility gate; shown unconditionally when omitted.
+	visibleWhen?: VisibleWhen;
+	// optional live validation used by the UI to flag invalid input / warnings.
+	validate?(value: string): StringParameterValidation;
 };
 
 export type DieFactory<DieParams extends Record<string, number>> = (params: DieParams) => DieModel;

@@ -124,7 +124,7 @@
 			return;
 		}
 		const id = crypto.randomUUID();
-		setData.dice.push({ id, kind, parameters: {}, face_parameters: [] });
+		setData.dice.push({ id, kind, parameters: {}, string_parameters: {}, face_parameters: [] });
 		// mirror the init effect: dice need a builder before they can be rendered.
 		diceBuilders.set(id, new Builder(dice[kind], setData.legends, id));
 		save(setData);
@@ -432,6 +432,9 @@
 			console.log('init', setData);
 			for (let i = 0; i < setData.dice.length; i++) {
 				const d = setData.dice[i];
+				// ensure the (optional) string-parameter channel exists so it can be
+				// two-way bound and mutated by the parameter UI.
+				d.string_parameters ??= {};
 				let builder = diceBuilders.get(d.id);
 				if (!builder) {
 					const model = dice[d.kind];
@@ -443,9 +446,12 @@
 				}
 				if (d.id === dieId) {
 					console.log('rendering in init', d.id);
-					renderPass = builder.build({ ...d.parameters }, d.face_parameters.slice(), {
-						explode: explodeMode
-					});
+					renderPass = builder.build(
+						{ ...d.parameters },
+						d.face_parameters.slice(),
+						{ explode: explodeMode },
+						{ ...d.string_parameters }
+					);
 					ctx.scene.add(builder.diceGroup);
 					renderedDice = d.id;
 					currentBuilder = builder;
@@ -475,11 +481,15 @@
 				const builder = diceBuilders.get(dieId);
 				if (builder && ctx && setData) {
 					const d = setData?.dice.find((x) => x.id === dieId)!;
+					d.string_parameters ??= {};
 					console.log('rendering on change', dieId, ctx.scene);
 					currentBuilder?.changeLegends(setData!.legends);
-					renderPass = builder.build({ ...d.parameters }, d.face_parameters.slice(), {
-						explode: explodeMode
-					});
+					renderPass = builder.build(
+						{ ...d.parameters },
+						d.face_parameters.slice(),
+						{ explode: explodeMode },
+						{ ...d.string_parameters }
+					);
 					save(setData); // ensure we save!
 					const updated = dieId != renderedDice;
 					renderedDice = dieId;
@@ -515,9 +525,13 @@
 			if (currentBuilder && dieId) {
 				const d = setData.dice.find((x) => x.id === dieId);
 				if (d) {
-					renderPass = currentBuilder.build({ ...d.parameters }, d.face_parameters.slice(), {
-						explode: explodeMode
-					});
+					d.string_parameters ??= {};
+					renderPass = currentBuilder.build(
+						{ ...d.parameters },
+						d.face_parameters.slice(),
+						{ explode: explodeMode },
+						{ ...d.string_parameters }
+					);
 				}
 			}
 		};
@@ -1214,6 +1228,7 @@
 						<DiceParameters
 							{renderPass}
 							bind:dparams={die.parameters}
+							bind:sparams={die.string_parameters}
 							bind:fparams={die.face_parameters}
 							kind={die.kind}
 							builder={currentBuilder}

@@ -70,13 +70,17 @@ export const blanksOption: ExtraBuildOption = {
 		if (ctx.model.blankParameters) {
 			// the die knows how to resize itself precisely.
 			const params = ctx.model.blankParameters(ctx.die.parameters, offset);
-			const mesh = ctx.builder.export(params, blankFaceParams);
+			const mesh = ctx.builder.export(params, blankFaceParams, ctx.die.string_parameters ?? {});
 			return [{ suffix: 'blank', mesh }];
 		}
 
 		// generic fallback: build blank at current size then uniformly scale the
 		// mesh so the face-to-face distance changes by 2 x offset.
-		const mesh = ctx.builder.export(ctx.die.parameters, blankFaceParams);
+		const mesh = ctx.builder.export(
+			ctx.die.parameters,
+			blankFaceParams,
+			ctx.die.string_parameters ?? {}
+		);
 		const f2f = ctx.builder.getFace2FaceDistance();
 		if (offset !== 0 && f2f > 0) {
 			const scale = (f2f - 2 * offset) / f2f;

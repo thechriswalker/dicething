@@ -116,6 +116,8 @@
 				"id=shard_twist": "Rotation of the cap with respect to the other faces. 0 is none, 0.5 is exactly half way",
 				"id=trapezohedron_radius": "Distance from the center axis to the edge vertices",
 				"id=trapezohedron_height": "Distance from tip to tip",
+				"id=coin_shape_mode": "Use a regular polygon, or a custom SVG path, for the two faces",
+				"id=coin_path": "An SVG path (the 'd' attribute) used for the two faces. Centered and resized to the diameter",
 				"id=coin_diameter": "Diameter of the coin",
 				"id=coin_thickness": "Thickness of the coin (distance between the two faces)",
 				"id=coin_segments": "Number of segments around the rim. Higher looks rounder",
@@ -134,7 +136,20 @@
 			"selectors": ["key"],
 			"match": {
 				"key=handedness_left": "Left",
-				"key=handedness_right": "Right"
+				"key=handedness_right": "Right",
+				"key=coin_shape_polygon": "Polygon",
+				"key=coin_shape_custom": "Custom"
+			}
+		}
+	],
+	"dice_parameter_message": [
+		{
+			"declarations": ["input key"],
+			"selectors": ["key"],
+			"match": {
+				"key=coin_path_empty": "Enter an SVG path",
+				"key=coin_path_invalid": "Not a valid SVG path",
+				"key=coin_path_concave": "Concave shape: the engraving may overflow into the concave areas"
 			}
 		}
 	],
@@ -244,6 +259,8 @@
 				"id=shard_twist": "Cap Twist",
 				"id=trapezohedron_radius": "Radius",
 				"id=trapezohedron_height": "Height",
+				"id=coin_shape_mode": "Face Shape",
+				"id=coin_path": "SVG Path",
 				"id=coin_diameter": "Diameter",
 				"id=coin_thickness": "Thickness",
 				"id=coin_segments": "Rim Segments",

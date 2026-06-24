@@ -45,6 +45,10 @@ export type Dice = {
 	id: string;
 	kind: keyof typeof dice;
 	parameters: Record<string, number>;
+	// optional string-valued parameters (e.g. a custom SVG path for the coin).
+	// kept in a separate channel from the numeric `parameters`. optional so older
+	// saved sets (without it) still load.
+	string_parameters?: Record<string, string>;
 	face_parameters: Array<FaceParams>;
 };
 

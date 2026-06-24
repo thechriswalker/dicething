@@ -35,7 +35,12 @@ export function engrave(
 	orientation: SymbolOrientation,
 	depth: number,
 	clearance: number = 0.5, // minimum distance from symbol to edge.
-	divisions: number = DefaultDivisions
+	divisions: number = DefaultDivisions,
+	// optional convex region used purely for the "does the symbol fit?" test.
+	// defaults to `surface`. supplied for non-convex faces (e.g. a custom coin
+	// outline) where the convex-only containment maths would otherwise wrongly
+	// reject a symbol that clearly fits. the symbol is still cut into `surface`.
+	fitSurface: Shape = surface
 ): Array<BufferGeometry> {
 	// orient the symbol
 	// order is always "scale", "rotate", "translate"
@@ -61,7 +66,7 @@ export function engrave(
 	// collinear points left to silently drop -> the engraving stays manifold.
 	symbols = symbols.map((s) => cleanShape(s, divisions, RedundantPointEpsilon));
 
-	const canEngraveSymbol = isContained(surface, symbols, clearance);
+	const canEngraveSymbol = isContained(fitSurface, symbols, clearance);
 
 	// add the initial shape to the group.
 	const face = surface.clone();
