@@ -26,6 +26,7 @@ const defaultSegments = 7;
 // shape mode toggle values.
 const MODE_POLYGON = 0;
 const MODE_CUSTOM = 1;
+const defaultMode = MODE_CUSTOM;
 // a sensible default slope so a user only needs to raise the "amount" to get a
 // reasonable bevel.
 const defaultBevelAngle = 40;
@@ -39,7 +40,7 @@ const coinParameters: Array<DiceParameter> = [
 		// pick between a regular polygon (with a rim-segment count) and a custom
 		// user-supplied SVG path for the two faces.
 		id: 'coin_shape_mode',
-		defaultValue: MODE_POLYGON,
+		defaultValue: defaultMode,
 		min: 0,
 		max: 1,
 		step: 1,
@@ -96,11 +97,14 @@ const coinParameters: Array<DiceParameter> = [
 	}
 ];
 
+// this is the concave path of the outline of the dicething logo
+const defaultPath = `M 206.779 143.103 Q 207.693 140.246 210.691 140.140 L 227.300 139.554 Q 230.298 139.449 230.298 136.449 L 230.298 103.551 Q 230.298 100.551 227.300 100.446 L 210.691 99.860 Q 207.693 99.754 206.779 96.897 L 204.064 88.416 Q 203.149 85.558 201.776 82.891 L 197.698 74.974 Q 196.324 72.307 198.370 70.113 L 209.700 57.954 Q 211.745 55.759 209.624 53.638 L 186.362 30.376 Q 184.241 28.255 182.046 30.300 L 169.887 41.630 Q 167.693 43.676 165.026 42.302 L 157.109 38.224 Q 154.442 36.851 151.584 35.936 L 143.103 33.221 Q 140.246 32.307 140.140 29.309 L 139.554 12.700 Q 139.449 9.702 136.449 9.702 L 103.551 9.702 Q 100.551 9.702 100.446 12.700 L 99.860 29.309 Q 99.754 32.307 96.897 33.221 L 88.416 35.936 Q 85.558 36.851 82.891 38.224 L 74.974 42.302 Q 72.307 43.676 70.113 41.630 L 57.954 30.300 Q 55.759 28.255 53.638 30.376 L 30.376 53.638 Q 28.255 55.759 30.300 57.954 L 41.630 70.113 Q 43.676 72.307 42.302 74.974 L 38.224 82.891 Q 36.851 85.558 35.936 88.416 L 33.221 96.897 Q 32.307 99.754 29.309 99.860 L 12.700 100.446 Q 9.702 100.551 9.702 103.551 L 9.702 136.449 Q 9.702 139.449 12.700 139.554 L 29.309 140.140 Q 32.307 140.246 33.221 143.103 L 35.936 151.584 Q 36.851 154.442 38.224 157.109 L 42.302 165.026 Q 43.676 167.693 41.630 169.887 L 30.300 182.046 Q 28.255 184.241 30.376 186.362 L 53.638 209.624 Q 55.759 211.745 57.954 209.700 L 70.113 198.370 Q 72.307 196.324 74.974 197.698 L 82.891 201.776 Q 85.558 203.149 88.416 204.064 L 96.897 206.779 Q 99.754 207.693 99.860 210.691 L 100.446 227.300 Q 100.551 230.298 103.551 230.298 L 136.449 230.298 Q 139.449 230.298 139.554 227.300 L 140.140 210.691 Q 140.246 207.693 143.103 206.779 L 151.584 204.064 Q 154.442 203.149 157.109 201.776 L 165.026 197.698 Q 167.693 196.324 169.887 198.370 L 182.046 209.700 Q 184.241 211.745 186.362 209.624 L 209.624 186.362 Q 211.745 184.241 209.700 182.046 L 198.370 169.887 Q 196.324 167.693 197.698 165.026 L 201.776 157.109 Q 203.149 154.442 204.064 151.584 L 206.779 143.103 Z`
+
 const coinStringParameters: Array<StringParameter> = [
 	{
 		// a raw SVG path `d` string used for the two faces when in custom mode.
 		id: 'coin_path',
-		defaultValue: '',
+		defaultValue: defaultPath,
 		visibleWhen: { param: 'coin_shape_mode', equals: MODE_CUSTOM },
 		validate: validateCoinPath
 	}
@@ -171,8 +175,8 @@ export const CoinD2: DieModel = {
 		// an empty/invalid path falls back to the polygon so the view stays stable.
 		// the unit outline (max bounding dimension = 1) is scaled by 2*radius so it
 		// spans the same bounding box the polygon's circumradius would.
-		const mode = Math.round(params.coin_shape_mode ?? MODE_POLYGON);
-		const custom = mode === MODE_CUSTOM ? parseCoinPath(stringParams.coin_path ?? '') : null;
+		const mode = Math.round(params.coin_shape_mode ?? defaultMode);
+		const custom = mode === MODE_CUSTOM ? parseCoinPath(stringParams.coin_path ?? defaultPath) : null;
 
 		let innerRing: Array<Vector2>;
 		let outerRing: Array<Vector2>;

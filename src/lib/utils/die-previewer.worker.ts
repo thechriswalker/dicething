@@ -1,3 +1,12 @@
+// Web Workers have no DOM, so `DOMParser` (used by three's SVGLoader, which the
+// custom-path coin parses through) is undefined here. Polyfill it with xmldom so
+// custom coin paths render in the offscreen preview exactly as they do on the
+// main thread (mirrors the test setup in path_resolve.spec.ts).
+import { DOMParser } from 'xmldom';
+if (typeof (globalThis as { DOMParser?: unknown }).DOMParser === 'undefined') {
+	(globalThis as { DOMParser?: unknown }).DOMParser = DOMParser;
+}
+
 import dice from '$lib/dice';
 import type { Dice } from '$lib/interfaces/storage.svelte';
 import { PerspectiveCamera, Scene, Vector2, Vector3, WebGLRenderer } from 'three';
