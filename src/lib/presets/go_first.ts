@@ -13,29 +13,38 @@ Die 4: 4, 5, 9,  16, 20, 21, 28, 29, 33, 40, 44, 45
 
 */
 
+import dice from '$lib/dice';
 import builtins from '$lib/fonts';
-import type { Preset, PresetOptionBoolean } from '$lib/interfaces/presets';
+import type { Preset, PresetOptionDie } from '$lib/interfaces/presets';
 import { legendForValue } from '$lib/utils/legends';
 import { legendPickerFactory, legendPickerOption } from './_util';
 
 
 const defaultSize = 20;
 
+// every registered die with 12 sides is a valid shape for these go-first D12s.
+const d12Shapes = (): Array<string> =>
+	Object.values(dice)
+		.filter((d) => d.tags?.sides === '12')
+		.map((d) => d.id);
+
 // this is parameterized, so maybe I can have preset with parameters?
 export const goFirstPreset: Preset = {
 	id: "go_first",
 	options() {
+		const shapes = d12Shapes();
 		return [legendPickerOption(builtins.germania_one.id),
 		{
-			kind: "bool",
-			id: "rhombic_vs_dodecahedron",
-			value: false,
+			kind: "die",
+			id: "d12_shape",
+			options: shapes,
+			value: shapes.includes("dodecahedron_d12") ? "dodecahedron_d12" : shapes[0],
 		}
 		]
 	},
 	async factory(opts) {
-		const [legendOption, rhombicOption] = opts;
-		const kind = (rhombicOption as PresetOptionBoolean).value ? "rhombic_d12" : "dodecahedron_d12"
+		const [legendOption, shapeOption] = opts;
+		const kind = (shapeOption as PresetOptionDie).value as keyof typeof dice;
 		// map each face value to its slot in the combined legend set (values > 20
 		// no longer equal their slot index).
 		const toFP = (i: number) => ({ legend: legendForValue(i) });

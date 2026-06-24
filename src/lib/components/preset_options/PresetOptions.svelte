@@ -1,5 +1,5 @@
 <script lang="ts">
-	import builtins from '$lib/fonts';
+	import builtins, { blanks } from '$lib/fonts';
 	import type { PresetOption } from '$lib/interfaces/presets';
 	import { Switch } from '@skeletonlabs/skeleton-svelte';
 	import Slider from '../slider/Slider.svelte';
@@ -7,6 +7,16 @@
 	import { m } from '$lib/paraglide/messages';
 	import { getSavedLegends } from '$lib/interfaces/storage.svelte';
 	import { legendSetPreview } from '$lib/utils/create_legends';
+	import DiePreview from '../die_preview/DiePreview.svelte';
+	import type { Dice } from '$lib/interfaces/storage.svelte';
+
+	// a blank die used purely to render a shape preview thumbnail.
+	const previewDie = (kind: string): Dice => ({
+		id: 'preset-preview:' + kind,
+		kind: kind as Dice['kind'],
+		parameters: {},
+		face_parameters: []
+	});
 
 	const savedLegends = getSavedLegends();
 
@@ -88,6 +98,26 @@
 					</option>
 				{/each}
 			</select>
+		{/if}
+		{#if opt.kind == 'die'}
+			<p class="h5">{m.preset_options_select_title({ id: opt.id })}</p>
+			<div class="grid grid-flow-col gap-4">
+				{#each opt.options as kind}
+					{@const border =
+						kind == (values[idx] ?? opt.value)
+							? 'preset-filled-primary-500 preset-outlined-primary-500'
+							: 'preset-filled-surface-50-950 preset-outlined hover:preset-outlined-primary-500'}
+					<button
+						class={'flex flex-col items-center justify-between gap-2 rounded-md p-2 ' + border}
+						onclick={() => {
+							values[idx] = kind;
+						}}
+					>
+						<DiePreview class="max-w-18" die={previewDie(kind)} legends={blanks} />
+						<strong>{m.dice_name({ kind })}</strong>
+					</button>
+				{/each}
+			</div>
 		{/if}
 		{#if opt.kind == 'legend'}
 			{@const builtinList = Object.values(builtins).filter((f) => f.id !== 'blanks')}

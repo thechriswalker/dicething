@@ -8,9 +8,10 @@
 	import { type LegendSet } from '$lib/utils/legends';
 	import { Vector2 } from 'three';
 	import { degToRad, radToDeg } from 'three/src/math/MathUtils.js';
-	import { PencilIcon } from '@lucide/svelte';
+	import { InfoIcon, PencilIcon } from '@lucide/svelte';
 	import { SegmentedControl } from '@skeletonlabs/skeleton-svelte';
 	import Slider from '$lib/components/slider/Slider.svelte';
+	import Tooltip from '$lib/components/tooltip/Tooltip.svelte';
 	import Modal from '$lib/components/modal/Modal.svelte';
 	import LegendViewer from '../legend_viewer/LegendViewer.svelte';
 	import LegendPreview from '../legend_viewer/LegendPreview.svelte';
@@ -139,6 +140,23 @@
 	let faceRotationDegrees = $derived(radToDeg(fparams[displayFace]?.rotation ?? 0));
 </script>
 
+<!-- a small "i" affordance that reveals help text on hover/focus. -->
+{#snippet helpIcon(text: string)}
+	<Tooltip content={text} side="left">
+		{#snippet children(props)}
+			<button
+				{...props}
+				type="button"
+				class="text-surface-500 hover:text-primary-500 inline-flex items-center"
+				aria-label={text}
+				onclick={(e) => e.preventDefault()}
+			>
+				<InfoIcon class="size-3.5" />
+			</button>
+		{/snippet}
+	</Tooltip>
+{/snippet}
+
 <div class="card preset-tonal-surface flex w-72 flex-col gap-2 p-4">
 	<CollapsibleGroup defaultValue="dice">
 		<Collapsible value="dice" title={m.dice_name({ kind })} defaultOpen={false}>
@@ -152,76 +170,74 @@
 			{#each model.parameters as p}
 				{@const currentValue = dparams[p.id] ?? p.defaultValue}
 				{#if paramVisible(p.visibleWhen)}
-				{#if p.display?.kind === 'toggle'}
-					<div
-						id="parameter-{p.id}"
-						class="flex flex-col gap-1"
-						title={m.dice_parameters_description({ id: p.id })}
-					>
-						<p class="flex justify-between">
-							<span>{m.dice_parameters_name({ id: p.id })}:</span>
-						</p>
-						<SegmentedControl
-							value={String(currentValue)}
-							onValueChange={(e) => {
-								if (e.value != null) dparams[p.id] = Number(e.value);
-							}}
-						>
-							<SegmentedControl.Control>
-								<SegmentedControl.Indicator class="bg-primary-500" />
-								{#each p.display.options as opt}
-									<SegmentedControl.Item value={String(opt.value)}>
-										<SegmentedControl.ItemText
-											class="data-[state=checked]:text-primary-contrast-500"
-										>
-											{m.dice_parameter_option({ key: opt.label })}
-										</SegmentedControl.ItemText>
-										<SegmentedControl.ItemHiddenInput />
-									</SegmentedControl.Item>
-								{/each}
-							</SegmentedControl.Control>
-						</SegmentedControl>
-					</div>
-				{:else}
-					<label
-						id="parameter-{p.id}"
-						class="flex flex-col"
-						title={m.dice_parameters_description({ id: p.id })}
-					>
-						<p class="flex justify-between">
-							<span>{m.dice_parameters_name({ id: p.id })}:</span> <span>({currentValue})</span>
-						</p>
-						<!-- Bits UI Slider component! -->
+					{#if p.display?.kind === 'toggle'}
+						<div id="parameter-{p.id}" class="flex flex-col gap-1">
+							<p class="flex items-center justify-between">
+								<span class="flex items-center gap-1">
+									{m.dice_parameters_name({ id: p.id })}:
+									{@render helpIcon(m.dice_parameters_description({ id: p.id }))}
+								</span>
+							</p>
+							<SegmentedControl
+								value={String(currentValue)}
+								onValueChange={(e) => {
+									if (e.value != null) dparams[p.id] = Number(e.value);
+								}}
+							>
+								<SegmentedControl.Control>
+									<SegmentedControl.Indicator class="bg-primary-500" />
+									{#each p.display.options as opt}
+										<SegmentedControl.Item value={String(opt.value)}>
+											<SegmentedControl.ItemText
+												class="data-[state=checked]:text-primary-contrast-500"
+											>
+												{m.dice_parameter_option({ key: opt.label })}
+											</SegmentedControl.ItemText>
+											<SegmentedControl.ItemHiddenInput />
+										</SegmentedControl.Item>
+									{/each}
+								</SegmentedControl.Control>
+							</SegmentedControl>
+						</div>
+					{:else}
+						<label id="parameter-{p.id}" class="flex flex-col">
+							<p class="flex items-center justify-between">
+								<span class="flex items-center gap-1">
+									{m.dice_parameters_name({ id: p.id })}:
+									{@render helpIcon(m.dice_parameters_description({ id: p.id }))}
+								</span>
+								<span>({currentValue})</span>
+							</p>
+							<!-- Bits UI Slider component! -->
 
-						<Slider
-							class="py-1"
-							value={currentValue}
-							onChange={(newValue) => (dparams[p.id] = newValue)}
-							min={p.min}
-							max={p.max}
-							step={p.step}
-						/>
-					</label>
-				{/if}
+							<Slider
+								class="py-1"
+								value={currentValue}
+								onChange={(newValue) => (dparams[p.id] = newValue)}
+								min={p.min}
+								max={p.max}
+								step={p.step}
+							/>
+						</label>
+					{/if}
 				{/if}
 			{/each}
 			{#each model.stringParameters ?? [] as p}
 				{#if paramVisible(p.visibleWhen)}
 					{@const value = sparams?.[p.id] ?? p.defaultValue}
 					{@const validation = p.validate?.(value)}
-					<label
-						id="parameter-{p.id}"
-						class="flex flex-col"
-						title={m.dice_parameters_description({ id: p.id })}
-					>
-						<p class="flex justify-between">
-							<span>{m.dice_parameters_name({ id: p.id })}:</span>
+					<label id="parameter-{p.id}" class="flex flex-col">
+						<p class="flex items-center justify-between">
+							<span class="flex items-center gap-1">
+								{m.dice_parameters_name({ id: p.id })}:
+								{@render helpIcon(m.dice_parameters_description({ id: p.id }))}
+							</span>
 						</p>
 						<textarea
 							class="textarea {validation && !validation.valid ? 'border-error-500' : ''}"
 							rows="3"
 							spellcheck="false"
-							value={value}
+							{value}
 							oninput={(e) => setStringParam(p.id, (e.target as HTMLTextAreaElement).value)}
 						></textarea>
 						{#if validation && !validation.valid && validation.error}
@@ -236,14 +252,11 @@
 					</label>
 				{/if}
 			{/each}
-			<label
-				id="parameter-{engravingParam.id}"
-				class="flex flex-col"
-				title={m.dice_parameters_description({ id: engravingParam.id })}
-			>
-				<p class="flex justify-between">
-					<span>
+			<label id="parameter-{engravingParam.id}" class="flex flex-col">
+				<p class="flex items-center justify-between">
+					<span class="flex items-center gap-1">
 						{m.dice_parameters_name({ id: engravingParam.id })}:
+						{@render helpIcon(m.dice_parameters_description({ id: engravingParam.id }))}
 					</span>
 					<span>
 						({engravingDepth})

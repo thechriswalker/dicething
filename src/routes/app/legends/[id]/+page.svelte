@@ -6,6 +6,7 @@
 	import LegendViewer from '$lib/components/legend_viewer/LegendViewer.svelte';
 	import ShapesPreview from '$lib/components/legend_viewer/ShapesPreview.svelte';
 	import Modal from '$lib/components/modal/Modal.svelte';
+	import Tooltip from '$lib/components/tooltip/Tooltip.svelte';
 	import builtins, { type Builtin } from '$lib/fonts';
 	import {
 		getCustomLegendSet,
@@ -440,14 +441,19 @@
 								onSelectedLegend={(l) => (selectedLegend = l)}
 							>
 								{#snippet append()}
-									<button
-										type="button"
-										class="chip btn preset-tonal-surface h-16 w-16 flex-col gap-1"
-										title={m.legends_editor_add_legend()}
-										onclick={addLegend}
-									>
-										<PlusIcon class="size-6" />
-									</button>
+									<Tooltip content={m.legends_editor_add_legend()}>
+										{#snippet children(props)}
+											<button
+												{...props}
+												type="button"
+												class="chip btn preset-tonal-surface h-16 w-16 flex-col gap-1"
+												aria-label={m.legends_editor_add_legend()}
+												onclick={addLegend}
+											>
+												<PlusIcon class="size-6" />
+											</button>
+										{/snippet}
+									</Tooltip>
 								{/snippet}
 							</LegendViewer>
 						{/key}
@@ -462,14 +468,19 @@
 							<div class="flex items-center gap-2">
 								<span class="font-semibold">{set.getLegendName(selectedLegend)}</span>
 								{#if set.length > 0}
-									<button
-										type="button"
-										class="btn-icon btn-icon-sm preset-tonal-error"
-										title={m.legends_editor_delete_legend()}
-										onclick={() => deleteLegend(selectedLegend)}
-									>
-										<Trash2Icon class="size-4" />
-									</button>
+									<Tooltip content={m.legends_editor_delete_legend()}>
+										{#snippet children(props)}
+											<button
+												{...props}
+												type="button"
+												class="btn-icon btn-icon-sm preset-tonal-error"
+												aria-label={m.legends_editor_delete_legend()}
+												onclick={() => deleteLegend(selectedLegend)}
+											>
+												<Trash2Icon class="size-4" />
+											</button>
+										{/snippet}
+									</Tooltip>
 								{/if}
 							</div>
 						</div>
@@ -579,7 +590,11 @@
 									{m.legends_editor_import_svg()}
 								{/snippet}
 								{#snippet trigger(props)}
-									<button {...props} type="button" class="btn preset-tonal-surface w-full justify-start">
+									<button
+										{...props}
+										type="button"
+										class="btn preset-tonal-surface w-full justify-start"
+									>
 										<ImageIcon class="size-4" />
 										{m.legends_editor_import_svg()}
 									</button>
@@ -596,10 +611,7 @@
 											/>
 										</label>
 										{#if svgUnsupported.length}
-											<div
-												class="preset-tonal-warning rounded p-2 text-sm"
-												role="note"
-											>
+											<div class="preset-tonal-warning rounded p-2 text-sm" role="note">
 												{m.legends_editor_svg_unsupported({
 													elements: svgUnsupported.join(', ')
 												})}
@@ -655,8 +667,9 @@
 														class="border-surface-200-800 flex items-center gap-3 rounded border p-2"
 													>
 														<div
-															class="bg-surface-100-900 size-12 shrink-0 rounded {pieceActions[i] ===
-															'ignore'
+															class="bg-surface-100-900 size-12 shrink-0 rounded {pieceActions[
+																i
+															] === 'ignore'
 																? 'opacity-30'
 																: ''}"
 														>
@@ -667,39 +680,51 @@
 														</div>
 														<span class="text-surface-600-400 w-10 text-xs">{piece.label}</span>
 														<div class="ml-auto flex flex-wrap justify-end gap-1">
-															<button
-																type="button"
-																class="btn btn-sm {pieceActions[i] === 'traceOutline'
-																	? 'preset-filled-primary-500'
-																	: 'preset-tonal-surface'}"
-																disabled={!piece.traceOutline}
-																title={m.legends_editor_svg_trace_outline_help()}
-																onclick={() => (pieceActions[i] = 'traceOutline')}
-															>
-																{m.legends_editor_svg_trace_outline()}
-															</button>
-															<button
-																type="button"
-																class="btn btn-sm {pieceActions[i] === 'usePath'
-																	? 'preset-filled-primary-500'
-																	: 'preset-tonal-surface'}"
-																disabled={!piece.usePath}
-																title={m.legends_editor_svg_use_path_help()}
-																onclick={() => (pieceActions[i] = 'usePath')}
-															>
-																{m.legends_editor_svg_use_path()}
-															</button>
-															<button
-																type="button"
-																class="btn btn-sm {pieceActions[i] === 'fillPath'
-																	? 'preset-filled-primary-500'
-																	: 'preset-tonal-surface'}"
-																disabled={!piece.fillPath}
-																title={m.legends_editor_svg_fill_path_help()}
-																onclick={() => (pieceActions[i] = 'fillPath')}
-															>
-																{m.legends_editor_svg_fill_path()}
-															</button>
+															<Tooltip content={m.legends_editor_svg_trace_outline_help()}>
+																{#snippet children(props)}
+																	<button
+																		{...props}
+																		type="button"
+																		class="btn btn-sm {pieceActions[i] === 'traceOutline'
+																			? 'preset-filled-primary-500'
+																			: 'preset-tonal-surface'}"
+																		disabled={!piece.traceOutline}
+																		onclick={() => (pieceActions[i] = 'traceOutline')}
+																	>
+																		{m.legends_editor_svg_trace_outline()}
+																	</button>
+																{/snippet}
+															</Tooltip>
+															<Tooltip content={m.legends_editor_svg_use_path_help()}>
+																{#snippet children(props)}
+																	<button
+																		{...props}
+																		type="button"
+																		class="btn btn-sm {pieceActions[i] === 'usePath'
+																			? 'preset-filled-primary-500'
+																			: 'preset-tonal-surface'}"
+																		disabled={!piece.usePath}
+																		onclick={() => (pieceActions[i] = 'usePath')}
+																	>
+																		{m.legends_editor_svg_use_path()}
+																	</button>
+																{/snippet}
+															</Tooltip>
+															<Tooltip content={m.legends_editor_svg_fill_path_help()}>
+																{#snippet children(props)}
+																	<button
+																		{...props}
+																		type="button"
+																		class="btn btn-sm {pieceActions[i] === 'fillPath'
+																			? 'preset-filled-primary-500'
+																			: 'preset-tonal-surface'}"
+																		disabled={!piece.fillPath}
+																		onclick={() => (pieceActions[i] = 'fillPath')}
+																	>
+																		{m.legends_editor_svg_fill_path()}
+																	</button>
+																{/snippet}
+															</Tooltip>
 															<button
 																type="button"
 																class="btn btn-sm {pieceActions[i] === 'ignore'
@@ -732,13 +757,19 @@
 									{m.legends_editor_copy_from_set()}
 								{/snippet}
 								{#snippet trigger(props)}
-									<button {...props} type="button" class="btn preset-tonal-surface w-full justify-start">
+									<button
+										{...props}
+										type="button"
+										class="btn preset-tonal-surface w-full justify-start"
+									>
 										<TypeIcon class="size-4" />
 										{m.legends_editor_copy_from_set()}
 									</button>
 								{/snippet}
 								{#snippet inner(close)}
-									<div class="flex max-h-[70vh] w-[36rem] max-w-full flex-col gap-3 overflow-y-auto">
+									<div
+										class="flex max-h-[70vh] w-[36rem] max-w-full flex-col gap-3 overflow-y-auto"
+									>
 										<div class="flex flex-row flex-wrap gap-2">
 											{#each otherCustom as s (s.id)}
 												<button
@@ -769,7 +800,11 @@
 									{m.legends_editor_from_other_font()}
 								{/snippet}
 								{#snippet trigger(props)}
-									<button {...props} type="button" class="btn preset-tonal-surface w-full justify-start">
+									<button
+										{...props}
+										type="button"
+										class="btn preset-tonal-surface w-full justify-start"
+									>
 										<TypeIcon class="size-4" />
 										{m.legends_editor_from_other_font()}
 									</button>

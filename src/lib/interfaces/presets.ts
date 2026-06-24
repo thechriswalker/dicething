@@ -7,7 +7,7 @@ export type UnidentifiedDiceSet = Omit<DiceSet, 'name' | 'id' | 'updated' | 'dic
 type MaybePromise<T> = T | Promise<T>;
 
 
-export type PresetOption = PresetOptionBoolean | PresetOptionSelection | PresetOptionRange | PresetOptionLegend;
+export type PresetOption = PresetOptionBoolean | PresetOptionSelection | PresetOptionRange | PresetOptionLegend | PresetOptionDie;
 
 export type PresetOptionBoolean = {
 	id: string;
@@ -34,6 +34,15 @@ export type PresetOptionRange = {
 export type PresetOptionLegend = {
 	id: string;
 	kind: "legend",
+	value: string;
+}
+
+// pick one die shape from a list of die kinds, shown as blank 3D previews.
+export type PresetOptionDie = {
+	id: string;
+	kind: "die";
+	// die kinds to offer (keys of the dice registry).
+	options: Array<string>;
 	value: string;
 }
 

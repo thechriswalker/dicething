@@ -9,6 +9,7 @@
 	import type { MenuItemSubmenu } from '$lib/components/menu/menu';
 	import Menu from '$lib/components/menu/Menu.svelte';
 	import Scene from '$lib/components/scene/Scene.svelte';
+	import Tooltip from '$lib/components/tooltip/Tooltip.svelte';
 	import dice from '$lib/dice';
 	import builtins, { isBuiltin, type Builtin } from '$lib/fonts';
 	import {
@@ -52,9 +53,16 @@
 		XIcon
 	} from '@lucide/svelte';
 	import { Button } from 'bits-ui';
+	import { mergeProps } from 'svelte-toolbelt';
 	import { onMount } from 'svelte';
 	import { Vector2, Vector3 } from 'three';
 	import { degToRad } from 'three/src/math/MathUtils.js';
+
+	// merge a parent trigger's props (e.g. a dialog/modal trigger) with our
+	// tooltip trigger props so a single element can drive both behaviours.
+	function mergeTriggerProps(parent: unknown, tip: Record<string, unknown>) {
+		return mergeProps(parent as Record<string, unknown>, tip);
+	}
 
 	let { setId = '' } = page.params;
 	let dieId = $derived(page.url.searchParams.get('die') ?? '');
@@ -1020,29 +1028,33 @@
 				onkeydown={onNameKeydown}
 			/>
 		{:else}
-			<button
-				type="button"
-				class="text-primary-500 h4 cursor-text bg-transparent"
-				title={m.set_name_edit_hint()}
-				onclick={startEditName}
-			>
-				{setData?.name}
-			</button>
+			<Tooltip content={m.set_name_edit_hint()} side="bottom">
+				{#snippet children(props)}
+					<button
+						{...props}
+						type="button"
+						class="text-primary-500 h4 cursor-text bg-transparent"
+						onclick={startEditName}
+					>
+						{setData?.name}
+					</button>
+				{/snippet}
+			</Tooltip>
 		{/if}
 		<Menu data={legendsMenu} submenuOnLeft></Menu>
 		<Menu data={exportMenu} submenuOnLeft></Menu>
 		{#if setData}
 			<DeleteSetDialog {setId} setName={setData.name} onDeleted={() => goto('/')}>
 				{#snippet trigger(props)}
-					<button
-						{...props}
-						type="button"
-						class="btn preset-filled-error-500"
-						title={m.delete_set_button()}
-					>
-						<Trash2Icon class="size-4" />
-						{m.delete_set_button()}
-					</button>
+					<Tooltip content={m.delete_set_button()} side="bottom">
+						{#snippet children(tipProps)}
+							{@const merged = mergeTriggerProps(props, tipProps)}
+							<button {...merged} type="button" class="btn preset-filled-error-500">
+								<Trash2Icon class="size-4" />
+								{m.delete_set_button()}
+							</button>
+						{/snippet}
+					</Tooltip>
 				{/snippet}
 			</DeleteSetDialog>
 		{/if}
@@ -1084,13 +1096,18 @@
 					{m.controls_add_new_die()}
 				{/snippet}
 				{#snippet trigger(props)}
-					<button
-						{...props}
-						class="hover:border-primary-500 hover:shadow-primary-500 flex size-16 cursor-pointer items-center justify-center overflow-hidden rounded-md border text-center hover:shadow-md"
-						title={m.controls_add_new_die()}
-					>
-						<PlusIcon size={32} />
-					</button>
+					<Tooltip content={m.controls_add_new_die()}>
+						{#snippet children(tipProps)}
+							{@const merged = mergeTriggerProps(props, tipProps)}
+							<button
+								{...merged}
+								class="hover:border-primary-500 hover:shadow-primary-500 flex size-16 cursor-pointer items-center justify-center overflow-hidden rounded-md border text-center hover:shadow-md"
+								aria-label={m.controls_add_new_die()}
+							>
+								<PlusIcon size={32} />
+							</button>
+						{/snippet}
+					</Tooltip>
 				{/snippet}
 				{#snippet inner(close)}
 					<div class="flex max-h-[70vh] flex-col gap-3 overflow-y-auto">
@@ -1140,70 +1157,100 @@
 		<Scene class="relative w-full grow" {sceneReady}>
 			<ul class="list-style-type-none absolute top-2 left-2 flex flex-col gap-2">
 				<li>
-					<Button.Root
-						class="btn-icon preset-filled-primary-500"
-						title={m.controls_undo()}
-						disabled={!history.canUndo}
-						onclick={doUndo}><Undo2 /></Button.Root
-					>
+					<Tooltip content={m.controls_undo()} side="right">
+						{#snippet children(props)}
+							<Button.Root
+								{...props}
+								class="btn-icon preset-filled-primary-500"
+								aria-label={m.controls_undo()}
+								disabled={!history.canUndo}
+								onclick={doUndo}><Undo2 /></Button.Root
+							>
+						{/snippet}
+					</Tooltip>
 				</li>
 				<li>
-					<Button.Root
-						class="btn-icon preset-filled-primary-500"
-						title={m.controls_redo()}
-						disabled={!history.canRedo}
-						onclick={doRedo}><Redo2 /></Button.Root
-					>
+					<Tooltip content={m.controls_redo()} side="right">
+						{#snippet children(props)}
+							<Button.Root
+								{...props}
+								class="btn-icon preset-filled-primary-500"
+								aria-label={m.controls_redo()}
+								disabled={!history.canRedo}
+								onclick={doRedo}><Redo2 /></Button.Root
+							>
+						{/snippet}
+					</Tooltip>
 				</li>
 				<li>
-					<Button.Root
-						class="btn-icon preset-filled-primary-500"
-						title={m.controls_reset_camera()}
-						onclick={() => {
-							lookAtFace(selectedFace);
-						}}><Focus /></Button.Root
-					>
+					<Tooltip content={m.controls_reset_camera()} side="right">
+						{#snippet children(props)}
+							<Button.Root
+								{...props}
+								class="btn-icon preset-filled-primary-500"
+								aria-label={m.controls_reset_camera()}
+								onclick={() => {
+									lookAtFace(selectedFace);
+								}}><Focus /></Button.Root
+							>
+						{/snippet}
+					</Tooltip>
 				</li>
 				<li>
-					<Button.Root
-						class="btn-icon preset-filled-primary-500"
-						title={m.controls_toggle_gridlines()}
-						onclick={() => {
-							toggleGridHelper();
-						}}><Grid3X3 /></Button.Root
-					>
+					<Tooltip content={m.controls_toggle_gridlines()} side="right">
+						{#snippet children(props)}
+							<Button.Root
+								{...props}
+								class="btn-icon preset-filled-primary-500"
+								aria-label={m.controls_toggle_gridlines()}
+								onclick={() => {
+									toggleGridHelper();
+								}}><Grid3X3 /></Button.Root
+							>
+						{/snippet}
+					</Tooltip>
 				</li>
 				<li>
-					<Button.Root
-						class="btn-icon preset-filled-primary-500"
-						title={m.controls_toggle_explode_mode()}
-						onclick={() => {
-							explodeMode = !explodeMode;
-							currentBuilder?.setExploded(explodeMode);
-							if (explodeMode) {
-								// transition to looking straight at the flat plane of faces.
-								animateCameraTo(
-									new Vector3(0, 0, 100),
-									new Vector3(0, 1, 0),
-									new Vector3(0, 0, 0),
-									baseZoom
-								);
-							} else {
-								// transition back to the "look at face" direction.
-								const { pos, up } = faceCameraState(selectedFace);
-								animateCameraTo(pos, up, new Vector3(0, 0, 0), baseZoom);
-							}
-						}}
-						>{#if explodeMode}<Box />{:else}<LayoutGrid />{/if}</Button.Root
-					>
+					<Tooltip content={m.controls_toggle_explode_mode()} side="right">
+						{#snippet children(props)}
+							<Button.Root
+								{...props}
+								class="btn-icon preset-filled-primary-500"
+								aria-label={m.controls_toggle_explode_mode()}
+								onclick={() => {
+									explodeMode = !explodeMode;
+									currentBuilder?.setExploded(explodeMode);
+									if (explodeMode) {
+										// transition to looking straight at the flat plane of faces.
+										animateCameraTo(
+											new Vector3(0, 0, 100),
+											new Vector3(0, 1, 0),
+											new Vector3(0, 0, 0),
+											baseZoom
+										);
+									} else {
+										// transition back to the "look at face" direction.
+										const { pos, up } = faceCameraState(selectedFace);
+										animateCameraTo(pos, up, new Vector3(0, 0, 0), baseZoom);
+									}
+								}}
+								>{#if explodeMode}<Box />{:else}<LayoutGrid />{/if}</Button.Root
+							>
+						{/snippet}
+					</Tooltip>
 				</li>
 				<li>
-					<Button.Root
-						class={'btn-icon ' + (fancy ? 'preset-filled-primary-500' : 'preset-tonal-primary')}
-						title={m.controls_toggle_fancy_render()}
-						aria-pressed={fancy}
-						onclick={toggleFancy}><SparklesIcon /></Button.Root
-					>
+					<Tooltip content={m.controls_toggle_fancy_render()} side="right">
+						{#snippet children(props)}
+							<Button.Root
+								{...props}
+								class={'btn-icon ' + (fancy ? 'preset-filled-primary-500' : 'preset-tonal-primary')}
+								aria-label={m.controls_toggle_fancy_render()}
+								aria-pressed={fancy}
+								onclick={toggleFancy}><SparklesIcon /></Button.Root
+							>
+						{/snippet}
+					</Tooltip>
 				</li>
 			</ul>
 			{#if formatPaintMode}

@@ -19,6 +19,7 @@
 	} from '$lib/utils/export';
 	import { defaultValues, extraBuildOptions, isControlVisible } from '$lib/utils/build_options';
 	import Collapsible from '$lib/components/collapsible/Collapsible.svelte';
+	import Tooltip from '$lib/components/tooltip/Tooltip.svelte';
 	import { onMount } from 'svelte';
 	import { Group, Mesh } from 'three';
 	import { ArrowLeftIcon, DownloadIcon, SparklesIcon } from '@lucide/svelte';
@@ -190,9 +191,7 @@
 	}
 
 	let anyOptionEnabled = $derived(extraBuildOptions.some((o) => optionStates[o.id]?.enabled));
-	let nothingToExport = $derived(
-		selectedIds.length === 0 || (!includeDice && !anyOptionEnabled)
-	);
+	let nothingToExport = $derived(selectedIds.length === 0 || (!includeDice && !anyOptionEnabled));
 
 	function exportModel() {
 		if (!setData || nothingToExport) {
@@ -223,22 +222,25 @@
 	{/snippet}
 
 	<div class="flex h-full flex-row gap-4 p-4">
-		<Scene class="relative h-full grow" sceneReady={sceneReady}>
+		<Scene class="relative h-full grow" {sceneReady}>
 			<ul class="list-style-type-none absolute top-2 left-2 flex flex-col gap-2">
 				<li>
-					<Button.Root
-						class={'btn-icon ' + (fancy ? 'preset-filled-primary-500' : 'preset-tonal-primary')}
-						title={m.export_toggle_fancy_render()}
-						aria-pressed={fancy}
-						onclick={toggleFancy}><SparklesIcon /></Button.Root
-					>
+					<Tooltip content={m.export_toggle_fancy_render()} side="right">
+						{#snippet children(props)}
+							<Button.Root
+								{...props}
+								class={'btn-icon ' + (fancy ? 'preset-filled-primary-500' : 'preset-tonal-primary')}
+								aria-label={m.export_toggle_fancy_render()}
+								aria-pressed={fancy}
+								onclick={toggleFancy}><SparklesIcon /></Button.Root
+							>
+						{/snippet}
+					</Tooltip>
 				</li>
 			</ul>
 		</Scene>
 
-		<div
-			class="card preset-tonal-surface flex w-80 shrink-0 flex-col gap-3 overflow-y-auto p-4"
-		>
+		<div class="card preset-tonal-surface flex w-80 shrink-0 flex-col gap-3 overflow-y-auto p-4">
 			<!-- TEMP render tuning panel: remove once good values are chosen -->
 			{#snippet tuneRow(
 				label: string,
@@ -259,73 +261,80 @@
 			{#if showTuning}
 				<Collapsible title="Render tuning (temp)">
 					<div class="flex flex-col gap-2 pt-2">
-					<p class="text-surface-600-400 text-xs">Only affects the fancy render.</p>
-					<span class="text-sm font-semibold">Base colour</span>
-					<div
-						class="h-6 w-full rounded"
-						style={`background: rgb(${Math.round(tune.r * 255)}, ${Math.round(tune.g * 255)}, ${Math.round(tune.b * 255)})`}
-					></div>
-					{@render tuneRow('R', tune.r, 0, 1, 0.01, (v) => (tune.r = v))}
-					{@render tuneRow('G', tune.g, 0, 1, 0.01, (v) => (tune.g = v))}
-					{@render tuneRow('B', tune.b, 0, 1, 0.01, (v) => (tune.b = v))}
-					<span class="text-sm font-semibold">Material</span>
-					{@render tuneRow('Roughness', tune.roughness, 0, 1, 0.01, (v) => (tune.roughness = v))}
-					{@render tuneRow('Metalness', tune.metalness, 0, 1, 0.01, (v) => (tune.metalness = v))}
-					{@render tuneRow('Clearcoat', tune.clearcoat, 0, 1, 0.01, (v) => (tune.clearcoat = v))}
-					{@render tuneRow(
-						'Clearcoat rough',
-						tune.clearcoatRoughness,
-						0,
-						1,
-						0.01,
-						(v) => (tune.clearcoatRoughness = v)
-					)}
-					{@render tuneRow(
-						'Env intensity',
-						tune.envMapIntensity,
-						0,
-						3,
-						0.05,
-						(v) => (tune.envMapIntensity = v)
-					)}
-					{@render tuneRow('Exposure', tune.exposure, 0, 3, 0.05, (v) => (tune.exposure = v))}
-					<span class="text-sm font-semibold">Lighting</span>
-					{@render tuneRow(
-						'Key light',
-						tune.lightIntensity,
-						0,
-						12,
-						0.1,
-						(v) => (tune.lightIntensity = v)
-					)}
-					{@render tuneRow(
-						'Key light 2',
-						tune.lightIntensity2,
-						0,
-						12,
-						0.1,
-						(v) => (tune.lightIntensity2 = v)
-					)}
-					{@render tuneRow(
-						'Fill (hemi)',
-						tune.fillIntensity,
-						0,
-						5,
-						0.05,
-						(v) => (tune.fillIntensity = v)
-					)}
-					<span class="text-sm font-semibold">Ambient occlusion</span>
-					{@render tuneRow('AO radius', tune.aoRadius, 0, 10, 0.1, (v) => (tune.aoRadius = v))}
-					{@render tuneRow('AO scale', tune.aoScale, 0, 3, 0.05, (v) => (tune.aoScale = v))}
-					{@render tuneRow('AO thickness', tune.aoThickness, 0, 3, 0.05, (v) => (tune.aoThickness = v))}
-					{@render tuneRow(
-						'AO dist exp',
-						tune.aoDistanceExponent,
-						0.1,
-						4,
-						0.05,
-						(v) => (tune.aoDistanceExponent = v)
-					)}
+						<p class="text-surface-600-400 text-xs">Only affects the fancy render.</p>
+						<span class="text-sm font-semibold">Base colour</span>
+						<div
+							class="h-6 w-full rounded"
+							style={`background: rgb(${Math.round(tune.r * 255)}, ${Math.round(tune.g * 255)}, ${Math.round(tune.b * 255)})`}
+						></div>
+						{@render tuneRow('R', tune.r, 0, 1, 0.01, (v) => (tune.r = v))}
+						{@render tuneRow('G', tune.g, 0, 1, 0.01, (v) => (tune.g = v))}
+						{@render tuneRow('B', tune.b, 0, 1, 0.01, (v) => (tune.b = v))}
+						<span class="text-sm font-semibold">Material</span>
+						{@render tuneRow('Roughness', tune.roughness, 0, 1, 0.01, (v) => (tune.roughness = v))}
+						{@render tuneRow('Metalness', tune.metalness, 0, 1, 0.01, (v) => (tune.metalness = v))}
+						{@render tuneRow('Clearcoat', tune.clearcoat, 0, 1, 0.01, (v) => (tune.clearcoat = v))}
+						{@render tuneRow(
+							'Clearcoat rough',
+							tune.clearcoatRoughness,
+							0,
+							1,
+							0.01,
+							(v) => (tune.clearcoatRoughness = v)
+						)}
+						{@render tuneRow(
+							'Env intensity',
+							tune.envMapIntensity,
+							0,
+							3,
+							0.05,
+							(v) => (tune.envMapIntensity = v)
+						)}
+						{@render tuneRow('Exposure', tune.exposure, 0, 3, 0.05, (v) => (tune.exposure = v))}
+						<span class="text-sm font-semibold">Lighting</span>
+						{@render tuneRow(
+							'Key light',
+							tune.lightIntensity,
+							0,
+							12,
+							0.1,
+							(v) => (tune.lightIntensity = v)
+						)}
+						{@render tuneRow(
+							'Key light 2',
+							tune.lightIntensity2,
+							0,
+							12,
+							0.1,
+							(v) => (tune.lightIntensity2 = v)
+						)}
+						{@render tuneRow(
+							'Fill (hemi)',
+							tune.fillIntensity,
+							0,
+							5,
+							0.05,
+							(v) => (tune.fillIntensity = v)
+						)}
+						<span class="text-sm font-semibold">Ambient occlusion</span>
+						{@render tuneRow('AO radius', tune.aoRadius, 0, 10, 0.1, (v) => (tune.aoRadius = v))}
+						{@render tuneRow('AO scale', tune.aoScale, 0, 3, 0.05, (v) => (tune.aoScale = v))}
+						{@render tuneRow(
+							'AO thickness',
+							tune.aoThickness,
+							0,
+							3,
+							0.05,
+							(v) => (tune.aoThickness = v)
+						)}
+						{@render tuneRow(
+							'AO dist exp',
+							tune.aoDistanceExponent,
+							0.1,
+							4,
+							0.05,
+							(v) => (tune.aoDistanceExponent = v)
+						)}
 					</div>
 				</Collapsible>
 			{/if}
@@ -356,7 +365,7 @@
 			<!-- what to export -->
 			<Collapsible title={m.export_what_to_export()}>
 				<div class="flex flex-col gap-3 pt-2">
-					<div class="rounded-md border border-surface-300-700 p-2">
+					<div class="border-surface-300-700 rounded-md border p-2">
 						<label class="flex items-center justify-between gap-2">
 							<span>{m.export_include_dice()}</span>
 							<input
@@ -369,7 +378,7 @@
 						<p class="text-surface-600-400 text-xs">{m.export_include_dice_hint()}</p>
 					</div>
 					{#each extraBuildOptions as option}
-						<div class="rounded-md border border-surface-300-700 p-2">
+						<div class="border-surface-300-700 rounded-md border p-2">
 							<label class="flex items-center justify-between gap-2">
 								<span>{option.label}</span>
 								<input

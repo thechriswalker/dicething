@@ -5,6 +5,8 @@
 	import Modal from '$lib/components/modal/Modal.svelte';
 	import PresetOptions from '$lib/components/preset_options/PresetOptions.svelte';
 	import Time from '$lib/components/time/Time.svelte';
+	import Tooltip from '$lib/components/tooltip/Tooltip.svelte';
+	import { mergeProps } from 'svelte-toolbelt';
 	import type { Preset, PresetOption } from '$lib/interfaces/presets';
 	import { getSavedSets, saveSet, waitForInitialLoad } from '$lib/interfaces/storage.svelte';
 	import { m } from '$lib/paraglide/messages';
@@ -12,6 +14,12 @@
 	import { importSetJson } from '$lib/utils/export';
 	import { XIcon } from '@lucide/svelte';
 	import { Progress } from '@skeletonlabs/skeleton-svelte';
+
+	// merge a parent trigger's props (e.g. a dialog trigger) with our tooltip
+	// trigger props so a single element can drive both behaviours.
+	function mergeTriggerProps(parent: unknown, tip: Record<string, unknown>) {
+		return mergeProps(parent as Record<string, unknown>, tip);
+	}
 
 	let savedSets = getSavedSets();
 
@@ -124,15 +132,19 @@
 								</a>
 								<DeleteSetDialog setId={set.id} setName={set.name}>
 									{#snippet trigger(props)}
-										<button
-											{...props}
-											type="button"
-											class="btn-icon absolute top-2 right-2 rounded-lg bg-red-500 text-white hover:bg-red-600"
-											title={m.delete_set_button()}
-											aria-label={m.delete_set_button()}
-										>
-											<XIcon class="size-4" />
-										</button>
+										<Tooltip content={m.delete_set_button()}>
+											{#snippet children(tipProps)}
+												{@const merged = mergeTriggerProps(props, tipProps)}
+												<button
+													{...merged}
+													type="button"
+													class="btn-icon absolute top-2 right-2 rounded-lg bg-red-500 text-white hover:bg-red-600"
+													aria-label={m.delete_set_button()}
+												>
+													<XIcon class="size-4" />
+												</button>
+											{/snippet}
+										</Tooltip>
 									{/snippet}
 								</DeleteSetDialog>
 							</div>
