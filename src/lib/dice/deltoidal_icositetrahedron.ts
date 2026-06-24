@@ -3,7 +3,7 @@
 // Catalan dual of the rhombicuboctahedron; its 24 faces are congruent kites.
 
 import type { DieModel } from '$lib/interfaces/dice';
-import { convexPolyhedronDie, dualVertices, signs } from '$lib/utils/convex_polyhedra';
+import { convexPolyhedronDie, signs } from '$lib/utils/convex_polyhedra';
 import { pickForNumberLarge } from '$lib/utils/legends';
 import { Vector3 } from 'three';
 
@@ -16,7 +16,7 @@ function rhombicuboctahedronVertices(): Array<Vector3> {
 export const DeltoidalIcositetrahedronD24: DieModel = convexPolyhedronDie({
 	id: 'deltoidal_icositetrahedron_d24',
 	name: 'D24 Deltoidal',
-	vertices: () => dualVertices(rhombicuboctahedronVertices()),
+	source: rhombicuboctahedronVertices,
 	defaultSize: 22,
 	minSize: 16,
 	numbering: (i) => pickForNumberLarge(i),

@@ -4,7 +4,7 @@
 // triangles.
 
 import type { DieModel } from '$lib/interfaces/dice';
-import { PHI, convexPolyhedronDie, dualVertices, evenPerms, signs } from '$lib/utils/convex_polyhedra';
+import { PHI, convexPolyhedronDie, evenPerms, signs } from '$lib/utils/convex_polyhedra';
 import { pickForNumberLarge } from '$lib/utils/legends';
 import { Vector3 } from 'three';
 
@@ -28,7 +28,7 @@ function truncatedIcosahedronVertices(): Array<Vector3> {
 export const PentakisDodecahedronD60: DieModel = convexPolyhedronDie({
 	id: 'pentakis_dodecahedron_d60',
 	name: 'D60 Pentakis',
-	vertices: () => dualVertices(truncatedIcosahedronVertices()),
+	source: truncatedIcosahedronVertices,
 	defaultSize: 30,
 	minSize: 22,
 	maxSize: 80,

@@ -1,4 +1,5 @@
 import { Shape } from 'three';
+import { defaultStrings } from './font';
 import { shapeFromJSON, shapeToJSON } from './to_json';
 
 export enum Legend {
@@ -35,8 +36,43 @@ export enum Legend {
 	NINETY = 29,
 	DOUBLE_ZERO = 30,
 	MAKER_LOGO = 31,
-	// and 34 slots for custom stuff..
-	CUSTOM_SYMBOLS_START = 32
+	// slots 32-103 hold the remaining numbers (21-99 that aren't a "tens"
+	// glyph). Custom symbols start after those.
+	CUSTOM_SYMBOLS_START = 104
+}
+
+// The maker logo lives at this slot; the legend generators splice it in here,
+// between the standard slots (0-30) and the remaining numbers (32+).
+export const MAKER_LOGO_SLOT = 31;
+
+// Maps each source token (from defaultStrings) to its final slot index,
+// accounting for the logo being spliced in at MAKER_LOGO_SLOT (tokens at or
+// after that index shift up by one). Built once from the single source of
+// truth in $lib/utils/font so the generators and the dice number->slot
+// mapping can never drift apart.
+const textToSlot: Map<string, Legend> = (() => {
+	const m = new Map<string, Legend>();
+	defaultStrings.split(' ').forEach((tok, i) => {
+		const slot = (i < MAKER_LOGO_SLOT ? i : i + 1) as Legend;
+		if (!m.has(tok)) {
+			m.set(tok, slot);
+		}
+	});
+	return m;
+})();
+
+// The Legend slot that should display a given numeric value. 6 and 9 resolve to
+// their marked variants (as large dice always want the disambiguating dot);
+// everything else is looked up by its literal text in the combined set.
+export function legendForValue(value: number): Legend {
+	if (value === 6) {
+		return Legend.SIX_MARKED;
+	}
+	if (value === 9) {
+		return Legend.NINE_MARKED;
+	}
+	const slot = textToSlot.get(String(value));
+	return slot === undefined ? Legend.BLANK : slot;
 }
 
 // a custom legend
@@ -85,14 +121,11 @@ export function pickForNumber(index: number, sides: number): Legend {
 }
 
 // numbering for large dice (d24/d30/d60) where the value exceeds 20. the
-// "0-99" builtin legend set stores each numeral at the index equal to its
-// value (with 6 and 9 pre-marked at indices 6 and 9), so the literal integer
-// IS the correct Legend index. `pickForNumber` can't be used here because it
-// remaps 6 -> SIX_MARKED (21), 9 -> NINE_MARKED (22) etc., which collide with
-// the literal numerals in a 0-99 set. requires a "0-99" legend set to render;
-// the default "std" set has no glyphs above 20 and these faces show blank.
+// combined legend set holds 0-20 (+marked 6/9, tens, 00) at slots 0-30 and the
+// remaining numbers at slots 32+, so a value no longer equals its slot index.
+// legendForValue resolves the (non-linear) value -> slot mapping.
 export function pickForNumberLarge(index: number): Legend {
-	return (index + 1) as Legend;
+	return legendForValue(index + 1);
 }
 
 //  useful for debugging...
@@ -133,9 +166,6 @@ export type LegendSet = {
 	readonly name: string;
 	readonly mutable: boolean;
 	readonly length: number;
-	// classification tags (e.g. "std", "0-99") so custom sets can be filtered
-	// alongside builtins, e.g. in the preset legend picker.
-	readonly tags: Array<string>;
 	get(l: Legend): Array<Shape>;
 	getLegendName(l: Legend): string;
 	toJSON(): SerialisedLegendSet;
@@ -153,8 +183,6 @@ export type SerialisedLegendSet = {
 	font?: LegendFontOrigin;
 	// per-slot generation recipe (custom sets only). aligned with shapes/names.
 	sources?: Array<LegendSource | null>;
-	// classification tags (e.g. "std", "0-99").
-	tags?: Array<string>;
 };
 
 // these are the inbuilt ones.
@@ -197,7 +225,6 @@ export function loadImmutableLegends(s: SerialisedLegendSet): ImmutableLegendSet
 		id: s.id,
 		name: s.name,
 		mutable: false,
-		tags: s.tags ?? [],
 		get length() {
 			return data.length;
 		},
@@ -228,8 +255,7 @@ export function loadImmutableLegends(s: SerialisedLegendSet): ImmutableLegendSet
 				names: s.names,
 				shapes: s.shapes,
 				font: s.font,
-				sources: s.sources,
-				tags: s.tags
+				sources: s.sources
 			});
 		},
 		toJSON() {
@@ -259,12 +285,10 @@ export function loadMutableLegends(s: SerialisedLegendSet): MutableLegendSet {
 	};
 	const names = s.names.slice();
 	const sources = (s.sources ?? []).slice();
-	const tags = (s.tags ?? []).slice();
 	const set: MutableLegendSet = {
 		id: s.id,
 		name: s.name,
 		mutable: true,
-		tags,
 		font: s.font,
 		updated: s.updated,
 		get length() {
@@ -322,8 +346,7 @@ export function loadMutableLegends(s: SerialisedLegendSet): MutableLegendSet {
 				shapes: data,
 				updated: self.updated,
 				font: self.font,
-				sources: sources,
-				tags: tags
+				sources: sources
 			};
 		},
 		*[Symbol.iterator]() {

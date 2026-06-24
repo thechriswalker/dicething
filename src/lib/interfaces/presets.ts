@@ -34,7 +34,6 @@ export type PresetOptionRange = {
 export type PresetOptionLegend = {
 	id: string;
 	kind: "legend",
-	filter: string;
 	value: string;
 }
 

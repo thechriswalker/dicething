@@ -90,11 +90,12 @@
 			</select>
 		{/if}
 		{#if opt.kind == 'legend'}
-			{@const customMatches = savedLegends.filter((set) => set.tags.includes(opt.filter))}
+			{@const builtinList = Object.values(builtins).filter((f) => f.id !== 'blanks')}
 			<p class="h5">{m.preset_options_pick_legends()}</p>
-			{#if customMatches.length > 0}
+			{#if savedLegends.length > 0}
+				<p class="h6">{m.preset_options_custom()}</p>
 				<div class="grid grid-cols-3 gap-4">
-					{#each customMatches as set}
+					{#each savedLegends as set}
 						{@const border =
 							set.id == (values[idx] ?? opt.value)
 								? 'preset-filled-primary-500 preset-outlined-primary-500'
@@ -117,23 +118,22 @@
 				</div>
 				<hr class="hr" />
 			{/if}
+			<p class="h6">{m.preset_options_builtin()}</p>
 			<div class="grid grid-cols-3 gap-4">
-				{#each Object.values(builtins) as f}
-					{#if f.tags.includes(opt.filter)}
-						{@const border =
-							f.id == (values[idx] ?? opt.value)
-								? 'preset-filled-primary-500 preset-outlined-primary-500'
-								: 'preset-filled-surface-50-950 preset-outlined hover:preset-outlined-primary-500'}
-						<button
-							class={'flex flex-col justify-between gap-2 rounded-md p-2  ' + border}
-							onclick={() => {
-								values[idx] = f.id;
-							}}
-						>
-							<strong>{f.name}</strong>
-							<img height="10px" src={f.preview} alt={m.preset_options_font_preview()} class="dark:invert" />
-						</button>
-					{/if}
+				{#each builtinList as f}
+					{@const border =
+						f.id == (values[idx] ?? opt.value)
+							? 'preset-filled-primary-500 preset-outlined-primary-500'
+							: 'preset-filled-surface-50-950 preset-outlined hover:preset-outlined-primary-500'}
+					<button
+						class={'flex flex-col justify-between gap-2 rounded-md p-2  ' + border}
+						onclick={() => {
+							values[idx] = f.id;
+						}}
+					>
+						<strong>{f.name}</strong>
+						<img height="10px" src={f.preview} alt={m.preset_options_font_preview()} class="dark:invert" />
+					</button>
 				{/each}
 			</div>
 		{/if}

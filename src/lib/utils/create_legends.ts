@@ -11,11 +11,10 @@ import {
 	createShapesFromSVGChecked,
 	defaultStrings,
 	finalizeImportedShapes,
-	numberStringToWords,
+	legendNameForText,
 	svgIconScale,
 	svgPieces,
 	unsupportedSVGElements,
-	zeroToNinetyNine,
 	type SvgPiece
 } from './font';
 
@@ -24,6 +23,7 @@ import type { Shape } from 'three';
 import { shapesRowToSVGData } from './shapes';
 import {
 	loadMutableLegends,
+	MAKER_LOGO_SLOT,
 	type LegendFontOrigin,
 	type LegendSet,
 	type LegendSource,
@@ -31,35 +31,33 @@ import {
 	type SerialisedLegendSet
 } from './legends';
 
-export type LegendPreset = 'std' | '100';
-
-// Build an editable legend set by rendering each glyph of the preset from the
-// given font. The "std" preset also appends the app logo (the MAKER_LOGO slot).
+// Build an editable legend set by rendering each glyph of the given character
+// set from the font. The maker logo (MAKER_LOGO slot) is spliced in at
+// MAKER_LOGO_SLOT. `characters` is a space-separated token list whose order
+// defines the slot layout; it defaults to the standard combined set.
 export function legendSetFromFont(
 	buffer: ArrayBufferLike,
 	name: string,
-	preset: LegendPreset,
+	characters: string = defaultStrings,
 	id: string = crypto.randomUUID()
 ): MutableLegendSet {
-	const strings = addRenderOptions(preset === '100' ? zeroToNinetyNine : defaultStrings);
+	const strings = addRenderOptions(characters);
 	// NB createShapesFromFont returns already-serialised shape JSON.
 	const shapes = createShapesFromFont(buffer, strings) as unknown as Array<Array<unknown>>;
-	const names = strings.map((s) => numberStringToWords(s.text));
+	const names = strings.map((s) => legendNameForText(s.text));
 	const sources: Array<LegendSource | null> = strings.map((s) => ({
 		kind: 'font',
 		text: s.text,
 		letterSpacing: s.renderOptions?.letterSpacing
 	}));
 
-	if (preset === 'std') {
-		// scale the logo from its own viewBox down to our standard glyph size,
-		// matching the offline builtin generator (see build_builtins loadSVGIcon).
-		shapes.push(
-			createShapesFromSVG(dicethingLogo, svgIconScale(dicethingLogo)) as unknown as Array<unknown>
-		);
-		names.push('Logo');
-		sources.push({ kind: 'svg' });
-	}
+	// scale the logo from its own viewBox down to our standard glyph size,
+	// matching the offline builtin generator (see build_builtins loadSVGIcon).
+	// Splice it in at MAKER_LOGO_SLOT (appended if there are fewer tokens).
+	const at = Math.min(MAKER_LOGO_SLOT, shapes.length);
+	shapes.splice(at, 0, createShapesFromSVG(dicethingLogo, svgIconScale(dicethingLogo)) as unknown as Array<unknown>);
+	names.splice(at, 0, 'Logo');
+	sources.splice(at, 0, { kind: 'svg' });
 
 	const serial: SerialisedLegendSet = {
 		id,
@@ -68,28 +66,26 @@ export function legendSetFromFont(
 		shapes,
 		font: { kind: 'uploaded' },
 		updated: Date.now(),
-		sources,
-		tags: [preset === '100' ? '0-99' : 'std']
+		sources
 	};
 	return loadMutableLegends(serial);
 }
 
-// Rebuild the per-slot generation recipe (sources) for a builtin legend set from
-// its classification tag. Builtins are generated offline from a known set of
-// strings (see build_builtins.ts) but the bundled JSON doesn't carry the
-// per-slot sources, so a fresh clone has no "characters" to show/edit. We
-// reconstruct them here from the tag (which tells us the FontString[] used).
-export function defaultSourcesForTag(tag: string): Array<LegendSource | null> {
-	const strings = addRenderOptions(tag === '0-99' ? zeroToNinetyNine : defaultStrings);
+// Rebuild the per-slot generation recipe (sources) for a builtin legend set.
+// Builtins are generated offline from the standard combined set (see
+// build_builtins.ts) but the bundled JSON doesn't carry the per-slot sources,
+// so a fresh clone has no "characters" to show/edit. We reconstruct them here
+// from the same character set the builtins are built from.
+export function defaultSources(): Array<LegendSource | null> {
+	const strings = addRenderOptions(defaultStrings);
 	const sources: Array<LegendSource | null> = strings.map((s) => ({
 		kind: 'font',
 		text: s.text,
 		letterSpacing: s.renderOptions?.letterSpacing
 	}));
-	// the "std" preset appends the app logo (the MAKER_LOGO slot), imported as SVG.
-	if (tag !== '0-99') {
-		sources.push({ kind: 'svg' });
-	}
+	// the maker logo (MAKER_LOGO slot) is imported as SVG, spliced in at its slot.
+	const at = Math.min(MAKER_LOGO_SLOT, sources.length);
+	sources.splice(at, 0, { kind: 'svg' });
 	return sources;
 }
 

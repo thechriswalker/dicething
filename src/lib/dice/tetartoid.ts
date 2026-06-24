@@ -10,7 +10,7 @@
 // pentagonal faces - the tetartoid.
 
 import type { DieModel } from '$lib/interfaces/dice';
-import { PHI, convexPolyhedronDie, dualVertices } from '$lib/utils/convex_polyhedra';
+import { PHI, convexPolyhedronDie } from '$lib/utils/convex_polyhedra';
 import { Vector3 } from 'three';
 
 // seed near a regular icosahedron vertex (0, 1, phi); the off-axis x component
@@ -39,16 +39,13 @@ function tetrahedralOrbit(): Array<Vector3> {
 	return out;
 }
 
-// left-handed form; the right-handed mirror image is produced by the chiral
-// `handedness` parameter on the die.
-function tetartoidVertices(): Array<Vector3> {
-	return dualVertices(tetrahedralOrbit());
-}
-
+// the die is the polar dual of this snub tetrahedron; its 12 pentagonal faces,
+// single shape and chiral tetrahedral symmetry are derived from the source. the
+// left/right mirror is produced by the chiral `handedness` parameter.
 export const TetartoidD12: DieModel = convexPolyhedronDie({
 	id: 'tetartoid_d12',
 	name: 'D12 Skew',
-	vertices: tetartoidVertices,
+	source: tetrahedralOrbit,
 	defaultSize: 18,
 	minSize: 10,
 	individualLegendScaling: true,

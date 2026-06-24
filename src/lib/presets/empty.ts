@@ -5,7 +5,7 @@ import { legendPickerFactory, legendPickerOption } from "./_util"
 export const empty: Preset = {
     id: "scratch",
     options() {
-        return [legendPickerOption("std", defaultFont.id)];
+        return [legendPickerOption(defaultFont.id)];
     },
     async factory(opts) {
         return {

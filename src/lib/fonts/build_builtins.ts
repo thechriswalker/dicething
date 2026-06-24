@@ -8,9 +8,10 @@ import {
 	defaultStrings,
 	defaultRenderOptions,
 	type FontString,
-	numberStringToWords,
+	legendNameForText,
 	svgIconScale
 } from '$lib/utils/font';
+import { MAKER_LOGO_SLOT } from '$lib/utils/legends';
 import { dirname, sep } from 'node:path';
 
 import { DOMParser } from 'xmldom';
@@ -36,11 +37,14 @@ async function createFontBasedLegends(
 	const data = (await readFile(src)).buffer;
 
 	const shapes = createShapesFromFont(data, strings);
-	const names = strings.map((s) => numberStringToWords(s.text));
+	const names = strings.map((s) => legendNameForText(s.text));
 	if (extraIcons) {
-		extraIcons.forEach(({ name, shapes: icon }) => {
-			shapes.push(icon);
-			names.push(name);
+		// splice the icons (the maker logo) in at MAKER_LOGO_SLOT so the standard
+		// slots (0-30) stay put and the remaining numbers fall at 32+.
+		extraIcons.forEach(({ name, shapes: icon }, i) => {
+			const at = MAKER_LOGO_SLOT + i;
+			shapes.splice(at, 0, icon);
+			names.splice(at, 0, name);
 		});
 	}
 
@@ -61,12 +65,6 @@ async function createFontBasedLegends(
 	const svg = shapesToSVGData(previewShapes[0].map(shapeFromJSON));
 	await writeFile(dst.replace(/\.json$/, '.svg'), svg, { encoding: 'utf8' });
 }
-
-const zero_to_ninety_nine: string = Array.from({ length: 100 })
-	.map((_, i) => {
-		return i == 6 ? '6.' : i == 9 ? '9.' : '' + i;
-	})
-	.join(' ');
 
 async function loadSVGIcon(
 	path: string,
@@ -97,14 +95,12 @@ async function buildAll() {
 	const icons = await Promise.all([loadSVGIcon(baseDir + '/icons/dicething.svg', 'Logo')]);
 
 	const fontMeta = [];
-	for (let d of await readdir(builtins)) {
-		// the source directory name, retained even after we mangle `d` for the
-		// _100 variant, so both variants can reference the same TTF + license.
+	for (const d of await readdir(builtins)) {
 		const fontDir = d;
 		const src = builtins + '/' + d + '/' + d + '.ttf';
-		let dst = generated + '/' + d + '.json';
+		const dst = generated + '/' + d + '.json';
 		// un_snake_case the name.
-		let name = d
+		const name = d
 			.split('_')
 			.map((s) => s[0].toUpperCase() + s.slice(1))
 			.join(' ');
@@ -120,31 +116,11 @@ async function buildAll() {
 			varname: d,
 			fontDir,
 			name: JSON.stringify(name),
-			tags: ['std'],
-			import: JSON.stringify('.' + genSuffix + '/' + d + '.json')
-		});
-		// also make a 0-99 set, just because we can.
-		d = d + '_100';
-		dst = generated + '/' + d + '.json';
-		name += ' (100)';
-		await createFontBasedLegends(
-			src,
-			dst,
-			d,
-			name,
-			addRenderOptions(zero_to_ninety_nine, renderOptions)
-		);
-		fontMeta.push({
-			varname: d,
-			fontDir,
-			name: JSON.stringify(name),
-			tags: ['0-99'],
 			import: JSON.stringify('.' + genSuffix + '/' + d + '.json')
 		});
 	}
 
-	// the source font + license imports are per source directory, shared by the
-	// std and _100 variants, so dedupe by fontDir.
+	// the source font + license imports are per source directory.
 	const fontDirs = [...new Set(fontMeta.map((f) => f.fontDir))];
 
 	let indexTemplate = `// AUTO-GENERATED FILE - DO NOT EDIT MANUALLY
@@ -190,7 +166,6 @@ export async function loadBuiltinById(id: string): Promise<LegendSet> {
 export type Builtin = {
 	readonly id: BuiltinID;
     readonly name: string;
-	readonly tags: Array<string>;
 	readonly preview: string;
 	// URL to the source TTF (served from the bundle) so the legend editor can
 	// generate more glyphs from a clone of this builtin. Empty for blanks.
@@ -203,7 +178,7 @@ export type Builtin = {
 type BuiltinID = "blanks"|"${fontMeta.map(x => x.varname).join('"|"')}";
 
 const builtins: Record<BuiltinID, Builtin> = {
-	blanks: { id: "blanks", name: "Blanks", tags: ["blank"], fontUrl: "", license: "", load: async () => blanks, preview: "" } as Builtin,
+	blanks: { id: "blanks", name: "Blanks", fontUrl: "", license: "", load: async () => blanks, preview: "" } as Builtin,
 ${fontMeta
 			.map((x) => {
 				return (
@@ -211,7 +186,6 @@ ${fontMeta
 					x.varname +
 					': { id: "' + x.varname +
 					'", name: ' + x.name +
-					', tags: ' + JSON.stringify(x.tags) +
 					', preview: ' + x.varname + 'SVG' +
 					', fontUrl: ' + x.fontDir + 'FontUrl' +
 					', license: ' + x.fontDir + 'License' +

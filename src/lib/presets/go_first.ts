@@ -15,6 +15,7 @@ Die 4: 4, 5, 9,  16, 20, 21, 28, 29, 33, 40, 44, 45
 
 import builtins from '$lib/fonts';
 import type { Preset, PresetOptionBoolean } from '$lib/interfaces/presets';
+import { legendForValue } from '$lib/utils/legends';
 import { legendPickerFactory, legendPickerOption } from './_util';
 
 
@@ -24,7 +25,7 @@ const defaultSize = 20;
 export const goFirstPreset: Preset = {
 	id: "go_first",
 	options() {
-		return [legendPickerOption("0-99", builtins.germania_one_100.id),
+		return [legendPickerOption(builtins.germania_one.id),
 		{
 			kind: "bool",
 			id: "rhombic_vs_dodecahedron",
@@ -35,7 +36,9 @@ export const goFirstPreset: Preset = {
 	async factory(opts) {
 		const [legendOption, rhombicOption] = opts;
 		const kind = (rhombicOption as PresetOptionBoolean).value ? "rhombic_d12" : "dodecahedron_d12"
-		const toFP = (i: number) => ({ legend: i });
+		// map each face value to its slot in the combined legend set (values > 20
+		// no longer equal their slot index).
+		const toFP = (i: number) => ({ legend: legendForValue(i) });
 		return {
 			legends: await legendPickerFactory(legendOption),
 			dice: [

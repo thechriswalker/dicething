@@ -5,40 +5,36 @@
 // vertex used to be. We use the 4 small triangles as the numbered faces (so the
 // die "reads" off the truncated ends by default) and leave the 4 hexagons as
 // blank faces the user can still customise.
+//
+// This solid is NOT isohedral (two face shapes), so it does not use the generic
+// isohedral builder. Instead it builds one triangle shape and one hexagon shape
+// and places copies of each via the (chiral) tetrahedral rotation group - so all
+// four triangles (and all four hexagons) share one `Shape`, keeping the exploded
+// view and engraved legends consistently oriented.
 
-import type { DiceParameter, DieFaceModel, DieModel } from '$lib/interfaces/dice';
-import { Transform, previewTilt } from '$lib/utils/3d';
+import type { DieFaceModel, DieModel } from '$lib/interfaces/dice';
+import {
+	compareKeys,
+	orbitFace,
+	orderCoplanar,
+	rotationGroupOf,
+	type PlacedFaces
+} from '$lib/utils/convex_polyhedra';
+import { previewTilt } from '$lib/utils/3d';
 import { stackedExplode } from '$lib/utils/explode';
 import { Legend, pickForNumber } from '$lib/utils/legends';
-import { orientCoplanarVertices } from '$lib/utils/shapes';
-import { Shape, Vector3 } from 'three';
+import { Vector3 } from 'three';
 
 const defaultEdge = 26;
 const defaultTruncation = 0.33; // 1/3 is the Archimedean truncated tetrahedron.
 
-const truncatedTetrahedronParameters: Array<DiceParameter> = [
-	{
-		id: 'trunc_tetra_size',
-		// edge length of the underlying tetrahedron (mm).
-		defaultValue: defaultEdge,
-		min: 10,
-		max: 60,
-		step: 0.5
-	},
-	{
-		id: 'trunc_tetra_truncation',
-		// how far along each edge to cut (0 = no cut, 0.5 = cuts meet). bigger
-		// gives larger number triangles and smaller hexagons.
-		defaultValue: defaultTruncation,
-		min: 0.25,
-		max: 0.40,
-		step: 0.01
-	}
-];
+// round to 3 dp so near-equal face centroids sort deterministically.
+const r3 = (x: number) => Math.round(x * 1e3) / 1e3;
 
 // regular tetrahedron vertices for edge length `edge`, centered on the origin.
+// these four corners of a cube (with an even number of minus signs) form a
+// regular tetrahedron whose rotation symmetry is exactly `tetrahedralRotations`.
 function tetrahedronVertices(edge: number): Array<Vector3> {
-	// these four corners of a cube form a regular tetrahedron with edge 2*sqrt(2).
 	const base = [
 		new Vector3(1, 1, 1),
 		new Vector3(1, -1, -1),
@@ -54,74 +50,65 @@ function lerp(a: Vector3, b: Vector3, f: number): Vector3 {
 	return a.clone().lerp(b, f);
 }
 
-// build a face (shape + placement transform) from its 3D vertices, ensuring the
-// shape's engraving front (+z) ends up pointing outward (away from the origin).
-function faceFromVertices(verts: Array<Vector3>): { shape: Shape; transform: Transform } {
-	const centroid = verts
-		.reduce((acc, v) => acc.add(v), new Vector3())
-		.multiplyScalar(1 / verts.length);
-	let info = orientCoplanarVertices(verts);
-	if (info.normal.dot(centroid) < 0) {
-		info = orientCoplanarVertices([...verts].reverse());
-	}
-	return {
-		shape: info.shape,
-		transform: new Transform().rotate(info.quat).translate(info.offset)
-	};
+// turn a group orbit of one face into DieFaceModels (one shared shape).
+function placedToFaces(placed: PlacedFaces, isNumberFace: boolean): Array<DieFaceModel> {
+	return placed.transforms.map((transform) => ({
+		isNumberFace,
+		shape: placed.shape,
+		defaultLegend: Legend.BLANK,
+		transform
+	}));
 }
 
 export const TruncatedTetrahedronD4: DieModel = {
 	id: 'truncated_tetrahedron_d4',
 	name: 'D4 Truncated',
-	parameters: truncatedTetrahedronParameters,
+	parameters: [
+		{ id: 'trunc_tetra_size', defaultValue: defaultEdge, min: 10, max: 60, step: 0.5 },
+		{ id: 'trunc_tetra_truncation', defaultValue: defaultTruncation, min: 0.25, max: 0.4, step: 0.01 }
+	],
 	build(params) {
 		const edge = params.trunc_tetra_size ?? defaultEdge;
 		const f = params.trunc_tetra_truncation ?? defaultTruncation;
 		const v = tetrahedronVertices(edge);
 
-		// the 4 numbered triangles, one at each truncated vertex. its corners are
-		// the cut points a fraction f along the three edges leaving the vertex.
-		const triangles: Array<DieFaceModel> = v.map((vertex, i) => {
-			const neighbours = v.filter((_, j) => j !== i);
-			const corners = neighbours.map((n) => lerp(vertex, n, f));
-			const { shape, transform } = faceFromVertices(corners);
-			return {
-				isNumberFace: true,
-				shape,
-				defaultLegend: pickForNumber(i, 4),
-				transform
-			};
-		});
+		const v0 = v[0];
+		const [a, b, c] = v.slice(1);
 
-		// the 4 hexagonal faces: each original tetra face (the three vertices that
-		// are NOT one of the four) with every corner cut back along its two edges.
-		const hexagons: Array<DieFaceModel> = v.map((_, k) => {
-			const [a, b, c] = v.filter((_, j) => j !== k);
-			const corners = [
-				lerp(a, b, f),
-				lerp(b, a, f),
-				lerp(b, c, f),
-				lerp(c, b, f),
-				lerp(c, a, f),
-				lerp(a, c, f)
-			];
-			const { shape, transform } = faceFromVertices(corners);
-			return {
-				isNumberFace: false,
-				shape,
-				defaultLegend: Legend.BLANK,
-				transform
-			};
-		});
+		// the numbered triangle at the truncated v0 vertex: cut points a fraction f
+		// along the three edges leaving v0.
+		const triSeed = orderCoplanar([lerp(v0, a, f), lerp(v0, b, f), lerp(v0, c, f)]);
+		// the blank hexagon opposite v0: the original face (a, b, c) with every
+		// corner cut back along its two edges.
+		const hexSeed = orderCoplanar([
+			lerp(a, b, f),
+			lerp(b, a, f),
+			lerp(b, c, f),
+			lerp(c, b, f),
+			lerp(c, a, f),
+			lerp(a, c, f)
+		]);
+
+		// the truncated tetrahedron shares the tetrahedron's rotational symmetry (T).
+		const rotations = rotationGroupOf(v);
+		const triangles = placedToFaces(orbitFace(triSeed, rotations), true);
+		const hexagons = placedToFaces(orbitFace(hexSeed, rotations), false);
+
+		const key = (face: DieFaceModel) => {
+			const p = face.transform.translation;
+			return [-r3(p.y), -r3(p.x), -r3(p.z)];
+		};
+		triangles.sort((x, y) => compareKeys(key(x), key(y)));
+		triangles.forEach((face, i) => (face.defaultLegend = pickForNumber(i, triangles.length)));
 
 		const faces = [...triangles, ...hexagons];
 
 		// face-to-face: a numbered triangle and the hexagon opposite it are
-		// parallel; the distance between those planes is the natural "size".
-		const triCentroid = triangles[0].transform.translation;
-		const hexCentroid = hexagons[0].transform.translation;
-		const axis = v[0].clone().normalize();
-		const faceToFaceDistance = Math.abs(triCentroid.dot(axis)) + Math.abs(hexCentroid.dot(axis));
+		// parallel; sum their plane distances along the v0 axis.
+		const axis = v0.clone().normalize();
+		const avg = (pts: Array<Vector3>) =>
+			pts.reduce((acc, p) => acc.add(p.clone()), new Vector3()).multiplyScalar(1 / pts.length);
+		const faceToFaceDistance = Math.abs(avg(triSeed).dot(axis)) + Math.abs(avg(hexSeed).dot(axis));
 
 		stackedExplode(faces, { numberColumns: 4 });
 

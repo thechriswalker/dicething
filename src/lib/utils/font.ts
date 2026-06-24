@@ -18,14 +18,22 @@ import { centerShapes, scaleShapes } from './shapes';
 import { unionBoundaryLoops } from './tessellate';
 import { shapeFromJSON, shapeToJSON } from './to_json';
 
-// these are in the same order as the "Legend" enum values
-export const defaultStrings =
+// The combined character set for a legend set, in slot order.
+//
+// The first 31 tokens line up with the "Legend" enum values for slots 0-30
+// (0..20, marked 6/9, the tens 30-90, then 00). The maker logo is spliced in
+// at slot 31 (MAKER_LOGO) by the generators, and the remaining numbers (every
+// integer 21-99 that isn't already present as a "tens" glyph) follow from slot
+// 32 onwards. See $lib/utils/legends for the value -> slot mapping.
+const baseStrings =
 	'0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 6. 9. 30 40 50 60 70 80 90 00';
 
-// the "100" preset: 0-99 with the 6/9 marked with a trailing dot.
-export const zeroToNinetyNine: string = Array.from({ length: 100 })
-	.map((_, i) => (i === 6 ? '6.' : i === 9 ? '9.' : '' + i))
+// 21-99 excluding the multiples of ten already present in baseStrings.
+const remainingNumbers: string = Array.from({ length: 99 - 21 + 1 }, (_, i) => i + 21)
+	.filter((n) => n % 10 !== 0)
 	.join(' ');
+
+export const defaultStrings = baseStrings + ' ' + remainingNumbers;
 
 export const defaultRenderOptions: Record<string, RenderOptions> = {
 	'6.': { letterSpacing: -0.1 },
@@ -88,6 +96,17 @@ export function numberStringToWords(s: string): string {
 	const o = ones[n % 10];
 	const t = tens[Math.floor(n / 10)];
 	return [t, o].join(' ').trim();
+}
+
+// Name for a legend slot derived from its source text. Numeric tokens get their
+// English words (numberStringToWords); anything else (custom character sets)
+// falls back to the raw text rather than throwing.
+export function legendNameForText(s: string): string {
+	try {
+		return numberStringToWords(s);
+	} catch {
+		return s;
+	}
 }
 
 

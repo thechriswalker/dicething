@@ -12,8 +12,9 @@
 		saveLegendSet
 	} from '$lib/interfaces/storage.svelte';
 	import { m } from '$lib/paraglide/messages';
-	import { legendSetFromFont, legendSetPreview, type LegendPreset } from '$lib/utils/create_legends';
+	import { legendSetFromFont, legendSetPreview } from '$lib/utils/create_legends';
 	import { download, exportLegendSetJson } from '$lib/utils/export';
+	import { defaultStrings } from '$lib/utils/font';
 	import { type LegendSet } from '$lib/utils/legends';
 	import {
 		CopyIcon,
@@ -36,7 +37,10 @@
 
 	// create-from-font modal state
 	let createName = $state('');
-	let createPreset = $state<LegendPreset>('std');
+	// 'default' uses the standard combined character set; 'custom' lets the user
+	// supply their own space-separated token list (order defines the slot layout).
+	let createCharsMode = $state<'default' | 'custom'>('default');
+	let createChars = $state(defaultStrings);
 	let createFile = $state<File | undefined>(undefined);
 
 	async function cloneBuiltin(b: Builtin) {
@@ -101,7 +105,11 @@
 		try {
 			const buffer = await createFile.arrayBuffer();
 			const name = createName.trim() || createFile.name.replace(/\.[^.]+$/, '');
-			const set = legendSetFromFont(buffer, name, createPreset);
+			const chars =
+				createCharsMode === 'custom' && createChars.trim()
+					? createChars.trim().replace(/\s+/g, ' ')
+					: defaultStrings;
+			const set = legendSetFromFont(buffer, name, chars);
 			await putFont(set.id, buffer);
 			saveLegendSet(set);
 			close();
@@ -175,14 +183,21 @@
 						<fieldset class="flex flex-col gap-1">
 							<legend class="label-text mb-1">{m.legends_create_preset()}</legend>
 							<label class="flex flex-row items-center gap-2">
-								<input type="radio" class="radio" value="std" bind:group={createPreset} />
-								<span>{m.legends_create_preset_std()}</span>
+								<input type="radio" class="radio" value="default" bind:group={createCharsMode} />
+								<span>{m.legends_create_chars_default()}</span>
 							</label>
 							<label class="flex flex-row items-center gap-2">
-								<input type="radio" class="radio" value="100" bind:group={createPreset} />
-								<span>{m.legends_create_preset_100()}</span>
+								<input type="radio" class="radio" value="custom" bind:group={createCharsMode} />
+								<span>{m.legends_create_chars_custom()}</span>
 							</label>
 						</fieldset>
+						{#if createCharsMode === 'custom'}
+							<label class="label">
+								<span class="label-text">{m.legends_create_chars_label()}</span>
+								<textarea class="textarea" rows="4" bind:value={createChars}></textarea>
+								<span class="text-surface-600-400 text-xs">{m.legends_create_chars_help()}</span>
+							</label>
+						{/if}
 						<div class="flex flex-row justify-end gap-2">
 							<button
 								class="btn preset-filled-primary-500"

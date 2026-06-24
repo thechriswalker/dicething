@@ -10,7 +10,7 @@ import { legendPickerFactory, legendPickerOption } from './_util';
 export const myPreset: Preset = {
 	id: "mine",
 	options() {
-		return [legendPickerOption("std", builtins.alice_in_wonderland.id)]
+		return [legendPickerOption(builtins.alice_in_wonderland.id)]
 	},
 	async factory(opts) {
 		return {

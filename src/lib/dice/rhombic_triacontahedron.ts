@@ -3,7 +3,7 @@
 // rhombi.
 
 import type { DieModel } from '$lib/interfaces/dice';
-import { PHI, convexPolyhedronDie, dualVertices, evenPerms, signs } from '$lib/utils/convex_polyhedra';
+import { PHI, convexPolyhedronDie, evenPerms, signs } from '$lib/utils/convex_polyhedra';
 import { pickForNumberLarge } from '$lib/utils/legends';
 import { Vector3 } from 'three';
 
@@ -24,7 +24,7 @@ function icosidodecahedronVertices(): Array<Vector3> {
 export const RhombicTriacontahedronD30: DieModel = convexPolyhedronDie({
 	id: 'rhombic_triacontahedron_d30',
 	name: 'D30 Rhombic',
-	vertices: () => dualVertices(icosidodecahedronVertices()),
+	source: icosidodecahedronVertices,
 	defaultSize: 24,
 	minSize: 18,
 	numbering: (i) => pickForNumberLarge(i),

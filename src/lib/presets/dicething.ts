@@ -6,7 +6,7 @@ import { legendPickerFactory, legendPickerOption } from './_util';
 export const dicethingPreset: Preset = {
 	id: "dicething",
 	options() {
-		return [legendPickerOption("std", defaultFont.id)]
+		return [legendPickerOption(defaultFont.id)]
 	},
 	async factory(opts) {
 		return {

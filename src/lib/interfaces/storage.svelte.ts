@@ -8,7 +8,7 @@ import {
 	type SerialisedLegendSet
 } from '$lib/utils/legends';
 import builtins, { blanks, isBuiltin, loadBuiltinById } from '$lib/fonts';
-import { defaultSourcesForTag } from '$lib/utils/create_legends';
+import { defaultSources } from '$lib/utils/create_legends';
 import { browser } from '$app/environment';
 import { deferred } from '$lib/utils/deferred';
 import { deleteFont, getFont, putFont } from './fontstore';
@@ -237,6 +237,12 @@ export async function loadLegends(id: string): Promise<LegendSet> {
 	if (isBuiltin(id)) {
 		return loadBuiltinById(id);
 	}
+	// builtin metadata keys are un-prefixed (e.g. "germania_one"), but the
+	// canonical builtin legend-set id is prefixed ("builtin:germania_one"). The
+	// preset legend picker stores the metadata key, so accept that form too.
+	if (id in builtins) {
+		return loadBuiltinById('builtin:' + id);
+	}
 	// try and load from localstorage (fresh instance reflecting the latest save)
 	const legends = getListOfCustomLegends();
 	const legend = legends.find((x) => x.id === id);
@@ -275,20 +281,15 @@ export async function cloneLegendSet(src: LegendSet): Promise<MutableLegendSet> 
 	const id = crypto.randomUUID();
 	const serial = src.toJSON();
 	let font = serial.font;
-	let tags = serial.tags;
 	let sources = serial.sources;
 	if (isBuiltin(src.id)) {
 		const builtinId = src.id.slice('builtin:'.length);
 		font = { kind: 'builtin', builtinId };
-		// Builtins are bundled without their tags or per-slot sources. Recover the
-		// tags from the builtin metadata and rebuild the sources from them, so the
-		// clone's glyphs keep their "characters" (editable / regenerable).
-		const meta = builtins[builtinId as keyof typeof builtins];
-		if (meta?.tags?.length) {
-			tags = meta.tags;
-		}
+		// Builtins are bundled without their per-slot sources. Rebuild them from
+		// the standard combined set so the clone's glyphs keep their "characters"
+		// (editable / regenerable).
 		if (!sources || sources.length === 0) {
-			sources = defaultSourcesForTag(meta?.tags?.[0] ?? 'std');
+			sources = defaultSources();
 		}
 	} else if (font?.kind === 'uploaded') {
 		try {
@@ -300,7 +301,7 @@ export async function cloneLegendSet(src: LegendSet): Promise<MutableLegendSet> 
 			console.warn('failed to copy font blob for clone', e);
 		}
 	}
-	const clone = loadMutableLegends({ ...serial, id, font, tags, sources, updated: Date.now() });
+	const clone = loadMutableLegends({ ...serial, id, font, sources, updated: Date.now() });
 	saveLegendSet(clone);
 	return clone;
 }

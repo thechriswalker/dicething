@@ -932,24 +932,10 @@
 				action: fontAction(builtins.blanks)
 			},
 			{
-				title: m.menu_standard(),
+				title: m.menu_builtin(),
 				type: 'submenu',
 				children: Object.values(builtins)
-					.filter((x) => x.tags.includes('std'))
-					.map((f) => {
-						return {
-							title: f.name,
-							type: 'legend',
-							img: f.preview,
-							action: fontAction(f)
-						};
-					})
-			},
-			{
-				title: m.menu_numbers_0_99(),
-				type: 'submenu',
-				children: Object.values(builtins)
-					.filter((x) => x.tags.includes('0-99'))
+					.filter((x) => x.id !== 'blanks')
 					.map((f) => {
 						return {
 							title: f.name,

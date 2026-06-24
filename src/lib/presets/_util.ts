@@ -3,11 +3,10 @@ import type { PresetOption, PresetOptionLegend, PresetOptionSelection } from "$l
 import { loadLegends } from "$lib/interfaces/storage.svelte";
 import type { LegendSet } from "$lib/utils/legends";
 
-export function legendPickerOption(tag: string, defaultValue: keyof typeof builtins): PresetOptionLegend {
+export function legendPickerOption(defaultValue: keyof typeof builtins): PresetOptionLegend {
     return {
         id: "legend",
         kind: "legend",
-        filter: tag,
         value: defaultValue,
     }
 }

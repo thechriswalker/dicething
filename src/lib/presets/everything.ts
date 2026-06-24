@@ -6,7 +6,7 @@ import { legendPickerFactory, legendPickerOption } from './_util';
 export const everythingPreset: Preset = {
     id: "everything",
     options() {
-        return [legendPickerOption("std", defaultFont.id)];
+        return [legendPickerOption(defaultFont.id)];
     },
     async factory(opts: Array<PresetOption>) {
         return {

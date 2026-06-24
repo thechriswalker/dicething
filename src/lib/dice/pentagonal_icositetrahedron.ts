@@ -3,12 +3,7 @@
 // comes in two mirror-image (left/right handed) forms.
 
 import type { DieModel } from '$lib/interfaces/dice';
-import {
-	TRIBONACCI,
-	convexPolyhedronDie,
-	dualVertices,
-	snubVertices
-} from '$lib/utils/convex_polyhedra';
+import { TRIBONACCI, convexPolyhedronDie, snubVertices } from '$lib/utils/convex_polyhedra';
 import { pickForNumberLarge } from '$lib/utils/legends';
 import { Vector3 } from 'three';
 
@@ -18,18 +13,16 @@ function snubCubeVertices(): Array<Vector3> {
 	return snubVertices([1, 1 / t, t]);
 }
 
-// left-handed form; the right-handed mirror image is produced by the chiral
-// `handedness` parameter on the die.
-function pentagonalIcositetrahedronVertices(): Array<Vector3> {
-	return dualVertices(snubCubeVertices());
-}
-
+// the die is the polar dual of this snub cube; its 24 pentagonal faces, single
+// shape and chiral octahedral symmetry are derived from the source. the
+// left/right mirror is produced by the chiral `handedness` parameter.
 export const PentagonalIcositetrahedronD24: DieModel = convexPolyhedronDie({
 	id: 'pentagonal_icositetrahedron_d24',
 	name: 'D24 Pentagonal',
-	vertices: pentagonalIcositetrahedronVertices,
+	source: snubCubeVertices,
 	defaultSize: 22,
 	minSize: 16,
+	seedRotation: 118.5,
 	numbering: (i) => pickForNumberLarge(i),
 	individualLegendScaling: true,
 	chiral: true

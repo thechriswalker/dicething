@@ -3,12 +3,7 @@
 // comes in two mirror-image (left/right handed) forms.
 
 import type { DieModel } from '$lib/interfaces/dice';
-import {
-	PHI,
-	convexPolyhedronDie,
-	dualVertices,
-	evenPerms
-} from '$lib/utils/convex_polyhedra';
+import { PHI, convexPolyhedronDie, evenPerms } from '$lib/utils/convex_polyhedra';
 import { pickForNumberLarge } from '$lib/utils/legends';
 import { Vector3 } from 'three';
 
@@ -55,16 +50,14 @@ function snubDodecahedronVertices(): Array<Vector3> {
 	];
 }
 
-// left-handed form; the right-handed mirror image is produced by the chiral
-// `handedness` parameter on the die.
-function pentagonalHexecontahedronVertices(): Array<Vector3> {
-	return dualVertices(snubDodecahedronVertices());
-}
-
+// the die is the polar dual of this snub dodecahedron; its 60 pentagonal faces,
+// single shape and chiral icosahedral symmetry are derived from the source. the
+// left/right mirror is produced by the chiral `handedness` parameter.
 export const PentagonalHexecontahedronD60: DieModel = convexPolyhedronDie({
 	id: 'pentagonal_hexecontahedron_d60',
 	name: 'D60 Pentagonal',
-	vertices: pentagonalHexecontahedronVertices,
+	source: snubDodecahedronVertices,
+	seedRotation: -120.5,
 	defaultSize: 30,
 	minSize: 22,
 	maxSize: 80,

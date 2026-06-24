@@ -10,7 +10,7 @@
 // the trigonal trapezohedron - our die.
 
 import type { DieModel } from '$lib/interfaces/dice';
-import { convexPolyhedronDie, dualVertices } from '$lib/utils/convex_polyhedra';
+import { convexPolyhedronDie } from '$lib/utils/convex_polyhedra';
 import { Vector3 } from 'three';
 
 const zAxis = new Vector3(0, 0, 1);
@@ -32,16 +32,13 @@ function antiprismVertices(): Array<Vector3> {
 	return out;
 }
 
-// left-handed form; the right-handed mirror image is produced by the chiral
-// `handedness` parameter on the die.
-function skewVertices(): Array<Vector3> {
-	return dualVertices(antiprismVertices());
-}
-
+// the die is the polar dual of this antiprism; its faces, single shape and
+// trapezohedral (D3) symmetry are all derived from the source. the left/right
+// mirror is produced by the chiral `handedness` parameter.
 export const SkewD6: DieModel = convexPolyhedronDie({
 	id: 'skew_d6',
 	name: 'D6 Skew',
-	vertices: skewVertices,
+	source: antiprismVertices,
 	defaultSize: 16,
 	minSize: 8,
 	chiral: true

@@ -3,7 +3,7 @@
 // are congruent (wide, short) isosceles triangles.
 
 import type { DieModel } from '$lib/interfaces/dice';
-import { allPerms, convexPolyhedronDie, dualVertices, signs } from '$lib/utils/convex_polyhedra';
+import { allPerms, convexPolyhedronDie, signs } from '$lib/utils/convex_polyhedra';
 import { pickForNumberLarge } from '$lib/utils/legends';
 import { Vector3 } from 'three';
 
@@ -15,9 +15,10 @@ function truncatedOctahedronVertices(): Array<Vector3> {
 export const TetrakisHexahedronD24: DieModel = convexPolyhedronDie({
 	id: 'tetrakis_hexahedron_d24',
 	name: 'D24 Tetrakis',
-	vertices: () => dualVertices(truncatedOctahedronVertices()),
+	source: truncatedOctahedronVertices,
 	defaultSize: 22,
 	minSize: 16,
+	seedRotation: 180,
 	numbering: (i) => pickForNumberLarge(i),
 	individualLegendScaling: true
 });

@@ -3,7 +3,7 @@
 // kites.
 
 import type { DieModel } from '$lib/interfaces/dice';
-import { PHI, convexPolyhedronDie, dualVertices, evenPerms, signs } from '$lib/utils/convex_polyhedra';
+import { PHI, convexPolyhedronDie, evenPerms, signs } from '$lib/utils/convex_polyhedra';
 import { pickForNumberLarge } from '$lib/utils/legends';
 import { Vector3 } from 'three';
 
@@ -29,8 +29,9 @@ function rhombicosidodecahedronVertices(): Array<Vector3> {
 export const DeltoidalHexecontahedronD60: DieModel = convexPolyhedronDie({
 	id: 'deltoidal_hexecontahedron_d60',
 	name: 'D60 Deltoidal',
-	vertices: () => dualVertices(rhombicosidodecahedronVertices()),
+	source: rhombicosidodecahedronVertices,
 	defaultSize: 30,
+	seedRotation: 122.5,
 	minSize: 22,
 	maxSize: 80,
 	numbering: (i) => pickForNumberLarge(i),
