@@ -123,6 +123,7 @@
 				"id=coin_bevel_amount": "How much of the edge is bevelled. 0% is a flat edge, 100% comes to a point",
 				"id=trunc_tetra_size": "Edge length of the underlying tetrahedron",
 				"id=trunc_tetra_truncation": "How far each corner is cut back. Higher gives larger number triangles",
+				"id=skew": "How far the faces are skewed. The faces stay congruent, so the die remains fair; higher is more distorted",
 				"id=engraving_depth": "Depth of the legend engraving"
 			}
 		}
@@ -250,6 +251,7 @@
 				"id=coin_bevel_amount": "Bevel Amount",
 				"id=trunc_tetra_size": "Edge Length",
 				"id=trunc_tetra_truncation": "Truncation",
+				"id=skew": "Skew",
 				"id=engraving_depth": "Engraving Depth"
 			}
 		}

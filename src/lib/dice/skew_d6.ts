@@ -15,17 +15,25 @@ import { Vector3 } from 'three';
 
 const zAxis = new Vector3(0, 0, 1);
 
-// the seed point. its off-axis y component is what skews the antiprism (and
-// hence the die); with y = 0 it would collapse to a non-chiral prism. tuned by
-// eye for a chunky, clearly-skewed-but-readable die.
-const SEED = new Vector3(1, 0.45, 0.62);
+// the seed point is (1, skew, height). Its off-axis "skew" (y) component is the
+// twist between the antiprism's two triangles, and so the amount of skew in the
+// die: smaller is more bipyramid-like, larger shears the faces further over.
+// (At y = 0 the two triangles line up into a non-chiral prism.) The x and height
+// are fixed; the default is tuned by eye for a chunky, clearly-skewed-but-
+// readable die.
+const SEED_X = 1;
+const SEED_HEIGHT = 0.62;
+const SKEW_PARAM = 'skew';
+const DEFAULT_SKEW = 0.45;
 
 // the 6-vertex D3 orbit of the seed: the three C3 rotations about z, each also
 // taken through the 2-fold rotation about x ((x,y,z) -> (x,-y,-z)).
-function antiprismVertices(): Array<Vector3> {
+function antiprismVertices(params: Record<string, number>): Array<Vector3> {
+	const skew = params[SKEW_PARAM] ?? DEFAULT_SKEW;
+	const seed = new Vector3(SEED_X, skew, SEED_HEIGHT);
 	const out: Array<Vector3> = [];
 	for (let k = 0; k < 3; k++) {
-		const u = SEED.clone().applyAxisAngle(zAxis, (k * 2 * Math.PI) / 3);
+		const u = seed.clone().applyAxisAngle(zAxis, (k * 2 * Math.PI) / 3);
 		out.push(u.clone());
 		out.push(new Vector3(u.x, -u.y, -u.z));
 	}
@@ -41,5 +49,7 @@ export const SkewD6: DieModel = convexPolyhedronDie({
 	source: antiprismVertices,
 	defaultSize: 16,
 	minSize: 8,
-	chiral: true
+	chiral: true,
+	// how far the faces shear over (the antiprism twist).
+	extraParameters: [{ id: SKEW_PARAM, defaultValue: DEFAULT_SKEW, min: 0.2, max: 0.9, step: 0.01 }]
 });

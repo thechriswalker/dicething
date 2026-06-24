@@ -13,10 +13,13 @@ import type { DieModel } from '$lib/interfaces/dice';
 import { PHI, convexPolyhedronDie } from '$lib/utils/convex_polyhedra';
 import { Vector3 } from 'three';
 
-// seed near a regular icosahedron vertex (0, 1, phi); the off-axis x component
-// breaks the mirror symmetry to give a genuine (chiral) tetartoid rather than a
-// regular dodecahedron. tuned by eye for readable, clearly-skewed faces.
-const SEED = new Vector3(0.35, 1, PHI);
+// the seed sits near a regular icosahedron vertex (skew, 1, phi). The off-axis
+// "skew" component is what breaks the mirror symmetry: at skew = 0 the seed is an
+// exact icosahedron vertex and the die collapses to a regular dodecahedron;
+// raising it shears the pentagons into a genuine (chiral) tetartoid. The default
+// is tuned by eye for readable, clearly-skewed faces.
+const SKEW_PARAM = 'skew';
+const DEFAULT_SKEW = 0.35;
 
 // the 12 rotations of the chiral tetrahedral group T: the 3 cyclic coordinate
 // permutations combined with the 4 sign patterns having an even number of
@@ -28,10 +31,12 @@ const SIGN_PATTERNS: Array<[number, number, number]> = [
 	[-1, -1, 1]
 ];
 
-function tetrahedralOrbit(): Array<Vector3> {
+function tetrahedralOrbit(params: Record<string, number>): Array<Vector3> {
+	const skew = params[SKEW_PARAM] ?? DEFAULT_SKEW;
+	const seed = new Vector3(skew, 1, PHI);
 	const out: Array<Vector3> = [];
 	for (const [sx, sy, sz] of SIGN_PATTERNS) {
-		const q = new Vector3(SEED.x * sx, SEED.y * sy, SEED.z * sz);
+		const q = new Vector3(seed.x * sx, seed.y * sy, seed.z * sz);
 		out.push(new Vector3(q.x, q.y, q.z));
 		out.push(new Vector3(q.z, q.x, q.y));
 		out.push(new Vector3(q.y, q.z, q.x));
@@ -49,5 +54,7 @@ export const TetartoidD12: DieModel = convexPolyhedronDie({
 	defaultSize: 18,
 	minSize: 10,
 	individualLegendScaling: true,
-	chiral: true
+	chiral: true,
+	// how far the faces shear away from a regular dodecahedron.
+	extraParameters: [{ id: SKEW_PARAM, defaultValue: DEFAULT_SKEW, min: 0.1, max: 0.7, step: 0.01 }]
 });
