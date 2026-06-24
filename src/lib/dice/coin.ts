@@ -219,17 +219,17 @@ export const CoinD2: DieModel = {
 		const faces: Array<DieFaceModel> = [
 			{
 				isNumberFace: true,
-				shape: backFaceShape,
-				fitShape: backFit,
-				defaultLegend: Legend.BLANK,
-				transform: new Transform().translateBy(0, 0, ht).rotateByAxisAngle(yAxis, Math.PI)
-			},
-			{
-				isNumberFace: true,
 				shape: faceShape,
 				fitShape: frontFit,
 				defaultLegend: Legend.MAKER_LOGO,
 				transform: new Transform().translateBy(0, 0, ht)
+			},
+			{
+				isNumberFace: false,
+				shape: backFaceShape,
+				fitShape: backFit,
+				defaultLegend: Legend.BLANK,
+				transform: new Transform().translateBy(0, 0, ht).rotateByAxisAngle(yAxis, Math.PI)
 			}
 		];
 

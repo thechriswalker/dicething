@@ -213,3 +213,141 @@ export function removeDuplicateTriangles(g: BufferGeometry): BufferGeometry {
 	buf.computeVertexNormals();
 	return buf;
 }
+
+// A vertex with its quantised key, used by the T-junction repair below.
+type KeyedVertex = { x: number; y: number; z: number; key: string };
+
+// Remove zero-area ("degenerate") triangles while keeping the mesh closed.
+//
+// The triangulator (libtess) occasionally emits a sliver: a zero-area triangle
+// whose middle vertex M lies exactly on the edge E1-E2 of a neighbouring real
+// triangle - a classic T-junction. The sliver is topologically load-bearing
+// (it's the only thing closing one of E1-E2's sides), so simply deleting it
+// would open a crack. Instead we heal the junction: split every real triangle
+// that has M sitting on one of its edges (turning T into two proper triangles),
+// then drop the slivers. The result is the same closed surface with no
+// degenerate triangles. Triangles with two coincident corners are truly
+// redundant and just dropped.
+export function repairDegenerateTriangles(
+	g: BufferGeometry,
+	tolerance = 1e-4,
+	areaEpsilon = 1e-6
+): BufferGeometry {
+	if (g.index) {
+		g = g.toNonIndexed();
+	}
+	const pos = g.getAttribute('position').array;
+	const invTol = 1 / tolerance;
+	const keyOf = (x: number, y: number, z: number) =>
+		`${Math.round(x * invTol)},${Math.round(y * invTol)},${Math.round(z * invTol)}`;
+	const vAt = (i: number): KeyedVertex => {
+		const x = pos[i],
+			y = pos[i + 1],
+			z = pos[i + 2];
+		return { x, y, z, key: keyOf(x, y, z) };
+	};
+	const dist = (a: KeyedVertex, b: KeyedVertex) =>
+		Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
+	// twice the triangle area (magnitude of the edge cross product).
+	const doubleArea = (a: KeyedVertex, b: KeyedVertex, c: KeyedVertex) => {
+		const ux = b.x - a.x,
+			uy = b.y - a.y,
+			uz = b.z - a.z;
+		const vx = c.x - a.x,
+			vy = c.y - a.y,
+			vz = c.z - a.z;
+		const cx = uy * vz - uz * vy;
+		const cy = uz * vx - ux * vz;
+		const cz = ux * vy - uy * vx;
+		return Math.hypot(cx, cy, cz);
+	};
+
+	const good: Array<[KeyedVertex, KeyedVertex, KeyedVertex]> = [];
+	const junctions = new Map<string, KeyedVertex>();
+
+	for (let i = 0; i < pos.length; i += 9) {
+		const a = vAt(i),
+			b = vAt(i + 3),
+			c = vAt(i + 6);
+		const distinct = a.key !== b.key && b.key !== c.key && a.key !== c.key;
+		if (!distinct || doubleArea(a, b, c) <= 2 * areaEpsilon) {
+			// a collinear sliver of three distinct points contributes a T-junction
+			// at its middle vertex; coincident-corner triangles are just dropped.
+			if (distinct) {
+				const ab = dist(a, b),
+					bc = dist(b, c),
+					ca = dist(c, a);
+				const mid = ab >= bc && ab >= ca ? c : bc >= ab && bc >= ca ? a : b;
+				if (!junctions.has(mid.key)) {
+					junctions.set(mid.key, mid);
+				}
+			}
+			continue;
+		}
+		good.push([a, b, c]);
+	}
+
+	const tPoints = [...junctions.values()];
+	const out: Array<number> = [];
+	const emit = (a: KeyedVertex, b: KeyedVertex, c: KeyedVertex) => {
+		out.push(a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z);
+	};
+
+	// true when m lies strictly between p and q (within tolerance of the segment).
+	const onSegment = (p: KeyedVertex, q: KeyedVertex, m: KeyedVertex): boolean => {
+		if (m.key === p.key || m.key === q.key) {
+			return false;
+		}
+		const pqx = q.x - p.x,
+			pqy = q.y - p.y,
+			pqz = q.z - p.z;
+		const pq2 = pqx * pqx + pqy * pqy + pqz * pqz;
+		if (pq2 <= 0) {
+			return false;
+		}
+		const t = ((m.x - p.x) * pqx + (m.y - p.y) * pqy + (m.z - p.z) * pqz) / pq2;
+		if (t <= 1e-4 || t >= 1 - 1e-4) {
+			return false;
+		}
+		const dx = m.x - (p.x + pqx * t);
+		const dy = m.y - (p.y + pqy * t);
+		const dz = m.z - (p.z + pqz * t);
+		return Math.hypot(dx, dy, dz) <= tolerance;
+	};
+
+	// split a triangle at any junction points lying on its edges, recursing into
+	// the two halves (so an edge carrying several junctions is fully resolved).
+	const split = (a: KeyedVertex, b: KeyedVertex, c: KeyedVertex, pts: Array<KeyedVertex>) => {
+		if (pts.length > 0) {
+			const edges: Array<[KeyedVertex, KeyedVertex, KeyedVertex]> = [
+				[a, b, c],
+				[b, c, a],
+				[c, a, b]
+			];
+			for (const [p, q, opp] of edges) {
+				const idx = pts.findIndex((m) => onSegment(p, q, m));
+				if (idx >= 0) {
+					const m = pts[idx];
+					const rest = pts.filter((_, k) => k !== idx);
+					split(p, m, opp, rest);
+					split(m, q, opp, rest);
+					return;
+				}
+			}
+		}
+		emit(a, b, c);
+	};
+
+	for (const [a, b, c] of good) {
+		if (tPoints.length === 0) {
+			emit(a, b, c);
+		} else {
+			split(a, b, c, tPoints);
+		}
+	}
+
+	const buf = new BufferGeometry();
+	buf.setAttribute('position', new BufferAttribute(new Float32Array(out), 3));
+	buf.computeVertexNormals();
+	return buf;
+}

@@ -17,7 +17,10 @@ import { uuid } from './uuid';
 
 export type ExportFormat = 'stl' | '3mf';
 
-export type NamedMesh = { name: string; mesh: Mesh };
+// `dieId` ties an exported mesh back to the die it came from (the main numbered
+// die and any of its build-option artifacts all share the die's id), so callers
+// like the mesh-health check can aggregate results per die.
+export type NamedMesh = { name: string; mesh: Mesh; dieId?: string };
 
 // per-option UI state: whether it's enabled and the current values for its controls.
 export type OptionState = { enabled: boolean; values: OptionValues };
@@ -55,7 +58,7 @@ export function buildExportMeshes(set: DiceSet, args: BuildExportMeshesArgs = {}
 				die.face_parameters,
 				die.string_parameters ?? {}
 			);
-			out.push({ name: baseName, mesh: mainMesh });
+			out.push({ name: baseName, mesh: mainMesh, dieId: die.id });
 		}
 
 		// extra artifacts. each option gets its own fully-built builder so that
@@ -81,7 +84,7 @@ export function buildExportMeshes(set: DiceSet, args: BuildExportMeshesArgs = {}
 				values: state.values
 			});
 			for (const artifact of artifacts) {
-				out.push({ name: `${baseName}_${artifact.suffix}`, mesh: artifact.mesh });
+				out.push({ name: `${baseName}_${artifact.suffix}`, mesh: artifact.mesh, dieId: die.id });
 			}
 		}
 	});

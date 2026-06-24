@@ -20,9 +20,13 @@
 	import { defaultValues, extraBuildOptions, isControlVisible } from '$lib/utils/build_options';
 	import Collapsible from '$lib/components/collapsible/Collapsible.svelte';
 	import Tooltip from '$lib/components/tooltip/Tooltip.svelte';
+	import dice from '$lib/dice';
+	import { computeEngravingErrors, type EngravingError } from '$lib/utils/builder';
+	import { checkMeshInWorker } from '$lib/utils/mesh_check_client';
+	import { mergeMeshReports, type MeshCheckReport } from '$lib/utils/mesh_check';
 	import { onMount } from 'svelte';
-	import { Group, Mesh } from 'three';
-	import { ArrowLeftIcon, DownloadIcon, SparklesIcon } from '@lucide/svelte';
+	import { BufferAttribute, BufferGeometry, DoubleSide, Group, Mesh, MeshBasicMaterial } from 'three';
+	import { AlertTriangle, ArrowLeftIcon, DownloadIcon, SparklesIcon } from '@lucide/svelte';
 	import { Button } from 'bits-ui';
 
 	const setId = page.params.setId ?? '';
@@ -31,6 +35,9 @@
 	let ctx = $state<SceneRenderer>();
 
 	let selectedIds = $state<Array<string>>([]);
+	// per-die engraving errors (faces whose legend won't engrave / would export
+	// broken), keyed by die id. used to default-exclude broken dice and warn.
+	let dieErrors = $state<Record<string, Array<EngravingError>>>({});
 	let includeDice = $state(true);
 	let format = $state<ExportFormat>('stl');
 	let fileLayout = $state<'single' | 'zip'>('single');
@@ -50,8 +57,164 @@
 			goto('/');
 			return;
 		}
-		selectedIds = setData.dice.map((d) => d.id);
+		// flag dice whose engraving is broken so we can warn and leave them
+		// unselected by default (the user can still opt in).
+		const errs: Record<string, Array<EngravingError>> = {};
+		for (const d of setData.dice) {
+			const model = dice[d.kind];
+			if (model) {
+				errs[d.id] = computeEngravingErrors(model, setData.legends, d);
+			}
+		}
+		dieErrors = errs;
+		selectedIds = setData.dice.filter((d) => (errs[d.id]?.length ?? 0) === 0).map((d) => d.id);
 	});
+
+	let anyBrokenDice = $derived(Object.values(dieErrors).some((e) => e.length > 0));
+
+	// per-die mesh-health report (manifold / watertight / degenerate), keyed by
+	// die id, produced off the main thread by the mesh-check worker after each
+	// preview rebuild. used to warn about dice that won't slice/print cleanly.
+	let meshReports = $state<Record<string, MeshCheckReport>>({});
+	let checkingMesh = $state(false);
+	// bumped on every preview rebuild so stale async check results are ignored.
+	let checkGeneration = 0;
+
+	let anyMeshProblems = $derived(Object.values(meshReports).some((r) => !r.isPrintable));
+
+	// whether to overlay the problem triangles (open/non-manifold/degenerate) in
+	// red on the preview. on by default so issues are obvious; toggleable.
+	let highlightProblems = $state(true);
+	// positions (9 per triangle, in laid-out preview coords) of every problem
+	// triangle from the latest check, kept so toggling can rebuild the overlay.
+	let problemPositions: Float32Array | undefined;
+	// the scene group holding the red problem-triangle overlay mesh.
+	let problemGroup: Group | undefined;
+	const _problemMaterial = new MeshBasicMaterial({ color: 0xff2222, side: DoubleSide });
+
+	// human-readable list of a die's mesh problems (empty when printable).
+	function meshIssues(report: MeshCheckReport | undefined): Array<string> {
+		if (!report) {
+			return [];
+		}
+		const issues: Array<string> = [];
+		if (report.boundaryEdgeCount > 0) {
+			issues.push(m.mesh_check_not_watertight({ count: report.boundaryEdgeCount }));
+		}
+		if (report.nonManifoldEdgeCount > 0) {
+			issues.push(m.mesh_check_non_manifold({ count: report.nonManifoldEdgeCount }));
+		}
+		if (report.degenerateTriangleCount > 0) {
+			issues.push(m.mesh_check_degenerate({ count: report.degenerateTriangleCount }));
+		}
+		if (report.duplicateTriangleCount > 0) {
+			issues.push(m.mesh_check_duplicate({ count: report.duplicateTriangleCount }));
+		}
+		return issues;
+	}
+
+	// Check every freshly-built export mesh for manifold/watertight/degenerate
+	// problems in the worker, aggregating per die. Results from superseded builds
+	// (older generation) are dropped so rapid option changes don't race.
+	async function runMeshChecks(named: Array<{ mesh: Mesh; dieId?: string }>) {
+		const generation = ++checkGeneration;
+		const byDie = new Map<string, Array<Mesh>>();
+		for (const { mesh, dieId } of named) {
+			if (!dieId) {
+				continue;
+			}
+			let list = byDie.get(dieId);
+			if (!list) {
+				list = [];
+				byDie.set(dieId, list);
+			}
+			list.push(mesh);
+		}
+		if (byDie.size === 0) {
+			meshReports = {};
+			return;
+		}
+		checkingMesh = true;
+		try {
+			const entries = await Promise.all(
+				[...byDie].map(async ([dieId, meshes]) => {
+					const reports = await Promise.all(
+						meshes.map((mesh) =>
+							// positions are read post-layout, so the returned problem
+							// triangles are already in the preview's coordinate space.
+							checkMeshInWorker(mesh.geometry.getAttribute('position').array, {
+								collectBad: true
+							})
+						)
+					);
+					return [dieId, mergeMeshReports(reports)] as const;
+				})
+			);
+			// a newer rebuild started while we were checking: discard these results.
+			if (generation !== checkGeneration) {
+				return;
+			}
+			meshReports = Object.fromEntries(entries);
+			problemPositions = concatBadPositions(entries.map(([, r]) => r.badPositions));
+			updateProblemHighlight();
+		} catch (err) {
+			console.warn('mesh check failed', err);
+		} finally {
+			if (generation === checkGeneration) {
+				checkingMesh = false;
+			}
+		}
+	}
+
+	// flatten every die's problem-triangle buffer into one (or undefined when
+	// there are none).
+	function concatBadPositions(
+		buffers: Array<Float32Array | undefined>
+	): Float32Array | undefined {
+		const present = buffers.filter((b): b is Float32Array => !!b && b.length > 0);
+		if (present.length === 0) {
+			return undefined;
+		}
+		const total = present.reduce((n, b) => n + b.length, 0);
+		const out = new Float32Array(total);
+		let off = 0;
+		for (const b of present) {
+			out.set(b, off);
+			off += b.length;
+		}
+		return out;
+	}
+
+	// (re)build the red overlay mesh marking problem triangles, respecting the
+	// highlight toggle. cheap to call repeatedly; disposes the previous overlay.
+	function updateProblemHighlight() {
+		if (problemGroup) {
+			problemGroup.traverse((o) => {
+				const mesh = o as Mesh;
+				if (mesh.isMesh) {
+					mesh.geometry?.dispose();
+				}
+			});
+			ctx?.scene.remove(problemGroup);
+			problemGroup = undefined;
+		}
+		if (!ctx || !highlightProblems || !problemPositions || problemPositions.length === 0) {
+			// the continuous render loop will redraw without the overlay.
+			return;
+		}
+		const geo = new BufferGeometry();
+		geo.setAttribute('position', new BufferAttribute(problemPositions.slice(), 3));
+		geo.computeVertexNormals();
+		const group = new Group();
+		group.add(new Mesh(geo, _problemMaterial));
+		ctx.scene.add(group);
+		problemGroup = group;
+	}
+
+	function toggleHighlight() {
+		highlightProblems = !highlightProblems;
+		updateProblemHighlight();
+	}
 
 	const gridHelper = createGridHelper(80);
 
@@ -135,6 +298,10 @@
 		if (previewGroup) {
 			ctx.scene.remove(previewGroup);
 		}
+		// drop any stale problem overlay; runMeshChecks will rebuild it for the new
+		// layout once the (async) check finishes.
+		problemPositions = undefined;
+		updateProblemHighlight();
 		const named = buildExportMeshes(setData, {
 			selectedIds,
 			includeDice,
@@ -150,6 +317,8 @@
 		ctx.scene.add(group);
 		previewGroup = group;
 		previewMeshes = meshes;
+		// kick off the (worker-side) mesh-health check for the dice we just built.
+		runMeshChecks(named);
 	}
 	const schedulePreview = debounce<void>(150, () => rebuildPreview());
 
@@ -237,6 +406,22 @@
 						{/snippet}
 					</Tooltip>
 				</li>
+				{#if anyMeshProblems}
+					<li>
+						<Tooltip content={m.export_toggle_problem_highlight()} side="right">
+							{#snippet children(props)}
+								<Button.Root
+									{...props}
+									class={'btn-icon ' +
+										(highlightProblems ? 'preset-filled-warning-500' : 'preset-tonal-warning')}
+									aria-label={m.export_toggle_problem_highlight()}
+									aria-pressed={highlightProblems}
+									onclick={toggleHighlight}><AlertTriangle /></Button.Root
+								>
+							{/snippet}
+						</Tooltip>
+					</li>
+				{/if}
 			</ul>
 		</Scene>
 
@@ -348,17 +533,65 @@
 					</div>
 					<div class="flex flex-col gap-1">
 						{#each setData?.dice ?? [] as die, idx}
-							<label class="flex items-center gap-2 text-sm">
-								<input
-									type="checkbox"
-									class="checkbox"
-									checked={selectedIds.includes(die.id)}
-									onchange={(e) => toggleDie(die.id, e.currentTarget.checked)}
-								/>
-								<span>{dieLabel(die.kind, idx)}</span>
-							</label>
+							{@const errs = dieErrors[die.id] ?? []}
+							{@const mIssues = meshIssues(meshReports[die.id])}
+							<div class="flex items-center gap-2 text-sm">
+								<label class="flex flex-1 items-center gap-2">
+									<input
+										type="checkbox"
+										class="checkbox"
+										checked={selectedIds.includes(die.id)}
+										onchange={(e) => toggleDie(die.id, e.currentTarget.checked)}
+									/>
+									<span class={errs.length > 0 ? 'text-warning-600-400' : ''}>
+										{dieLabel(die.kind, idx)}
+									</span>
+								</label>
+								{#if errs.length > 0}
+									<Tooltip side="left">
+										{#snippet content()}
+											<div class="flex flex-col gap-0.5">
+												{#each errs as err}
+													<span>{m.engraving_broken_for({ legend: err.legendName })}</span>
+												{/each}
+											</div>
+										{/snippet}
+										{#snippet children(props)}
+											<span {...props} class="text-error-500 cursor-help" aria-label={m.engraving_errors_title()}>
+												<AlertTriangle size={16} />
+											</span>
+										{/snippet}
+									</Tooltip>
+								{/if}
+								{#if mIssues.length > 0}
+									<Tooltip side="left">
+										{#snippet content()}
+											<div class="flex flex-col gap-0.5">
+												{#each mIssues as issue}
+													<span>{issue}</span>
+												{/each}
+											</div>
+										{/snippet}
+										{#snippet children(props)}
+											<span
+												{...props}
+												class="text-warning-600-400 cursor-help"
+												aria-label={m.mesh_check_title()}
+											>
+												<AlertTriangle size={16} />
+											</span>
+										{/snippet}
+									</Tooltip>
+								{/if}
+							</div>
 						{/each}
 					</div>
+					{#if anyBrokenDice}
+						<p class="text-warning-600-400 text-xs">{m.engraving_excluded_hint()}</p>
+					{/if}
+					{#if anyMeshProblems}
+						<p class="text-warning-600-400 text-xs">{m.mesh_check_hint()}</p>
+					{/if}
 				</div>
 			</Collapsible>
 

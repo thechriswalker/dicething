@@ -22,8 +22,19 @@ import {
 } from 'three';
 import { DefaultDivisions, engrave, Part } from './engraving';
 import { debugLegendName, Legend, type LegendSet } from './legends';
+
+// A single face whose legend cannot be engraved (i.e. would cause export to
+// produce a blank/broken face). `reason` distinguishes a symbol that is simply
+// too large to fit the face from a hard failure during engraving.
+export type EngravingError = {
+	faceIndex: number;
+	legend: Legend;
+	// human-readable legend name, resolved against the builder's legend set.
+	legendName: string;
+	reason: 'symbol-too-large' | 'build-failed';
+};
 import { mergeGeometries, mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { removeDuplicateTriangles } from './bad_edges';
+import { removeDuplicateTriangles, repairDegenerateTriangles } from './bad_edges';
 import { findBestLegendScalingFactor, getAreaOfShapeAtOrigin } from './shapes';
 import { uuid } from './uuid';
 import { Transform } from './3d';
@@ -45,6 +56,12 @@ export class Builder {
 	private faces: Array<DieFaceModel> = [];
 	private faceObjects: Array<Object3D> = [];
 	private lastFaceParams: Array<FaceParams> = [];
+
+	// per-face engraving error (or null when the face engraves cleanly). updated
+	// every time a face is (re)built, in both the preview build() and export()
+	// paths. exposed via getEngravingErrors() so the UI can warn about dice that
+	// would export broken.
+	private faceEngravingErrors: Array<EngravingError | null> = [];
 
 	// orientation/raise to apply when exporting for print. defaults to identity
 	// (a no-op) until each die model provides one. the future "drop to build
@@ -104,6 +121,13 @@ export class Builder {
 
 	public getFaces(): ReadonlyArray<DieFaceModel> {
 		return this.faces;
+	}
+
+	// Faces (with their legends) that could not be engraved as of the last
+	// build()/export(). An empty array means the die engraves cleanly. Hidden
+	// faces are always blank and never contribute errors.
+	public getEngravingErrors(): Array<EngravingError> {
+		return this.faceEngravingErrors.filter((e): e is EngravingError => e !== null);
 	}
 
 	// the model's optional preview-camera tweak, available after build(). used by
@@ -346,6 +370,7 @@ export class Builder {
 		}
 		this.faceObjects.length = keep;
 		this.lastFaceParams.length = keep;
+		this.faceEngravingErrors.length = keep;
 	}
 
 	// detach and dispose the individual animated group for face `i` (if any). used
@@ -364,6 +389,8 @@ export class Builder {
 		this.diceGroup.remove(g);
 		this.faceObjects[i] = undefined as unknown as Object3D;
 		this.lastFaceParams[i] = {};
+		// a hidden face is blank, so it can never carry an engraving error.
+		this.faceEngravingErrors[i] = null;
 	}
 
 	// Merge every hidden face into one geometry under a single group, with each
@@ -560,6 +587,9 @@ export class Builder {
 			// most dice omit this today; default to identity so export still works.
 			this.printingTransform = x.printingTransform ?? new Transform();
 			this.faceObjects.forEach((g) => g.children?.forEach((c) => g.remove(c)));
+			// drop any stale per-face errors from a previous (larger) blank; the loop
+			// below repopulates index 0..faces.length-1.
+			this.faceEngravingErrors.length = this.faces.length;
 			this.lastDieParams = dieParams;
 			this.lastStringParams = stringParams;
 		}
@@ -586,9 +616,12 @@ export class Builder {
 		const combined = mergeGeometries(geos);
 		const merged = mergeVertices(combined);
 		const deduped = removeDuplicateTriangles(merged);
+		// heal T-junctions / drop zero-area slivers the triangulator can leave
+		// behind, so the exported solid has no degenerate triangles.
+		const repaired = repairDegenerateTriangles(deduped);
 		// bake the model's print orientation/raise in last (identity for now).
-		this.printingTransform.applyToGeometry(deduped);
-		return new Mesh(deduped, _genericNormalMaterial);
+		this.printingTransform.applyToGeometry(repaired);
+		return new Mesh(repaired, _genericNormalMaterial);
 	}
 
 	public getDefaultScaleForLegend(l: Legend): number {
@@ -613,6 +646,7 @@ export class Builder {
 			params.scale = this.getDefaultScaleForLegend(legend);
 		}
 		let output: Array<BufferGeometry>;
+		let error: EngravingError | null = null;
 		try {
 			output = engrave(
 				face.shape,
@@ -623,13 +657,28 @@ export class Builder {
 				opts.forExport ? DefaultDivisions : 2 * DefaultDivisions, // will need to "up" this to make a "high quality" render.
 				face.fitShape // convex containment region for non-convex faces
 			);
-		} catch (e) {
-			console.warn(
-				'error building face',
-				i,
-				'with symbol',
-				debugLegendName(params.legend ?? face.defaultLegend)
+			// engrave() only emits a Part.Symbol geometry when the (non-blank) symbol
+			// failed the containment test, i.e. it's too big to fit the face. that's
+			// the same thing that leaves the face blank on export.
+			const tooLarge = output.some(
+				(g) => g.userData.diceThingPart === Part.Symbol && g.userData.diceThingSymbolOK === false
 			);
+			if (tooLarge) {
+				error = {
+					faceIndex: i,
+					legend,
+					legendName: this.legends.getLegendName(legend),
+					reason: 'symbol-too-large'
+				};
+			}
+		} catch (e) {
+			console.warn('error building face', i, 'with symbol', debugLegendName(legend));
+			error = {
+				faceIndex: i,
+				legend,
+				legendName: this.legends.getLegendName(legend),
+				reason: 'build-failed'
+			};
 			output = engrave(
 				face.shape,
 				[], // force to blank
@@ -639,11 +688,40 @@ export class Builder {
 				opts.forExport ? DefaultDivisions : 2 * DefaultDivisions // will need to "up" this to make a "high quality" render.
 			);
 		}
+		this.faceEngravingErrors[i] = error;
 
 		// geometry is built at the origin; the face's Group is positioned/oriented
 		// by the view layer (see applyProgress/update) so we can animate between
 		// the solid and exploded states.
 		return output;
+	}
+}
+
+// Build a die in isolation purely to discover its engraving errors, without
+// touching any scene. Used by the builder/export pages to warn about (and
+// default-exclude) dice whose legends won't engrave. Accepts the structural
+// shape of a stored `Dice` so this module stays decoupled from storage.
+export function computeEngravingErrors(
+	model: DieModel,
+	legends: LegendSet,
+	die: {
+		parameters: Record<string, number>;
+		face_parameters: Array<FaceParams>;
+		string_parameters?: Record<string, string>;
+	}
+): Array<EngravingError> {
+	try {
+		const builder = new Builder(model, legends);
+		builder.build(
+			die.parameters,
+			die.face_parameters,
+			{ explode: false },
+			die.string_parameters ?? {}
+		);
+		return builder.getEngravingErrors();
+	} catch (e) {
+		console.warn('failed to compute engraving errors', e);
+		return [];
 	}
 }
 

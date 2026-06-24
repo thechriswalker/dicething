@@ -1,0 +1,1 @@
+- Fix "Print positioning" for each die model and adjust die/blanks/platforms to all sit on one plane orient correctly and site where they need to (i.e. pointy edges down and floating, except for the coin / platforms.)

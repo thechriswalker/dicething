@@ -27,7 +27,7 @@
 	import type { LegendSet } from '$lib/utils/legends';
 	import type { FaceParams } from '$lib/interfaces/dice';
 	import { m } from '$lib/paraglide/messages';
-	import { Builder } from '$lib/utils/builder';
+	import { Builder, computeEngravingErrors, type EngravingError } from '$lib/utils/builder';
 	import { debounce } from '$lib/utils/debounce';
 	import { createHistory } from '$lib/utils/history.svelte';
 	import { hoverAndClickEvents } from '$lib/utils/events';
@@ -35,6 +35,7 @@
 	import { download, exportSetJson } from '$lib/utils/export';
 	import { event } from '$lib/utils/use_event';
 	import {
+		AlertTriangle,
 		Box,
 		DownloadIcon,
 		FileBoxIcon,
@@ -432,6 +433,40 @@
 	const diceBuilders = new Map<string, Builder>();
 	let renderedDice = $state('');
 	let currentBuilder = $state<Builder | undefined>(undefined);
+
+	// per-die engraving errors: faces whose legend won't engrave and would
+	// therefore export blank/broken. recomputed off the render path (debounced)
+	// so dragging a slider doesn't rebuild every die every frame. keyed by die id
+	// and surfaced in the preview-row tooltip + a warning badge.
+	let dieEngravingErrors = $state<Record<string, Array<EngravingError>>>({});
+	const recomputeEngravingErrors = () => {
+		if (!setData) {
+			return;
+		}
+		const legends = setData.legends;
+		const next: Record<string, Array<EngravingError>> = {};
+		for (const d of setData.dice) {
+			const model = dice[d.kind];
+			if (!model) {
+				continue;
+			}
+			next[d.id] = computeEngravingErrors(model, legends, d);
+		}
+		dieEngravingErrors = next;
+	};
+	const debouncedRecomputeErrors = debounce<void>(300, recomputeEngravingErrors);
+	// signature of everything the engraving check depends on, so the effect
+	// re-runs on any param/legend change.
+	let engravingSig = $derived.by(() => {
+		if (!setData) {
+			return '';
+		}
+		return JSON.stringify(diceToJSON(setData.dice)) + '|' + setData.legends.id;
+	});
+	$effect(() => {
+		engravingSig;
+		debouncedRecomputeErrors();
+	});
 
 	let init = false;
 	$effect(() => {
@@ -1066,30 +1101,58 @@
 			inert={formatPaintMode}
 		>
 			{#each setData?.dice as die}
-				<!-- svelte-ignore a11y_click_events_have_key_events, a11y_interactive_supports_focus -->
-				<div
-					role="button"
-					class={'transition-duration-100 hover:border-primary-500 group hover:shadow-primary-500 relative size-16 cursor-pointer rounded-md border transition-transform ease-in-out hover:scale-120 hover:shadow-md ' +
-						(die.id === dieId
-							? 'border-primary-500 shadow-primary-500 hover:border-primary-500 group hover:shadow-primary-500 shadow-md'
-							: '')}
-					onclick={() => gotoDie(die.id)}
-				>
-					<!-- kill button -->
-					<button
-						use:event={{
-							name: 'click',
-							handler: (e) => {
-								e.stopPropagation();
-								removeDie(die.id);
-							}
-						}}
-						class="absolute top-[-8px] right-[-8px] hidden rounded-lg bg-red-500 text-white group-hover:block"
-					>
-						<XIcon size={16} />
-					</button>
-					<DiePreview {die} legends={setData?.legends!} />
-				</div>
+				{@const dieErrors = dieEngravingErrors[die.id] ?? []}
+				{#snippet dieTip()}
+					<div class="flex flex-col gap-0.5">
+						<span class="font-semibold">{m.dice_name({ kind: die.kind })}</span>
+						{#each dieErrors as err}
+							<span class="text-error-400">
+								{m.engraving_broken_for({ legend: err.legendName })}
+							</span>
+						{/each}
+					</div>
+				{/snippet}
+				<Tooltip content={dieTip} side="bottom">
+					{#snippet children(tipProps)}
+						<!-- svelte-ignore a11y_click_events_have_key_events, a11y_interactive_supports_focus -->
+						<div
+							{...tipProps}
+							role="button"
+							class={'transition-duration-100 hover:border-primary-500 group hover:shadow-primary-500 relative size-16 cursor-pointer rounded-md border transition-transform ease-in-out hover:scale-120 hover:shadow-md ' +
+								(die.id === dieId
+									? 'border-primary-500 shadow-primary-500 hover:border-primary-500 group hover:shadow-primary-500 shadow-md'
+									: dieErrors.length > 0
+										? 'border-error-500'
+										: '')}
+							onclick={() => gotoDie(die.id)}
+						>
+							<!-- kill button -->
+							<button
+								use:event={{
+									name: 'click',
+									handler: (e) => {
+										e.stopPropagation();
+										removeDie(die.id);
+									}
+								}}
+								class="absolute top-[-8px] right-[-8px] hidden rounded-lg bg-red-500 text-white group-hover:block"
+							>
+								<XIcon size={16} />
+							</button>
+							<!-- engraving-error badge: this die would export with one or more
+							     broken faces. details are in the tooltip. -->
+							{#if dieErrors.length > 0}
+								<div
+									class="text-error-500 absolute bottom-[-6px] left-[-6px] rounded-full bg-white"
+									aria-hidden="true"
+								>
+									<AlertTriangle size={16} />
+								</div>
+							{/if}
+							<DiePreview {die} legends={setData?.legends!} />
+						</div>
+					{/snippet}
+				</Tooltip>
 			{/each}
 			<Modal>
 				{#snippet title()}
