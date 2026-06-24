@@ -44,6 +44,11 @@ export class Builder {
 	// plate" work hooks in here.
 	private printingTransform: Transform = new Transform();
 
+	// optional extra rotation for the preview camera (see DieModel.build). when a
+	// model provides one the previewer tilts off the head-on face view so flat
+	// dice still read as 3D objects. undefined => look straight at the face.
+	private previewTransform: Transform | undefined;
+
 	// per-face solid ("n") and exploded ("e") target transforms, decomposed into
 	// position + quaternion so the view layer can interpolate between them.
 	private faceTransforms: Array<{
@@ -82,6 +87,12 @@ export class Builder {
 
 	public getFaces(): ReadonlyArray<DieFaceModel> {
 		return this.faces;
+	}
+
+	// the model's optional preview-camera tweak, available after build(). used by
+	// the previewer to nudge the thumbnail view off the head-on face axis.
+	public getPreviewTransform(): Transform | undefined {
+		return this.previewTransform;
 	}
 
 	// just get the front section of the face.
@@ -201,6 +212,7 @@ export class Builder {
 			this.face2face = x.faceToFaceDistance;
 			this.faces = x.faces;
 			this.individualLegendScaling = !!x.sizeLegendsIndividually;
+			this.previewTransform = x.previewTransform;
 			this.recalculateLegendScaling();
 			this.computeFaceTransforms();
 			this.lastDieParams = dieParams;

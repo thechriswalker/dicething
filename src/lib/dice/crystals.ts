@@ -1,5 +1,5 @@
 import type { DieModel, DieFaceModel, DiceParameter } from '$lib/interfaces/dice';
-import { Transform } from '$lib/utils/3d';
+import { Transform, previewTilt } from '$lib/utils/3d';
 import { stackedExplode } from '$lib/utils/explode';
 import { Legend, pickForDoublesByIndex, pickForNumber } from '$lib/utils/legends';
 import { orientCoplanarVertices, rotateShapes } from '$lib/utils/shapes';
@@ -57,7 +57,9 @@ function crystal(id: string, name: string, sides: number, tens = false): DieMode
 		id,
 		name,
 		parameters: crystalParameters,
-		build: build(sides, tens),
+		// only the d4 was asked to preview off-axis; the taller crystals keep the
+		// default head-on view.
+		build: build(sides, tens, sides === 4 ? previewTilt() : undefined),
 		blankParameters: crystalBlankParams(sides)
 	};
 }
@@ -87,7 +89,7 @@ function crystalBlankParams(
 	};
 }
 
-function build(sides: number, tens: boolean): DieModel['build'] {
+function build(sides: number, tens: boolean, previewTransform?: Transform): DieModel['build'] {
 	if (sides % 2 === 1) {
 		throw new RangeError('sides cannot be odd for crystal die');
 	}
@@ -252,6 +254,7 @@ function build(sides: number, tens: boolean): DieModel['build'] {
 			legendScaling: 1,
 			faceToFaceDistance: d * 2,
 			printingTransform,
+			previewTransform,
 			faces
 		};
 	};

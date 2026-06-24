@@ -19,6 +19,9 @@ import { Vector3 } from 'three';
 const SIZE_PARAM = 'polyhedron_size';
 const TRUNCATION_PARAM = 'trunc_oct_truncation';
 
+const defaultTruncation = 4;
+const defaultSize = 18;
+
 // the 6 octahedron corners (unit apexes) and, for each, the 4 neighbours it is
 // joined to by an edge.
 const APEXES: Array<{ apex: Vector3; neighbours: Array<Vector3> }> = [
@@ -42,8 +45,8 @@ const APEXES: Array<{ apex: Vector3; neighbours: Array<Vector3> }> = [
 }));
 
 function truncatedOctahedronVertices(params: Record<string, number>): Array<Vector3> {
-	const size = params[SIZE_PARAM] ?? 20;
-	const truncationMm = params[TRUNCATION_PARAM] ?? 8;
+	const size = params[SIZE_PARAM] ?? defaultSize;
+	const truncationMm = params[TRUNCATION_PARAM] ?? defaultTruncation;
 
 	// convexPolyhedronDie scales the unit solid so the hexagon planes (at unit
 	// inradius 1/sqrt(3)) sit at size/2. converting the mm truncation into unit
@@ -74,9 +77,9 @@ export const TruncatedOctahedronD8: DieModel = convexPolyhedronDie({
 	id: 'truncated_octahedron_d8',
 	name: 'D8 Truncated',
 	vertices: truncatedOctahedronVertices,
-	defaultSize: 20,
+	defaultSize: defaultSize,
 	minSize: 12,
-	extraParameters: [{ id: TRUNCATION_PARAM, defaultValue: 8, min: 0, max: 10, step: 0.5 }],
+	extraParameters: [{ id: TRUNCATION_PARAM, defaultValue: defaultTruncation, min: 0, max: 10, step: 0.5 }],
 	// squares (4 sides) are the blank faces; the 8 triangles/hexagons are numbered.
 	isNumberFace: (sides) => sides !== 4,
 	individualLegendScaling: true

@@ -49,9 +49,17 @@ export function polyhedron(
 	name: string,
 	sides: Array<PolyhedronFace>,
 	shaper: Shaper,
-	parameters: Array<DiceParameter> = defaultParameters(),
-	individualLegendScaling?: boolean
+	opts: {
+		parameters?: Array<DiceParameter>;
+		individualLegendScaling?: boolean;
+		// extra rotation for the preview camera, in the highest face's local frame.
+		// see DieModel.build().previewTransform. handy for flat dice that otherwise
+		// preview as a single head-on face.
+		previewTransform?: Transform;
+	} = {}
 ): DieModel {
+	const parameters = opts.parameters ?? defaultParameters();
+	const individualLegendScaling = opts.individualLegendScaling;
 	// might as well only do this once.
 	const _q = new Quaternion();
 	const quats: Array<Quaternion> = sides.map((s) => {
@@ -105,6 +113,7 @@ export function polyhedron(
 				legendScaling: 1,
 				faceToFaceDistance: d,
 				sizeLegendsIndividually: individualLegendScaling,
+				previewTransform: opts.previewTransform,
 				faces: sides.map((s, i) => {
 					const transform = new Transform().translateBy(0, 0, d / 2).rotate(quats[i]);
 

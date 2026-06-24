@@ -41,6 +41,9 @@ function getRenderFunction() {
 					const largeFace = builder.getFaces().findLast((x) => x.isNumberFace);
 					const camera = new PerspectiveCamera(30, 1, 1, 500);
 					camera.position.set(0, 0, 60);
+					// optional per-model tilt, applied in the face's local frame (before
+					// the face orientation) so flat dice show more than a single face.
+					builder.getPreviewTransform()?.applyRotationToCamera(camera);
 					largeFace?.transform?.applyRotationToCamera(camera);
 					camera.lookAt(new Vector3(0, 0, 0));
 					renderer.render(scene, camera);

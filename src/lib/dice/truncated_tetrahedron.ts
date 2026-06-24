@@ -7,7 +7,7 @@
 // blank faces the user can still customise.
 
 import type { DiceParameter, DieFaceModel, DieModel } from '$lib/interfaces/dice';
-import { Transform } from '$lib/utils/3d';
+import { Transform, previewTilt } from '$lib/utils/3d';
 import { stackedExplode } from '$lib/utils/explode';
 import { Legend, pickForNumber } from '$lib/utils/legends';
 import { orientCoplanarVertices } from '$lib/utils/shapes';
@@ -127,7 +127,10 @@ export const TruncatedTetrahedronD4: DieModel = {
 
 		return {
 			faces,
-			faceToFaceDistance
+			faceToFaceDistance,
+			// the numbered triangles are flat; tilt the preview to reveal the
+			// hexagonal sides and the truncated 3D shape.
+			previewTransform: previewTilt()
 		};
 	}
 };

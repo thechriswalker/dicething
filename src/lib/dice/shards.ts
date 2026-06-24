@@ -2,7 +2,7 @@
 // unbalanced lengths.
 // i.e. long edge for number faces and short cap for blanks.
 import type { DieModel, DieFaceModel, DiceParameter } from '$lib/interfaces/dice';
-import { Transform, vectorRotateY, vectorRotateZ } from '$lib/utils/3d';
+import { Transform, previewTilt, vectorRotateY, vectorRotateZ } from '$lib/utils/3d';
 import { stackedExplode } from '$lib/utils/explode';
 import { Legend, pickForDoublesByIndex, pickForNumber } from '$lib/utils/legends';
 import { orientCoplanarVertices, rotateShapes, translateShapes } from '$lib/utils/shapes';
@@ -55,12 +55,19 @@ export const ShardD12 = shard('shard_d12', 'D12 Shard', 12);
 export const ShardD00 = shard('shard_d00', 'D% Shard', 10, true);
 
 function shard(id: string, name: string, sides: number, tens = false): DieModel {
-	return { id, name, parameters: shardParameters, build: build(sides, tens) };
+	// only the d4 was asked to preview off-axis; the other shards keep the
+	// default head-on view.
+	return {
+		id,
+		name,
+		parameters: shardParameters,
+		build: build(sides, tens, sides === 4 ? previewTilt() : undefined)
+	};
 }
 
 const zAxis = new Vector3(0, 0, 1);
 
-function build(sides: number, tens: boolean): DieModel['build'] {
+function build(sides: number, tens: boolean, previewTransform?: Transform): DieModel['build'] {
 	return (params) => {
 		const r = params.shard_radius ?? defaultRadius;
 		const y = params.shard_height ?? defaultHeight;
@@ -191,6 +198,7 @@ function build(sides: number, tens: boolean): DieModel['build'] {
 		return {
 			legendScaling: 1,
 			faceToFaceDistance: d * 2,
+			previewTransform,
 			faces
 		};
 	};

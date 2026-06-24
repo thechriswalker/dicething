@@ -123,3 +123,11 @@ export class Transform {
 function isQuaternion(p: any): p is Quaternion {
 	return p.isQuaternion === true;
 }
+
+// A modest camera tilt for catalogue previews. Applied in the highest face's
+// local frame (before the face orientation), it lifts the view up and rotates
+// it around so flat- or pointed-faced dice reveal adjacent faces and read as 3D
+// objects instead of a single head-on face. See DieModel.build().previewTransform.
+export function previewTilt(up = Math.PI / 7, around = Math.PI / 7): Transform {
+	return new Transform().rotateByAxisAngle(xAxis, -up).rotateByAxisAngle(yAxis, around);
+}

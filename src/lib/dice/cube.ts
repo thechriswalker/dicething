@@ -1,4 +1,5 @@
 import { polyhedron, type PolyhedronFace, type Shaper } from '$lib/utils/polyhedra';
+import { previewTilt } from '$lib/utils/3d';
 import { Shape, Vector2, Vector3 } from 'three';
 
 const xAxis = new Vector3(1, 0, 0);
@@ -26,4 +27,9 @@ const cube_shape: Shaper = (d) => {
 	]);
 };
 
-export const CubeD6 = polyhedron('cube_d6', 'D6 Cube', cube_faces, cube_shape);
+// looking dead-on at the "6" face just shows a flat square, so tilt the preview
+// camera up and to the side to reveal the top and one adjacent face (a classic
+// 3/4 view that reads as a cube).
+export const CubeD6 = polyhedron('cube_d6', 'D6 Cube', cube_faces, cube_shape, {
+	previewTransform: previewTilt()
+});

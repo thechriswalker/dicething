@@ -34,6 +34,14 @@ export type DieModel = {
 		// this is the orientation we want to use to print, keeping all dice on the same level, for when / if they are grouped.
 		// optional: when omitted the exporter treats it as the identity (no-op).
 		printingTransform?: Transform;
+
+		// extra rotation for the catalogue/thumbnail preview camera. the previewer
+		// points straight at the highest-numbered face, which for flat-faced dice
+		// (e.g. the cube d6) hides the shape behind a single face. this transform is
+		// applied to the camera in the *face's* local frame (before the face
+		// orientation), so a small tilt nudges the view off-axis to reveal adjacent
+		// faces and read as a 3D object. omitted = look straight at the face.
+		previewTransform?: Transform;
 	};
 	// create parameters for building a blank using the "build" function that is
 	// offset from the given parameters by `offset`.

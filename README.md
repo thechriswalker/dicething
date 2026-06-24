@@ -82,8 +82,8 @@ The UI section will need a whole lot more...
   - [x] Coin D2 - a short cylinder
     - [x] Regular Polygon
     - [x] Circle ~~(I probably have to keep these separate)~~ (just use 96 segements)
-  - [ ] Skewed dice
-    - [ ] Regular polyhedrals can be "skewed" (left or right handed) and remain
+  - [x] Skewed dice
+    - [x] Regular polyhedrals can be "skewed" (left or right handed) and remain
           fair. I believe we could add the "skew" as a parameter? rather than
           a completely new style, but actually I think it would be better to have them separate (so "discoverable")
 - [x] Legend Engraving
@@ -92,13 +92,13 @@ The UI section will need a whole lot more...
   - [x] customisable scale/rotation/translation
   - [x] per-face engraving depth
   - [x] per-face legend override
-- [ ] Rendering
+- [x] Rendering
   - [x] basic scene render and materials
   - [x] customisable materials for faces/engravings
   - [x] per-face render cache with invalidation
-  - [ ] offscreen canvas rendering
+  - [x] offscreen canvas rendering
     - [x] in worker for preview images
-    - [ ] for main scene (might be more trouble than it's worth at the moment, need to test on slower machines...)
+    - [-] for main scene (might be more trouble than it's worth at the moment, need to test on slower machines...) - skipping this for now.
   - [x] STL output and geometry preprocessing
   - [x] Bad manifold detection and edge fixing (not 100%, some errors don't cause problems, but it is a warning)
   - [x] multiple dice scene for rendering full sets.
@@ -119,13 +119,14 @@ The UI section will need a whole lot more...
   - [x] proprocess font shapes for easily fixable issues
   - [x] create a save/load-able LegendSet from a font and a set of strings to use for each legend
   - [x] find and create legends sets for a few fonts so we have some in-builtin options
-  - [ ] Add (simple) SVG i.e just paths with fill, not strokes.
-  - [ ] Add "symbol from font by text" with letter spacing
-  - [ ] Add "line under symbol" for 6/9 marked symbols - hopefully without breaking the centering?
-  - [ ] Add "lucide" icons as legends - potrace? or from font lucide is available as a font...
+  - [x] Add (simple) SVG i.e just paths with fill, not strokes.
+  - [x] Add "symbol from font by text" with letter spacing
+  - [x] Add "line under symbol" for 6/9 marked symbols - hopefully without breaking the centering?
+  - [-] Add "lucide" icons as legends - potrace? or from font lucide is available as a font... (we can certainly import svgs from lucide now, the "pick from font directly though might be a nice feature for UX, i.e. insert icon -> icon picker -> legend)
   - [ ] Add custom legend from image. that needs potrace working on a canvas. possibly with some knobs to turn...
         Maybe a disclaimer that for best results provide an SVG pre-converted from "stoke to path" with inkscape instructions.
         In fact maybe ONLY allow that...
+        Yeah, I don't think we will allow raster images at all.
 
 ### User Interface
 
@@ -172,10 +173,10 @@ The first flow will be
 
 Most issues come from font problems when converted to SVG paths for engraving.
 
-> Example: Josefin Sans Medium character 3 has 2 instances of paths overlapping. This is a big problem, and one I would like to solve.
+Similar issue when importing SVGs. 
 
-## Notes
+There are significant code paths to help reduce this issue, but please let me know if you find any fonts / svgs that should work but don't.
 
-I quite want to animate the explode feature....
-I guess the I shouldn't translate the geometry of the faces, but rather the meshes themselves...
-Then I can animate/orient the meshes separately from the builder.
+### AI Usage
+
+Some of the code here was produced by LLMs. I actually built the majority before I started using them, which turned out to be a blessing because I learnt so much and feel that the code, build flow and interface design is all exatly how I want it. However, the project stagnated a bit and use LLMs has let me iterate much more quickly and focus on some of the more tricky features (like the SVG imports and font-fixing) that I was stuggling to find the time to work on myself. I doubt I would have go this to such a usable state with them. On the other hand, I would not descibe this project as vibe-coded. I have heavily guided the LLM, not just released it on the codebase.

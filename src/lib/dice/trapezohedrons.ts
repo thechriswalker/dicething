@@ -2,7 +2,7 @@
 // but they also include the "rhombic" D6
 
 import type { DiceParameter, DieFaceModel, DieModel } from '$lib/interfaces/dice';
-import { Transform, vectorRotateX, vectorRotateY } from '$lib/utils/3d';
+import { Transform, previewTilt, vectorRotateX, vectorRotateY } from '$lib/utils/3d';
 import { gridExplode } from '$lib/utils/explode';
 import { pickForDoublesByIndex, pickForNumber } from '$lib/utils/legends';
 import { orientCoplanarVertices } from '$lib/utils/shapes';
@@ -52,7 +52,15 @@ const trapezohedronParameters: Array<DiceParameter> = [
 const xAxis = new Vector3(1, 0, 0);
 const yAxis = new Vector3(0, 1, 0);
 
-function trapezohedron(id: string, name: string, sides: number, tens = false): DieModel {
+function trapezohedron(
+	id: string,
+	name: string,
+	sides: number,
+	tens = false,
+	// a small down-only tilt: looking slightly down on the top apex reveals the
+	// 3D form without swinging the view sideways.
+	previewTransform: Transform = previewTilt(-Math.PI / 14, 0)
+): DieModel {
 	const halfSides = sides / 2;
 	if (!Number.isInteger(halfSides) || halfSides < 3) {
 		throw new Error('cannot build trapzehedron with ' + sides + ' sides');
@@ -143,7 +151,8 @@ function trapezohedron(id: string, name: string, sides: number, tens = false): D
 
 			return {
 				faceToFaceDistance: info.offset.length() * 2,
-				faces
+				faces,
+				previewTransform
 			};
 		}
 	};
@@ -186,11 +195,27 @@ function xyRot(i: number, sides: number, baseAngle: number): { y: number; xflip:
 
 export const RhombicD6 = trapezohedron('rhombic_d6', 'Rhombic D6', 6);
 export const TrapezohedronD8 = trapezohedron('trapezohedron_d8', 'D8 Trapezohedron', 8);
-export const TrapezohedronD10 = trapezohedron('trapezohedron_d10', 'D10 Twisted Trapezohedron', 10);
+// the taller d10/d%/d12 need a touch more downward tilt to read well.
+const trapezohedronD10Tilt = previewTilt(-Math.PI / 9, 0);
+export const TrapezohedronD10 = trapezohedron(
+	'trapezohedron_d10',
+	'D10 Twisted Trapezohedron',
+	10,
+	false,
+	trapezohedronD10Tilt
+);
 export const TrapezohedronD00 = trapezohedron(
 	'trapezohedron_d00',
 	'D% Twisted Trapezohedron',
 	10,
-	true
+	true,
+	trapezohedronD10Tilt
 );
-export const TrapezohedronD12 = trapezohedron('trapezohedron_d12', 'D12 Trapezohedron', 12);
+// the d12 also wants a little sideways rotation to reveal its faces.
+export const TrapezohedronD12 = trapezohedron(
+	'trapezohedron_d12',
+	'D12 Trapezohedron',
+	12,
+	false,
+	previewTilt(-Math.PI / 9, Math.PI / 16)
+);
