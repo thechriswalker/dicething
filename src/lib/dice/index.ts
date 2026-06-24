@@ -1,3 +1,4 @@
+import type { DieTags } from '$lib/interfaces/dice';
 import { CubeD6 } from './cube';
 import { CrystalD6, CrystalD8, CrystalD00, CrystalD10, CrystalD12, CrystalD4 } from './crystals';
 import { DodecahedronD12 } from './dodecahedron';
@@ -39,10 +40,41 @@ const dice = {
 	shard_d4: ShardD4
 } as const;
 
+// grouping/sorting metadata for each die, keyed by die id. kept here so the
+// whole taxonomy can be reviewed and edited in one place.
+const diceTags: Record<keyof typeof dice, DieTags> = {
+	coin_d2: { kind: 'coin', sides: '2' },
+	caltrop_d4: { kind: 'caltrop', variant: 'kite', sides: '4' },
+	caltrop_base_d4: { kind: 'caltrop', variant: 'base', sides: '4' },
+	caltrop_custom_d4: { kind: 'caltrop', variant: 'custom', sides: '4' },
+	truncated_tetrahedron_d4: { kind: 'caltrop', variant: 'truncated', sides: '4' },
+	cube_d6: { kind: 'polyhedron', variant: 'cube', sides: '6' },
+	crystal_d4: { kind: 'crystal', sides: '4' },
+	crystal_d6: { kind: 'crystal', sides: '6' },
+	crystal_d8: { kind: 'crystal', sides: '8' },
+	crystal_d10: { kind: 'crystal', sides: '10' },
+	crystal_d00: { kind: 'crystal', sides: '00' },
+	crystal_d12: { kind: 'crystal', sides: '12' },
+	dodecahedron_d12: { kind: 'polyhedron', variant: 'dodecahedron', sides: '12' },
+	icosahedron_d20: { kind: 'polyhedron', variant: 'icosahedron', sides: '20' },
+	rhombic_d12: { kind: 'polyhedron', variant: 'rhombic', sides: '12' },
+	rhombic_d6: { kind: 'trapezohedron', variant: 'rhombic', sides: '6' },
+	trapezohedron_d8: { kind: 'trapezohedron', sides: '8' },
+	trapezohedron_d10: { kind: 'trapezohedron', sides: '10' },
+	trapezohedron_d00: { kind: 'trapezohedron', sides: '00' },
+	trapezohedron_d12: { kind: 'trapezohedron', sides: '12' },
+	shard_d4: { kind: 'shard', sides: '4' }
+};
+
 Object.entries(dice).forEach(([k, v]) => {
 	if (k !== v.id) {
 		throw new Error('bad naming for dice map: ' + k + ' != ' + v.id);
 	}
+	const tags = diceTags[k as keyof typeof dice];
+	if (!tags) {
+		throw new Error('missing tags for dice: ' + k);
+	}
+	v.tags = tags;
 });
 
 export default dice;

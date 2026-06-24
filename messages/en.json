@@ -160,6 +160,8 @@
 	"menu_export_as_json": "As JSON",
 	"menu_export_as_stl": "As STL",
 	"controls_add_new_die": "Add new die",
+	"controls_group_by_shape": "By shape",
+	"controls_group_by_number": "By number",
 	"controls_reset_camera": "Reset Camera",
 	"controls_toggle_gridlines": "Toggle Gridlines",
 	"controls_toggle_explode_mode": "Toggle Explode Mode",

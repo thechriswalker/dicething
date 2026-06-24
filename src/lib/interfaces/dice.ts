@@ -2,11 +2,21 @@ import type { Transform } from '$lib/utils/3d';
 import type { Legend } from '$lib/utils/legends';
 import type { Shape, Vector2 } from 'three';
 
+export type DieTags = {
+	kind: string; // broad shape family, e.g. "polyhedron", "trapezohedron"
+	variant?: string; // optional sub-shape, e.g. "rhombic", "cube"
+	sides: string; // "2".."20", and "00" for d%
+};
+
 export type DieModel = {
 	id: string; // stable name for serialisation
 	parameters: Array<DiceParameter>;
 	// name of this dice type
 	name: string;
+	// metadata used to group/sort dice (e.g. in the "add dice" picker).
+	// optional on the type, but attached + validated for every registered die
+	// in src/lib/dice/index.ts (the unregistered legend pseudo-die has none).
+	tags?: DieTags;
 	// create a "blank" from the parameters
 	build(params: Record<string, number>): {
 		faces: Array<DieFaceModel>;

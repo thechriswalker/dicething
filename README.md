@@ -82,6 +82,10 @@ The UI section will need a whole lot more...
   - [x] Coin D2 - a short cylinder
     - [x] Regular Polygon
     - [x] Circle ~~(I probably have to keep these separate)~~ (just use 96 segements)
+  - [ ] Skewed dice
+    - [ ] Regular polyhedrals can be "skewed" (left or right handed) and remain
+          fair. I believe we could add the "skew" as a parameter? rather than
+          a completely new style, but actually I think it would be better to have them separate (so "discoverable")
 - [x] Legend Engraving
   - [x] auto-fit legends by default
     - [x] auto custom scale per-face-per-legend (i.e. a D20 wants numbers as large as possible on each face, not consistent on each face) - maybe an "oncreate" option?

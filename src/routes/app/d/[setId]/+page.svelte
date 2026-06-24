@@ -82,6 +82,43 @@
 		face_parameters: []
 	}));
 
+	// how the "add die" picker groups its options.
+	let dieGroupBy = $state<'shape' | 'number'>('shape');
+
+	// preferred display order for shape groups; anything else sorts after these.
+	const shapeOrder = ['polyhedron', 'trapezohedron', 'crystal', 'shard', 'caltrop', 'coin'];
+
+	const shapeLabel = (kind: string) => kind.charAt(0).toUpperCase() + kind.slice(1);
+	const sidesLabel = (sides: string) => (sides === '00' ? 'D%' : 'D' + sides);
+	// "00" represents d% (100), so it sorts after d20.
+	const sidesValue = (sides: string) => (sides === '00' ? 100 : Number(sides));
+
+	const dieGroups = $derived.by(() => {
+		const groups = new Map<string, { key: string; label: string; dice: Array<Dice> }>();
+		for (const preview of previewDice) {
+			const tags = dice[preview.kind].tags;
+			const key = dieGroupBy === 'shape' ? (tags?.kind ?? 'other') : (tags?.sides ?? '');
+			let group = groups.get(key);
+			if (!group) {
+				group = {
+					key,
+					label: dieGroupBy === 'shape' ? shapeLabel(key) : sidesLabel(key),
+					dice: []
+				};
+				groups.set(key, group);
+			}
+			group.dice.push(preview);
+		}
+		return [...groups.values()].sort((a, b) => {
+			if (dieGroupBy === 'shape') {
+				const ai = shapeOrder.indexOf(a.key);
+				const bi = shapeOrder.indexOf(b.key);
+				return (ai === -1 ? shapeOrder.length : ai) - (bi === -1 ? shapeOrder.length : bi);
+			}
+			return sidesValue(a.key) - sidesValue(b.key);
+		});
+	});
+
 	let addDie = (kind: keyof typeof dice) => {
 		if (!setData) {
 			return;
@@ -1056,22 +1093,45 @@
 					</button>
 				{/snippet}
 				{#snippet inner(close)}
-					<div
-						class="grid max-h-[70vh] grid-cols-2 gap-3 overflow-y-auto sm:grid-cols-3 md:grid-cols-4"
-					>
-						{#each previewDice as preview (preview.kind)}
+					<div class="flex max-h-[70vh] flex-col gap-3 overflow-y-auto">
+						<div class="bg-surface-100-900 sticky top-0 z-10 flex gap-2 pb-1">
 							<button
-								class="hover:border-primary-500 hover:shadow-primary-500 flex cursor-pointer flex-col items-center gap-1 rounded-md border p-2 text-center hover:shadow-md"
-								onclick={() => {
-									addDie(preview.kind);
-									close();
-								}}
+								class="rounded-md border px-3 py-1 text-sm hover:shadow-md {dieGroupBy === 'shape'
+									? 'border-primary-500 text-primary-500'
+									: ''}"
+								onclick={() => (dieGroupBy = 'shape')}
 							>
-								{#if setData}
-									<DiePreview die={preview} legends={setData.legends} />
-								{/if}
-								<span class="text-sm">{m.dice_name({ kind: preview.kind })}</span>
+								{m.controls_group_by_shape()}
 							</button>
+							<button
+								class="rounded-md border px-3 py-1 text-sm hover:shadow-md {dieGroupBy === 'number'
+									? 'border-primary-500 text-primary-500'
+									: ''}"
+								onclick={() => (dieGroupBy = 'number')}
+							>
+								{m.controls_group_by_number()}
+							</button>
+						</div>
+						{#each dieGroups as group (group.key)}
+							<div class="flex flex-col gap-2">
+								<h3 class="text-surface-600-400 text-sm font-semibold">{group.label}</h3>
+								<div class="grid grid-cols-2 gap-3 sm:grid-cols-4 md:grid-cols-6">
+									{#each group.dice as preview (preview.kind)}
+										<button
+											class="hover:border-primary-500 hover:shadow-primary-500 flex cursor-pointer flex-col items-center gap-1 rounded-md border p-2 text-center hover:shadow-md"
+											onclick={() => {
+												addDie(preview.kind);
+												close();
+											}}
+										>
+											{#if setData}
+												<DiePreview die={preview} legends={setData.legends} />
+											{/if}
+											<span class="text-sm">{m.dice_name({ kind: preview.kind })}</span>
+										</button>
+									{/each}
+								</div>
+							</div>
 						{/each}
 					</div>
 				{/snippet}
