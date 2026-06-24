@@ -36,10 +36,20 @@
 	import { shapeToJSON } from '$lib/utils/to_json';
 	import { addUnderline, defaultUnderline } from '$lib/utils/underline';
 	import {
+		checkLegendCandidate,
+		gatherLegendCandidates,
+		isBrokenResult,
+		type LegendCheckResult
+	} from '$lib/utils/validate_legends';
+	import {
+		AlertTriangle,
 		ArrowLeftIcon,
+		CheckCircle2,
 		ImageIcon,
+		InfoIcon,
 		PlusIcon,
 		SaveIcon,
+		ShieldCheckIcon,
 		SquareIcon,
 		Trash2Icon,
 		TypeIcon
@@ -401,6 +411,71 @@
 		}
 		return m.legends_editor_uploaded_font();
 	});
+
+	// --- print-problem check ------------------------------------------------
+	// Engrave every component character (and every SVG/copied glyph) onto a d6
+	// and structurally check the result, so a "weird broken font" is caught here
+	// rather than at print time.
+	let checking = $state(false);
+	let checkDone = $state(0);
+	let checkTotal = $state(0);
+	let checkResults = $state<Array<LegendCheckResult>>([]);
+	let hasChecked = $state(false);
+	// invalidate stale results whenever the set changes underneath us.
+	let checkRunId = 0;
+
+	let brokenResults = $derived(checkResults.filter(isBrokenResult));
+
+	async function runLegendCheck() {
+		if (!set || checking) {
+			return;
+		}
+		const runId = ++checkRunId;
+		checking = true;
+		hasChecked = true;
+		checkResults = [];
+		// flush any pending regeneration so we check the latest shapes.
+		regenerateDebounced.flush();
+		const candidates = gatherLegendCandidates(set, fontBuffer);
+		checkTotal = candidates.length;
+		checkDone = 0;
+		const collected: Array<LegendCheckResult> = [];
+		for (const candidate of candidates) {
+			const result = await checkLegendCandidate(candidate);
+			if (runId !== checkRunId) {
+				return; // a newer run (or navigation) superseded this one
+			}
+			collected.push(result);
+			checkDone = collected.length;
+		}
+		checkResults = collected;
+		checking = false;
+	}
+
+	// human-readable issues for one broken result.
+	function issuesFor(r: LegendCheckResult): Array<string> {
+		if (r.error) {
+			return [m.legends_editor_check_failed()];
+		}
+		const rep = r.report;
+		if (!rep) {
+			return [];
+		}
+		const out: Array<string> = [];
+		if (rep.boundaryEdgeCount > 0) {
+			out.push(m.mesh_check_not_watertight({ count: rep.boundaryEdgeCount }));
+		}
+		if (rep.nonManifoldEdgeCount > 0) {
+			out.push(m.mesh_check_non_manifold({ count: rep.nonManifoldEdgeCount }));
+		}
+		if (rep.degenerateTriangleCount > 0) {
+			out.push(m.mesh_check_degenerate({ count: rep.degenerateTriangleCount }));
+		}
+		if (rep.duplicateTriangleCount > 0) {
+			out.push(m.mesh_check_duplicate({ count: rep.duplicateTriangleCount }));
+		}
+		return out;
+	}
 </script>
 
 <Layout>
@@ -429,6 +504,62 @@
 					<input class="input" type="text" bind:value={name} oninput={onNameInput} />
 				</label>
 				<p class="text-surface-600-400 text-sm">{m.legends_editor_font_source()}: {fontSource}</p>
+
+				<!-- print-problem check -->
+				<div class="flex flex-col gap-2">
+					<div class="flex items-center gap-3">
+						<button
+							type="button"
+							class="btn preset-tonal-primary self-start"
+							disabled={checking}
+							onclick={runLegendCheck}
+						>
+							<ShieldCheckIcon class="size-4" />
+							{m.legends_editor_check_button()}
+						</button>
+						<Tooltip content={m.legends_editor_check_info()}>
+							{#snippet children(props)}
+								<button
+									{...props}
+									type="button"
+									class="btn-icon btn-icon-sm preset-tonal-surface"
+									aria-label={m.legends_editor_check_info()}
+								>
+									<InfoIcon class="size-4" />
+								</button>
+							{/snippet}
+						</Tooltip>
+						{#if checking}
+							<span class="text-surface-600-400 text-sm">
+								{m.legends_editor_checking({ done: checkDone, total: checkTotal })}
+							</span>
+						{/if}
+					</div>
+
+					{#if hasChecked && !checking}
+						{#if brokenResults.length === 0}
+							<div class="card preset-tonal-success flex items-center gap-2 p-2 text-sm">
+								<CheckCircle2 class="size-4 shrink-0" />
+								<span>{m.legends_editor_check_ok({ count: checkResults.length })}</span>
+							</div>
+						{:else}
+							<div class="card preset-tonal-error flex flex-col gap-2 p-3 text-sm">
+								<span class="flex items-center gap-2 font-semibold">
+									<AlertTriangle class="size-4 shrink-0" />
+									{m.legends_editor_check_broken()}
+								</span>
+								<ul class="flex flex-col gap-1">
+									{#each brokenResults as r}
+										<li class="flex flex-wrap items-baseline gap-x-2">
+											<span class="font-mono font-semibold">{r.label}</span>
+											<span class="text-surface-700-300">{issuesFor(r).join(', ')}</span>
+										</li>
+									{/each}
+								</ul>
+							</div>
+						{/if}
+					{/if}
+				</div>
 
 				<div class="grid grid-cols-1 gap-4 md:grid-cols-[1fr_20rem]">
 					<!-- legend grid -->
