@@ -94,11 +94,11 @@ const diceTags: Record<keyof typeof dice, DieTags> = {
 	skew_d6: { kind: 'skew', sides: '6' },
 	truncated_octahedron_d8: { kind: 'polyhedron', variant: 'truncated', sides: '8' },
 	tetartoid_d12: { kind: 'skew', sides: '12' },
-	deltoidal_icositetrahedron_d24: { kind: 'skew', variant: 'deltoidal', sides: '24' },
+	deltoidal_icositetrahedron_d24: { kind: 'polyhedron', variant: 'deltoidal', sides: '24' },
 	tetrakis_hexahedron_d24: { kind: 'polyhedron', variant: 'tetrakis', sides: '24' },
 	pentagonal_icositetrahedron_d24: { kind: 'skew', variant: 'pentagonal', sides: '24' },
 	rhombic_triacontahedron_d30: { kind: 'polyhedron', variant: 'rhombic', sides: '30' },
-	deltoidal_hexecontahedron_d60: { kind: 'skew', variant: 'deltoidal', sides: '60' },
+	deltoidal_hexecontahedron_d60: { kind: 'polyheron', variant: 'deltoidal', sides: '60' },
 	pentakis_dodecahedron_d60: { kind: 'polyhedron', variant: 'pentakis', sides: '60' },
 	pentagonal_hexecontahedron_d60: { kind: 'skew', variant: 'pentagonal', sides: '60' }
 };
