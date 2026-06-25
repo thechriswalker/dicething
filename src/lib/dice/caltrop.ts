@@ -290,14 +290,14 @@ function caltropModel(id: string, name: string, style: 'kite' | 'base' | 'custom
 }
 
 // the classic caltrop: numbers read at the top vertex.
-export const CaltropD4: DieModel = caltropModel('caltrop_d4', 'D4 Caltrop', 'kite');
+export const CaltropD4: DieModel = caltropModel('d4_caltrop', 'D4 Caltrop', 'kite');
 
 // numbers read around the base (vertices-to-centroid trisection).
-export const CaltropBaseD4: DieModel = caltropModel('caltrop_base_d4', 'D4 Caltrop Base', 'base');
+export const CaltropBaseD4: DieModel = caltropModel('d4_caltrop_base', 'D4 Caltrop Base', 'base');
 
 // four whole-triangle faces for completely custom D4 faces.
 export const CaltropCustomD4: DieModel = caltropModel(
-	'caltrop_custom_d4',
+	'd4_caltrop_custom',
 	'D4 Caltrop Custom',
 	'custom'
 );

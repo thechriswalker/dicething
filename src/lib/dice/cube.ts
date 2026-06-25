@@ -30,6 +30,6 @@ const cube_shape: Shaper = (d) => {
 // looking dead-on at the "6" face just shows a flat square, so tilt the preview
 // camera up and to the side to reveal the top and one adjacent face (a classic
 // 3/4 view that reads as a cube).
-export const CubeD6 = polyhedron('cube_d6', 'D6 Cube', cube_faces, cube_shape, {
+export const CubeD6 = polyhedron('d6_cube', 'D6 Cube', cube_faces, cube_shape, {
 	previewTransform: previewTilt()
 });

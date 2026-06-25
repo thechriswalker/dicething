@@ -13,7 +13,7 @@ function truncatedOctahedronVertices(): Array<Vector3> {
 }
 
 export const TetrakisHexahedronD24: DieModel = convexPolyhedronDie({
-	id: 'tetrakis_hexahedron_d24',
+	id: 'd24_tetrakis_hexahedron',
 	name: 'D24 Tetrakis',
 	source: truncatedOctahedronVertices,
 	defaultSize: 22,

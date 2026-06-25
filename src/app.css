@@ -18,15 +18,19 @@ p {
 	@apply my-2 leading-[1.4em];
 }
 
+:root {
+	--glass-blur: 2px;
+}
+
 .preset-glass-neutral {
 	background: color-mix(in oklab, var(--color-surface-50-950) 30%, transparent);
 	box-shadow: 0 0px 30px color-mix(in oklab, var(--color-surface-50-950) 30%, transparent) inset;
-	backdrop-filter: blur(16px);
+	backdrop-filter: blur(var(--glass-blur));
 }
 .preset-glass-surface {
 	background: color-mix(in oklab, var(--color-surface-200) 40%, transparent);
 	box-shadow: 0 0px 30px color-mix(in oklab, var(--color-surface-200) 50%, transparent) inset;
-	backdrop-filter: blur(16px);
+	backdrop-filter: blur(var(--glass-blur));
 }
 /* Headings */
 .preset-typo-display-4,

@@ -37,4 +37,4 @@ const rhombic_faces: Array<PolyhedronFace> = [
 	{ axis: lAxis, angle: Math.PI / 2 }, //face 11
 	{ axis: yAxis, angle: Math.PI } // face 12
 ];
-export const RhombicD12 = polyhedron('rhombic_d12', 'D12 Rhombic', rhombic_faces, rhombic_shape);
+export const RhombicD12 = polyhedron('d12_rhombic', 'D12 Rhombic', rhombic_faces, rhombic_shape);

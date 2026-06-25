@@ -144,7 +144,7 @@ function hiddenFacet(corners: Array<Vector3>): DieFaceModel {
 }
 
 export const CoinD2: DieModel = {
-	id: 'coin_d2',
+	id: 'd2_coin',
 	name: 'D2 Coin',
 	parameters: coinParameters,
 	stringParameters: coinStringParameters,

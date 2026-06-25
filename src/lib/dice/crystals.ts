@@ -45,12 +45,12 @@ const crystalParameters: Array<DiceParameter> = [
 	}
 ];
 
-export const CrystalD4 = crystal('crystal_d4', 'D4 Crystal', 4);
-export const CrystalD6 = crystal('crystal_d6', 'D6 Crystal', 6);
-export const CrystalD8 = crystal('crystal_d8', 'D6 Crystal', 8);
-export const CrystalD10 = crystal('crystal_d10', 'D10 Crystal', 10);
-export const CrystalD12 = crystal('crystal_d12', 'D12 Crystal', 12);
-export const CrystalD00 = crystal('crystal_d00', 'D% Crystal', 10, true);
+export const CrystalD4 = crystal('d4_crystal', 'D4 Crystal', 4);
+export const CrystalD6 = crystal('d6_crystal', 'D6 Crystal', 6);
+export const CrystalD8 = crystal('d8_crystal', 'D6 Crystal', 8);
+export const CrystalD10 = crystal('d10_crystal', 'D10 Crystal', 10);
+export const CrystalD12 = crystal('d12_crystal', 'D12 Crystal', 12);
+export const CrystalD00 = crystal('d00_crystal', 'D% Crystal', 10, true);
 
 function crystal(id: string, name: string, sides: number, tens = false): DieModel {
 	return {

@@ -38,7 +38,7 @@ export const goFirstPreset: Preset = {
 			kind: "die",
 			id: "d12_shape",
 			options: shapes,
-			value: shapes.includes("dodecahedron_d12") ? "dodecahedron_d12" : shapes[0],
+			value: shapes.includes("d12_dodecahedron") ? "d12_dodecahedron" : shapes[0],
 		}
 		]
 	},

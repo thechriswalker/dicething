@@ -23,7 +23,7 @@ export default defineConfig({
 					environment: 'jsdom',
 					clearMocks: true,
 					include: ['src/**/*.svelte.{test,spec}.{js,ts}'],
-					exclude: ['src/lib/server/**'],
+					exclude: ['src/lib/server/**', 'src/**/*.slow.{test,spec}.{js,ts}'],
 					setupFiles: ['./vitest-setup-client.ts']
 				}
 			},
@@ -33,7 +33,22 @@ export default defineConfig({
 					name: 'server',
 					environment: 'node',
 					include: ['src/**/*.{test,spec}.{js,ts}'],
-					exclude: ['src/**/*.svelte.{test,spec}.{js,ts}']
+					exclude: [
+						'src/**/*.svelte.{test,spec}.{js,ts}',
+						'src/**/*.slow.{test,spec}.{js,ts}'
+					]
+				}
+			},
+			{
+				// the "slow" suite: exhaustive 3D audits (every glyph on every die's
+				// face shapes, etc.). Excluded from the default run; invoke explicitly
+				// with `bun run test:slow` after any 3D work. jsdom so the coin's
+				// SVGLoader-based path parsing works.
+				extends: './vite.config.ts',
+				test: {
+					name: 'slow',
+					environment: 'jsdom',
+					include: ['src/**/*.slow.{test,spec}.{js,ts}']
 				}
 			}
 		]

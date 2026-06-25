@@ -107,7 +107,7 @@ const dodecahedron_faces: Array<PolyhedronFace> = [
 	}
 ];
 export const DodecahedronD12 = polyhedron(
-	'dodecahedron_d12',
+	'd12_dodecahedron',
 	'D12 Dodecahedron',
 	dodecahedron_faces,
 	dodecahedron_shape

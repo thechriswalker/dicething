@@ -48,7 +48,7 @@ function tetrahedralOrbit(params: Record<string, number>): Array<Vector3> {
 // single shape and chiral tetrahedral symmetry are derived from the source. the
 // left/right mirror is produced by the chiral `handedness` parameter.
 export const TetartoidD12: DieModel = convexPolyhedronDie({
-	id: 'tetartoid_d12',
+	id: 'd12_tetartoid',
 	name: 'D12 Skew',
 	source: tetrahedralOrbit,
 	defaultSize: 18,

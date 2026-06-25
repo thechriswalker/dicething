@@ -17,15 +17,15 @@ import { numberingOrders, type NumberingOrder } from '../src/lib/dice/numbering_
 
 // the dice built by convexPolyhedronDie (those whose numbering we generate).
 const CONVEX_POLYHEDRON_DICE = [
-	'skew_d6',
-	'tetartoid_d12',
-	'deltoidal_icositetrahedron_d24',
-	'tetrakis_hexahedron_d24',
-	'pentagonal_icositetrahedron_d24',
-	'rhombic_triacontahedron_d30',
-	'deltoidal_hexecontahedron_d60',
-	'pentakis_dodecahedron_d60',
-	'pentagonal_hexecontahedron_d60'
+	'd6_skew',
+	'd12_tetartoid',
+	'd24_deltoidal_icositetrahedron',
+	'd24_tetrakis_hexahedron',
+	'd24_pentagonal_icositetrahedron',
+	'd30_rhombic_triacontahedron',
+	'd60_deltoidal_hexecontahedron',
+	'd60_pentakis_dodecahedron',
+	'd60_pentagonal_hexecontahedron'
 ];
 
 // ---------------------------------------------------------------------------

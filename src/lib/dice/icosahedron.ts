@@ -158,7 +158,7 @@ const d20_faces: Array<PolyhedronFace> = [
 const params = defaultParameters();
 params[0].min = 12; // tweak the minimum, as the faces get too small.
 
-export const IcosahedronD20 = polyhedron('icosahedron_d20', 'D20 Icosahedron', d20_faces, d20_shape, {
+export const IcosahedronD20 = polyhedron('d20_icosahedron', 'D20 Icosahedron', d20_faces, d20_shape, {
 	parameters: params,
 	individualLegendScaling: true
 });

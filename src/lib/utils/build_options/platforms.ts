@@ -1,4 +1,12 @@
-import { BufferGeometry, Float32BufferAttribute, Mesh, MeshNormalMaterial, Shape, Vector2 } from 'three';
+import {
+	BufferGeometry,
+	Float32BufferAttribute,
+	Mesh,
+	MeshNormalMaterial,
+	Shape,
+	ShapeUtils,
+	Vector2
+} from 'three';
 import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { m } from '$lib/paraglide/messages';
 import type { Builder } from '../builder';
@@ -20,26 +28,25 @@ const controls: ExtraBuildOption['controls'] = [
 		help: m.export_opt_platforms_inset_help
 	},
 	{
+		id: 'outset',
+		kind: 'number',
+		label: m.export_opt_platforms_outset_label,
+		min: 0,
+		max: 10,
+		step: 0.1,
+		default: 0.5,
+		unit: m.export_unit_mm,
+		help: m.export_opt_platforms_outset_help
+	},
+	{
 		id: 'height',
 		kind: 'number',
 		label: m.export_opt_platforms_height_label,
 		min: 0.5,
 		max: 6,
 		step: 0.1,
-		default: 2,
+		default: 2.5,
 		unit: m.export_unit_mm
-	},
-	{
-		id: 'angle',
-		kind: 'number',
-		label: m.export_opt_platforms_angle_label,
-		// steep draft so the base is only slightly wider than the top.
-		min: 45,
-		max: 85,
-		step: 1,
-		default: 65,
-		unit: m.export_unit_deg,
-		help: m.export_opt_platforms_angle_help
 	}
 ];
 
@@ -50,15 +57,15 @@ export const platformsOption: ExtraBuildOption = {
 	defaultEnabled: false,
 	controls,
 	generate(ctx) {
-		const inset = Number(controlValue(controls, ctx.values, 'inset')) || 0;
-		const height = Number(controlValue(controls, ctx.values, 'height')) || 2;
-		const angleDeg = Number(controlValue(controls, ctx.values, 'angle')) || 65;
+		const inset = Number(controlValue(controls, ctx.values, 'inset')) || 1.5;
+		const outset = Number(controlValue(controls, ctx.values, 'outset')) || 0.5;
+		const height = Number(controlValue(controls, ctx.values, 'height')) || 2.5;
 
 		const shape = ctx.model.platformShape?.(ctx.die.parameters) ?? largestFaceShape(ctx.builder);
 		if (!shape) {
 			return [];
 		}
-		const geo = buildPlatform(shape, { height, inset, angleDeg });
+		const geo = buildPlatform(shape, { height, inset, outset });
 		return [{ suffix: 'platform', mesh: new Mesh(geo, _material) }];
 	}
 };
@@ -76,38 +83,58 @@ function largestFaceShape(builder: Builder): Shape | undefined {
 	return best;
 }
 
-// Build a drafted truncated-cone ("frustum") pedestal, defined top-down: the
-// top surface (the important one) is `shape` inset inward by `inset` and sits at
-// y=height; from there the walls extrude down and outward at `angleDeg` for
-// `height`, so the base (at y=0) is wider than the top by height / tan(angle) on
-// every edge. `shape` is expected to be a convex polygon centered near origin.
+// Build a drafted pedestal under a die face: a short solid whose top surface
+// (the important one) is the face pulled in by `inset`, and whose base is the
+// face pushed out by `outset`, separated vertically by `height`.
+//
+// The top/base profiles are produced by uniformly SCALING the face about its
+// centroid, not by a perpendicular polygon offset. Scaling can never make a
+// simple polygon self-intersect, so it works for any concave outline (e.g. the
+// coin's custom SVG logo, whose fine concave fillets fold a true offset over
+// itself). It also keeps one vertex per source vertex, so the side walls just
+// connect corresponding top/base vertices, and both caps share one ear-clipped
+// triangulation. The result is always a watertight, manifold solid.
+//
+// `inset`/`outset` are interpreted at the outermost point of the face (the
+// bounding radius from the centroid): the farthest vertex moves in/out by
+// exactly that distance and inner vertices move proportionally less.
 export function buildPlatform(
 	shape: Shape,
-	{ height, inset, angleDeg }: { height: number; inset: number; angleDeg: number }
+	{ height, inset, outset }: { height: number; inset: number; outset: number }
 ): BufferGeometry {
-	const face = polygonPoints(shape);
+	const face = simplifyLoop(polygonPoints(shape), 0.05);
 	const n = face.length;
 	if (n < 3) {
 		return new BufferGeometry();
 	}
-	// normalize to CCW (in 2D x,y) so the side-wall and cap winding below is
-	// consistent regardless of the orientation the source shape happened to use.
+	// normalize to CCW (in 2D x,y) so the cap/wall winding below is consistent
+	// regardless of the orientation the source shape happened to use.
 	if (signedArea(face) < 0) {
 		face.reverse();
 	}
-	// horizontal growth from the top down to the base.
-	const run = height / Math.tan((angleDeg * Math.PI) / 180);
-	// top is the face inset by `inset`; base is the top grown outward by `run`
-	// (equivalently the face inset by `inset - run`, where a negative inset is an
-	// outset).
-	const top = offsetConvexInward(face, inset);
-	const base = offsetConvexInward(face, inset - run);
+
+	const centroid = polygonCentroid(face);
+	let radius = 0;
+	for (const p of face) {
+		radius = Math.max(radius, p.distanceTo(centroid));
+	}
+	if (radius < 1e-6) {
+		return new BufferGeometry();
+	}
+	// scale factors that move the outermost vertex in by `inset` / out by
+	// `outset`. clamp the top so a large inset can't collapse or invert it.
+	const topScale = Math.max(0.02, (radius - inset) / radius);
+	const baseScale = (radius + outset) / radius;
+	const scaleAbout = (p: Vector2, s: number) =>
+		new Vector2(centroid.x + (p.x - centroid.x) * s, centroid.y + (p.y - centroid.y) * s);
+	const top = face.map((p) => scaleAbout(p, topScale));
+	const base = face.map((p) => scaleAbout(p, baseScale));
 
 	const positions: number[] = [];
 	const push = (p: Vector2, y: number) => positions.push(p.x, y, p.y);
 
 	// side walls: one quad per edge, split into two triangles. wound so the
-	// outward face points away from the centroid.
+	// outward face points away from the interior.
 	for (let i = 0; i < n; i++) {
 		const j = (i + 1) % n;
 		// triangle 1: base[i], top[i], base[j]
@@ -120,25 +147,32 @@ export function buildPlatform(
 		push(top[j], height);
 	}
 
-	// bottom cap (normal points down): fan from vertex 0. for a CCW (x,y)
-	// polygon, the natural fan order winds the down-facing normal correctly.
-	for (let i = 1; i < n - 1; i++) {
-		push(base[0], 0);
-		push(base[i], 0);
-		push(base[i + 1], 0);
-	}
-
-	// top cap (normal points up): fan from vertex 0, reversed winding.
-	for (let i = 1; i < n - 1; i++) {
-		push(top[0], height);
-		push(top[i + 1], height);
-		push(top[i], height);
+	// caps: ear-clip the ring once and reuse the indices for both ends (top and
+	// base are the same polygon scaled, so one triangulation is valid for both).
+	// ear clipping indexes into the ring vertices without introducing new points,
+	// so each cap's boundary is exactly the ring edges and lines up with the
+	// side-wall top/bottom edges. the bottom cap keeps the (CCW) winding so its
+	// normal points down; the top cap is reversed so its normal points up.
+	const capTris = ShapeUtils.triangulateShape(top, []);
+	for (const [a, b, c] of capTris) {
+		push(base[a], 0);
+		push(base[b], 0);
+		push(base[c], 0);
+		push(top[a], height);
+		push(top[c], height);
+		push(top[b], height);
 	}
 
 	const geo = new BufferGeometry();
 	geo.setAttribute('position', new Float32BufferAttribute(positions, 3));
+	// compute flat (per-face) normals BEFORE welding: the geometry is non-indexed
+	// here, so every triangle owns its three corners and gets its own face normal.
+	// merging afterwards only welds corners whose normals also match, so the sharp
+	// wall/cap and wall/wall seams stay hard. doing it the other way round welds
+	// by position first and then averages normals across those seams, which tilts
+	// the perimeter normals down-and-out and shades the drafted base near-black.
+	geo.computeVertexNormals();
 	const merged = mergeVertices(geo);
-	merged.computeVertexNormals();
 	return merged;
 }
 
@@ -154,63 +188,91 @@ function signedArea(points: Array<Vector2>): number {
 	return area / 2;
 }
 
-// Get the polygon vertices of a (convex) shape, dropping a duplicated closing
-// point if present.
+// Area-weighted centroid of a polygon. Falls back to the vertex average for a
+// (near) zero-area loop.
+function polygonCentroid(points: Array<Vector2>): Vector2 {
+	const n = points.length;
+	let area = 0;
+	let cx = 0;
+	let cy = 0;
+	for (let i = 0; i < n; i++) {
+		const a = points[i];
+		const b = points[(i + 1) % n];
+		const cross = a.x * b.y - b.x * a.y;
+		area += cross;
+		cx += (a.x + b.x) * cross;
+		cy += (a.y + b.y) * cross;
+	}
+	if (Math.abs(area) < 1e-9) {
+		const avg = new Vector2();
+		for (const p of points) avg.add(p);
+		return avg.divideScalar(n || 1);
+	}
+	return new Vector2(cx / (3 * area), cy / (3 * area));
+}
+
+// Get the polygon vertices of a shape, dropping a duplicated closing point and
+// any (near) coincident consecutive points. `getPoints(24)` over-samples each
+// straight segment 24x, so the dedupe is what keeps a polygon's edges as single
+// segments; the simplify pass below thins genuinely curved outlines.
 function polygonPoints(shape: Shape): Array<Vector2> {
-	const pts = shape.getPoints(24).map((p) => p.clone());
-	if (pts.length > 1) {
-		const first = pts[0];
+	const raw = shape.getPoints(24);
+	const pts: Array<Vector2> = [];
+	for (const p of raw) {
 		const last = pts[pts.length - 1];
-		if (Math.abs(first.x - last.x) < 1e-6 && Math.abs(first.y - last.y) < 1e-6) {
-			pts.pop();
+		if (!last || last.distanceToSquared(p) > 1e-12) {
+			pts.push(p.clone());
 		}
+	}
+	if (pts.length > 1 && pts[0].distanceToSquared(pts[pts.length - 1]) < 1e-12) {
+		pts.pop();
 	}
 	return pts;
 }
 
-// Offset a convex polygon inward by `inset` (perpendicular distance on every
-// edge), by mitering offset edges at each vertex. Approximate but exact for
-// convex polygons.
-function offsetConvexInward(points: Array<Vector2>, inset: number): Array<Vector2> {
+// Douglas-Peucker simplification of a closed loop. Curved outlines like the
+// coin's custom path arrive heavily over-sampled (thousands of points along the
+// arcs); thinning them to a `tol`-mm deviation keeps the pedestal light and,
+// more importantly, removes the near-zero-area sliver triangles a dense ring
+// would otherwise tessellate into (which a manifold check flags as degenerate).
+function simplifyLoop(points: Array<Vector2>, tol: number): Array<Vector2> {
 	const n = points.length;
-	const centroid = new Vector2();
-	for (const p of points) centroid.add(p);
-	centroid.divideScalar(n);
-
-	// per-edge offset line: a point on it + its direction.
-	const edges = points.map((a, i) => {
-		const b = points[(i + 1) % n];
-		const dir = b.clone().sub(a).normalize();
-		// inward normal (toward centroid)
-		let normal = new Vector2(-dir.y, dir.x);
-		const mid = a.clone().add(b).multiplyScalar(0.5);
-		if (normal.dot(centroid.clone().sub(mid)) < 0) {
-			normal = normal.negate();
+	if (n < 4) {
+		return points;
+	}
+	const simplifyOpen = (pts: Array<Vector2>): Array<Vector2> => {
+		if (pts.length < 3) {
+			return pts.slice();
 		}
-		const point = a.clone().add(normal.clone().multiplyScalar(inset));
-		return { point, dir };
-	});
-
-	// new vertex i = intersection of offset edge (i-1) and offset edge i.
-	const out: Array<Vector2> = [];
-	for (let i = 0; i < n; i++) {
-		const prev = edges[(i - 1 + n) % n];
-		const cur = edges[i];
-		const v = lineIntersection(prev.point, prev.dir, cur.point, cur.dir);
-		out.push(v ?? points[i].clone().lerp(centroid, 0.1));
-	}
-	return out;
-}
-
-// Intersection of two lines given as point + direction. Returns undefined when
-// (near) parallel.
-function lineIntersection(p1: Vector2, d1: Vector2, p2: Vector2, d2: Vector2): Vector2 | undefined {
-	const denom = d1.x * d2.y - d1.y * d2.x;
-	if (Math.abs(denom) < 1e-9) {
-		return undefined;
-	}
-	const dx = p2.x - p1.x;
-	const dy = p2.y - p1.y;
-	const t = (dx * d2.y - dy * d2.x) / denom;
-	return new Vector2(p1.x + d1.x * t, p1.y + d1.y * t);
+		const a = pts[0];
+		const b = pts[pts.length - 1];
+		const dx = b.x - a.x;
+		const dy = b.y - a.y;
+		const len = Math.hypot(dx, dy);
+		let maxDist = -1;
+		let idx = -1;
+		for (let i = 1; i < pts.length - 1; i++) {
+			const p = pts[i];
+			const dist =
+				len < 1e-12
+					? Math.hypot(p.x - a.x, p.y - a.y)
+					: Math.abs((p.x - a.x) * dy - (p.y - a.y) * dx) / len;
+			if (dist > maxDist) {
+				maxDist = dist;
+				idx = i;
+			}
+		}
+		if (maxDist > tol) {
+			const left = simplifyOpen(pts.slice(0, idx + 1));
+			const right = simplifyOpen(pts.slice(idx));
+			return left.slice(0, -1).concat(right);
+		}
+		return [a, b];
+	};
+	// treat the closed loop as an open polyline that starts and ends at the same
+	// point, simplify, then drop the duplicated end.
+	const open = points.concat([points[0]]);
+	const out = simplifyOpen(open);
+	out.pop();
+	return out.length >= 3 ? out : points;
 }

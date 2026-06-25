@@ -47,7 +47,7 @@ const shardParameters: Array<DiceParameter> = [
 	}
 ];
 
-export const ShardD4 = shard('shard_d4', 'D4 Shard', 4);
+export const ShardD4 = shard('d4_shard', 'D4 Shard', 4);
 export const ShardD6 = shard('shard_d6', 'D6 Shard', 6);
 export const ShardD8 = shard('shard_d8', 'D6 Shard', 8);
 export const ShardD10 = shard('shard_d10', 'D10 Shard', 10);

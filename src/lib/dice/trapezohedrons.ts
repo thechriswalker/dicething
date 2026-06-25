@@ -193,19 +193,19 @@ function xyRot(i: number, sides: number, baseAngle: number): { y: number; xflip:
 	return { y: rotation, xflip: even };
 }
 
-export const RhombicD6 = trapezohedron('rhombic_d6', 'Rhombic D6', 6);
-export const TrapezohedronD8 = trapezohedron('trapezohedron_d8', 'D8 Trapezohedron', 8);
+export const RhombicD6 = trapezohedron('d6_rhombic', 'Rhombic D6', 6);
+export const TrapezohedronD8 = trapezohedron('d8_trapezohedron', 'D8 Trapezohedron', 8);
 // the taller d10/d%/d12 need a touch more downward tilt to read well.
 const trapezohedronD10Tilt = previewTilt(-Math.PI / 9, 0);
 export const TrapezohedronD10 = trapezohedron(
-	'trapezohedron_d10',
+	'd10_trapezohedron',
 	'D10 Twisted Trapezohedron',
 	10,
 	false,
 	trapezohedronD10Tilt
 );
 export const TrapezohedronD00 = trapezohedron(
-	'trapezohedron_d00',
+	'd00_trapezohedron',
 	'D% Twisted Trapezohedron',
 	10,
 	true,
@@ -213,7 +213,7 @@ export const TrapezohedronD00 = trapezohedron(
 );
 // the d12 also wants a little sideways rotation to reveal its faces.
 export const TrapezohedronD12 = trapezohedron(
-	'trapezohedron_d12',
+	'd12_trapezohedron',
 	'D12 Trapezohedron',
 	12,
 	false,

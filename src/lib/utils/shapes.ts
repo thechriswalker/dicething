@@ -435,58 +435,76 @@ const maxAcceptableDistance = 2;
 // the acceptable band. `tolerance` is the minimum inset a legend must keep from
 // the edge: when larger than the default band it raises the target so legends
 // auto-shrink to honor the inset. Defaults to 0 (the historical behaviour).
+//
+// The margin is monotonic in scale: a bigger legend sits closer to the edges, so
+// `_isContainedAndMinDistanceToEdge` shrinks (and eventually returns -1 once the
+// legend overflows). We exploit that to bracket-and-bisect for the largest scale
+// whose inset is still >= the target, which always converges - the old
+// fixed-step search could march `scale` negative or oscillate forever on wide
+// glyphs / narrow faces and threw "not converging".
+//
+// A legend can always be made to fit: shrinking it collapses it toward the
+// origin, where the inset approaches the face's inradius. If even that inradius
+// is below the requested inset (the face is simply too small for the band) we
+// drop the target to the largest inset the face can offer, so the symbol comes
+// out small but still printable rather than failing.
 export function findBestLegendScalingFactor(
 	shape: Shape,
 	legends: Array<Shape>,
 	tolerance: number = 0
 ): number {
+	if (!legends || legends.length === 0) {
+		return 1;
+	}
 	const minDist = Math.max(minAcceptableDistance, tolerance);
 	const maxDist = minDist + (maxAcceptableDistance - minAcceptableDistance);
-	let scale = 1;
-	let minDistanceToEdge = _isContainedAndMinDistanceToEdge(shape, legends);
-	// so we don't have to check for oscillation we move only in one direction, then half our step on
-	// a reversal.
-	let step = 0.4;
-	// we will fake the direction as being the way we want to move first.
-	let isShrinking = minDistanceToEdge < minDist;
-	let i = 0;
-	while (minDistanceToEdge < minDist || minDistanceToEdge > maxDist) {
-		i++;
-		// console.log({
-		// 	distanceToEdge: minDistanceToEdge,
-		// 	scale,
-		// 	step,
-		// 	isShrinking,
-		// 	i
-		// });
-		if (minDistanceToEdge < minDist) {
-			// current edge distance is too close. we need to get smaller (making the distance bigger)
-			if (!isShrinking) {
-				// we were getting bigger, we should halve our step and
-				// switch to a shrink
-				step = step / 2;
-				isShrinking = true;
+
+	// inset of the legend scaled by `scale`; -1 when it overflows the face.
+	const insetAt = (scale: number): number =>
+		_isContainedAndMinDistanceToEdge(shape, scaleShapes(scale, ...legends));
+
+	// shrinking toward zero collapses the legend to (around) the origin, so this
+	// is effectively the face's inradius - the most inset any legend can get.
+	const TINY = 1e-3;
+	const maxInset = insetAt(TINY);
+
+	// the inset we aim to leave around the legend. normally the band's lower
+	// bound (which yields the biggest legend that still honors the inset); for a
+	// face too small to reach that, the best inset it can offer instead.
+	const target = maxInset >= minDist ? minDist : Math.max(maxInset * 0.5, TINY);
+	// the upper inset we're happy to accept (legend not needlessly small).
+	const upper = maxInset >= minDist ? maxDist : maxInset;
+
+	// bracket: `lo` fits (inset >= target), `hi` is too big (inset < target).
+	let lo = TINY;
+	let hi = TINY;
+	let guard = 0;
+	while (insetAt(hi) >= target && guard++ < 80 && isFinite(hi)) {
+		lo = hi;
+		hi *= 2;
+	}
+	if (insetAt(lo) < target) {
+		// even the tiniest legend can't reach the target (degenerate / sub-unit
+		// face). return something small but positive so we never emit a zero or
+		// negative scale.
+		return TINY;
+	}
+
+	// bisect for the largest scale with inset >= target, returning early once the
+	// inset lands inside the [target, upper] band.
+	for (let i = 0; i < 80 && hi - lo > 1e-4; i++) {
+		const mid = (lo + hi) / 2;
+		const inset = insetAt(mid);
+		if (inset >= target) {
+			lo = mid;
+			if (inset <= upper) {
+				return mid;
 			}
-			scale -= step;
 		} else {
-			// current distance to the edge is too big, i.e. legend is too small.
-			// now we need to get bigger
-			if (isShrinking) {
-				// we were shrinking, half and get bigger.
-				step = step / 2;
-				isShrinking = false;
-			}
-			scale += step;
-		}
-		const testLegends = scaleShapes(scale, ...legends);
-		minDistanceToEdge = _isContainedAndMinDistanceToEdge(shape, testLegends);
-		if (i > 100) {
-			throw new Error('not converging (probably a developer error...)');
-			//return 1;
+			hi = mid;
 		}
 	}
-	//console.log({ final_distance: minDistanceToEdge, scale });
-	return scale;
+	return lo;
 }
 
 // Inset a convex polygon inward by `distance`, returning the new vertices. Each

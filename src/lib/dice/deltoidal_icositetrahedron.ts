@@ -14,7 +14,7 @@ function rhombicuboctahedronVertices(): Array<Vector3> {
 }
 
 export const DeltoidalIcositetrahedronD24: DieModel = convexPolyhedronDie({
-	id: 'deltoidal_icositetrahedron_d24',
+	id: 'd24_deltoidal_icositetrahedron',
 	name: 'D24 Deltoidal',
 	source: rhombicuboctahedronVertices,
 	defaultSize: 22,

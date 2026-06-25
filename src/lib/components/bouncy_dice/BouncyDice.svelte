@@ -5,6 +5,8 @@
 	import { onDestroy, onMount } from 'svelte';
 	import { browser } from '$app/environment';
 	import dice from '$lib/dice';
+	import type { LegendSet } from '$lib/utils/legends';
+	import type { DieModel } from '$lib/interfaces/dice';
 
 	let cvs: HTMLDivElement;
 	let wrap: HTMLDivElement;
@@ -28,36 +30,77 @@
 
 		// we will pick a selection for the splash page.
 		let models = [
-			dice.icosahedron_d20,
-			dice.crystal_d4,
-			dice.rhombic_d6,
-			dice.dodecahedron_d12,
-			dice.trapezohedron_d00,
-			dice.trapezohedron_d10,
-			dice.trapezohedron_d8,
-			dice.caltrop_d4,
-			dice.rhombic_d12,
-			dice.cube_d6,
-			dice.shard_d4
+			dice.d20_icosahedron,
+			dice.d4_crystal,
+			dice.d6_rhombic,
+			dice.d12_dodecahedron,
+			dice.d00_trapezohedron,
+			dice.d10_trapezohedron,
+			dice.d8_trapezohedron,
+			dice.d4_caltrop,
+			dice.d12_rhombic,
+			dice.d6_cube,
+			dice.d4_shard,
+			dice.d24_deltoidal_icositetrahedron,
+			dice.d30_rhombic_triacontahedron,
+			dice.d60_pentakis_dodecahedron
 		];
-		const pickRandomModel = () => {
-			const randomIndex = Math.floor(Math.random() * models.length);
-			return models[randomIndex];
+		const pickRandomModel = (prev: DieModel | null = null) => {
+			while(true){
+				const randomIndex = Math.floor(Math.random() * models.length);
+				const model = models[randomIndex];
+				if(model !== prev) {
+					return model;
+				}
+			}
 		};
 
+		const legends: LegendSet[] = [];
+		let chain = Promise.resolve();
+		[
+			builtins.germania_one, 
+			builtins.alice_in_wonderland, 
+			builtins.averia, 
+			builtins.voltaire,
+			builtins.tektur, 
+			builtins.siamese_katsong, 
+			builtins.josefin_medium
+		].forEach(async (l) => {
+			chain = chain.finally(async () => {
+				const f = await l.load();
+				legends.push(f);
+				if (legends.length === 1) {
+					font = f;
+				}
+			});
+		});
+		const pickRandomLegend = (prev: LegendSet | null = null) => {
+			if(legends.length === 0) {
+				return blanks;
+			}
+			if (legends.length === 1) {
+				return legends[0];
+			}
+			while(true){
+				const randomIndex = Math.floor(Math.random() * legends.length);
+				const legend = legends[randomIndex];
+				if(legend !== prev) {
+					return legend;
+				}
+			}
+		};
 		let model = $state(pickRandomModel());
 		let nextChange: NodeJS.Timeout = -1 as any;
+		let font = $state(blanks as LegendSet);
 		changeDice = () => {
 			clearTimeout(nextChange);
 			if (stopRender) {
 				return;
 			}
-			model = pickRandomModel();
+			model = pickRandomModel(model);
+			font = pickRandomLegend(font);
 			nextChange = setTimeout(changeDice, (1 + Math.random()) * 5000);
 		};
-
-		let font = $state(blanks);
-		builtins.germania_one.load().then((f) => (font = f));
 
 		let builder = $derived(new Builder(model, font));
 

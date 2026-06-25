@@ -27,7 +27,7 @@ function rhombicosidodecahedronVertices(): Array<Vector3> {
 }
 
 export const DeltoidalHexecontahedronD60: DieModel = convexPolyhedronDie({
-	id: 'deltoidal_hexecontahedron_d60',
+	id: 'd60_deltoidal_hexecontahedron',
 	name: 'D60 Deltoidal',
 	source: rhombicosidodecahedronVertices,
 	defaultSize: 30,

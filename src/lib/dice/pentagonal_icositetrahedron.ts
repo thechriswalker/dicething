@@ -17,7 +17,7 @@ function snubCubeVertices(): Array<Vector3> {
 // shape and chiral octahedral symmetry are derived from the source. the
 // left/right mirror is produced by the chiral `handedness` parameter.
 export const PentagonalIcositetrahedronD24: DieModel = convexPolyhedronDie({
-	id: 'pentagonal_icositetrahedron_d24',
+	id: 'd24_pentagonal_icositetrahedron',
 	name: 'D24 Pentagonal',
 	source: snubCubeVertices,
 	defaultSize: 22,

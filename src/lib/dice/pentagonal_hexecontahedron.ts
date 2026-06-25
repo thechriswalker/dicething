@@ -54,7 +54,7 @@ function snubDodecahedronVertices(): Array<Vector3> {
 // single shape and chiral icosahedral symmetry are derived from the source. the
 // left/right mirror is produced by the chiral `handedness` parameter.
 export const PentagonalHexecontahedronD60: DieModel = convexPolyhedronDie({
-	id: 'pentagonal_hexecontahedron_d60',
+	id: 'd60_pentagonal_hexecontahedron',
 	name: 'D60 Pentagonal',
 	source: snubDodecahedronVertices,
 	seedRotation: -120.5,

@@ -22,7 +22,7 @@ function icosidodecahedronVertices(): Array<Vector3> {
 }
 
 export const RhombicTriacontahedronD30: DieModel = convexPolyhedronDie({
-	id: 'rhombic_triacontahedron_d30',
+	id: 'd30_rhombic_triacontahedron',
 	name: 'D30 Rhombic',
 	source: icosidodecahedronVertices,
 	defaultSize: 24,

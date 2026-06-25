@@ -25,6 +25,7 @@
 	import { computeEngravingErrors, type EngravingError } from '$lib/utils/builder';
 	import { checkMeshInWorker } from '$lib/utils/mesh_check_client';
 	import { mergeMeshReports, type MeshCheckReport } from '$lib/utils/mesh_check';
+	import { toNonIndexed } from '$lib/utils/3d';
 	import { onMount } from 'svelte';
 	import { BufferAttribute, BufferGeometry, DoubleSide, Group, Mesh, MeshBasicMaterial } from 'three';
 	import { AlertTriangle, ArrowLeftIcon, DownloadIcon, Frame, SparklesIcon } from '@lucide/svelte';
@@ -143,7 +144,10 @@
 						meshes.map((mesh) =>
 							// positions are read post-layout, so the returned problem
 							// triangles are already in the preview's coordinate space.
-							checkMeshInWorker(mesh.geometry.getAttribute('position').array, {
+							// expand any indexed geometry (e.g. a platform, which welds
+							// its vertices) to a flat triangle soup first: checkMesh treats
+							// the buffer as 9 floats per triangle and ignores the index.
+							checkMeshInWorker(toNonIndexed(mesh.geometry).getAttribute('position').array, {
 								collectBad: true
 							})
 						)
@@ -471,7 +475,7 @@
 				</div>
 			{/snippet}
 			{#if showTuning}
-				<Collapsible title={m.export_render_tuning_title()}>
+				<Collapsible defaultOpen={false} title={m.export_render_tuning_title()} >
 					<div class="flex flex-col gap-2 pt-2">
 						<p class="text-surface-600-400 text-xs">{m.export_render_tuning_hint()}</p>
 						<span class="text-sm font-semibold">{m.export_render_tuning_base_colour()}</span>

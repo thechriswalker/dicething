@@ -29,10 +29,18 @@ export type LegendCandidate = {
 export type LegendCheckResult = {
 	label: string;
 	kind: 'character' | 'legend';
+	// which die model this candidate was engraved on (the audit checks every
+	// die, not just a d6). Omitted by the legacy d6-only helper.
+	dieKind?: string;
+	dieName?: string;
 	report?: MeshCheckReport;
 	// set when engraving threw outright (a hard failure, not just a bad mesh).
 	error?: string;
 };
+
+// a checker that turns a flat position buffer into a structural report. The
+// page passes the Web Worker variant; tests pass the synchronous checkMesh.
+export type MeshChecker = (positions: ArrayLike<number>) => Promise<MeshCheckReport>;
 
 // Collect the minimal set of things to check from a legend set: the unique
 // component characters of every font-based legend (rendered fresh from the
@@ -89,7 +97,7 @@ export async function checkLegendCandidate(
 		const shapes = Array.from({ length: 10 }, () => candidate.shapes);
 		const names = shapes.map(() => candidate.label);
 		const tempSet = loadImmutableLegends({ id: 'validate', name: 'validate', names, shapes });
-		const builder = new Builder(dice.cube_d6, tempSet);
+		const builder = new Builder(dice.d6_cube, tempSet);
 		// default face params => each face engraves its default legend, which we've
 		// filled with the candidate glyph.
 		const mesh = builder.export({}, []);
@@ -103,6 +111,81 @@ export async function checkLegendCandidate(
 			error: e instanceof Error ? e.message : String(e)
 		};
 	}
+}
+
+// Every die model the thorough audit engraves a candidate onto.
+export const auditDiceKinds: ReadonlyArray<string> = Object.keys(dice);
+
+// How many legend slots to pre-fill with the candidate glyph. Building a die
+// with default face params makes each face pull its canonical legend, so to
+// guarantee the candidate lands on every number face we fill every slot any
+// builtin die can default to: the canonical 0-30, the maker logo at 31, and the
+// remaining numbers packed into 32-103. 110 covers all of them with headroom.
+const AUDIT_SLOT_COUNT = 110;
+
+// A legend set whose every slot is the candidate glyph. Building any die with
+// default face params then engraves the candidate on each of its number faces,
+// while non-number faces (rims, hidden facets) default to blank as usual.
+function candidateLegendSet(candidate: LegendCandidate) {
+	const shapes = Array.from({ length: AUDIT_SLOT_COUNT }, () => candidate.shapes);
+	const names = Array.from({ length: AUDIT_SLOT_COUNT }, () => candidate.label);
+	return loadImmutableLegends({ id: 'validate', name: 'validate', names, shapes });
+}
+
+// Build the exported solid for `candidate` engraved across `dieKind`'s number
+// faces and return its flat, non-indexed position buffer (triangle soup), ready
+// for checkMesh / the mesh-check worker.
+export function buildCandidateOnDie(
+	candidate: LegendCandidate,
+	dieKind: string
+): ArrayLike<number> {
+	const model = (dice as Record<string, (typeof dice)[keyof typeof dice]>)[dieKind];
+	if (!model) {
+		throw new Error(`unknown die kind: ${dieKind}`);
+	}
+	const builder = new Builder(model, candidateLegendSet(candidate));
+	const mesh = builder.export({}, []);
+	return mesh.geometry.getAttribute('position').array;
+}
+
+// Engrave a single candidate on every die model and structurally check each
+// resulting solid. This is the thorough check the legendset page runs and the
+// "slow" suite reuses: a glyph that prints fine on a d6 can still produce a
+// non-manifold sliver on, say, a trapezohedron's slanted kite, so every unique
+// face shape across the die catalogue gets exercised.
+//
+// `check` performs the structural test (worker on the page, synchronous in
+// tests). `onResult` is invoked after each die so callers can drive progress.
+export async function checkLegendCandidateAllDice(
+	candidate: LegendCandidate,
+	check: MeshChecker,
+	onResult?: (r: LegendCheckResult) => void
+): Promise<Array<LegendCheckResult>> {
+	const out: Array<LegendCheckResult> = [];
+	for (const dieKind of auditDiceKinds) {
+		// yield a macrotask between dice so the caller's event loop keeps turning:
+		// the page stays responsive (each die build is heavy synchronous work) and
+		// test runners can deliver their progress heartbeat between builds.
+		await new Promise((resolve) => setTimeout(resolve));
+		const dieName = (dice as Record<string, (typeof dice)[keyof typeof dice]>)[dieKind]?.name;
+		let result: LegendCheckResult;
+		try {
+			const positions = buildCandidateOnDie(candidate, dieKind);
+			const report = await check(positions);
+			result = { label: candidate.label, kind: candidate.kind, dieKind, dieName, report };
+		} catch (e) {
+			result = {
+				label: candidate.label,
+				kind: candidate.kind,
+				dieKind,
+				dieName,
+				error: e instanceof Error ? e.message : String(e)
+			};
+		}
+		out.push(result);
+		onResult?.(result);
+	}
+	return out;
 }
 
 // True when a result represents something that won't print cleanly.

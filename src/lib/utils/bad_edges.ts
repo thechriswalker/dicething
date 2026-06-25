@@ -228,11 +228,7 @@ type KeyedVertex = { x: number; y: number; z: number; key: string };
 // then drop the slivers. The result is the same closed surface with no
 // degenerate triangles. Triangles with two coincident corners are truly
 // redundant and just dropped.
-export function repairDegenerateTriangles(
-	g: BufferGeometry,
-	tolerance = 1e-4,
-	areaEpsilon = 1e-6
-): BufferGeometry {
+export function repairDegenerateTriangles(g: BufferGeometry, tolerance = 1e-4): BufferGeometry {
 	g = toNonIndexed(g);
 	
 	const pos = g.getAttribute('position').array;
@@ -269,14 +265,25 @@ export function repairDegenerateTriangles(
 			b = vAt(i + 3),
 			c = vAt(i + 6);
 		const distinct = a.key !== b.key && b.key !== c.key && a.key !== c.key;
-		if (!distinct || doubleArea(a, b, c) <= 2 * areaEpsilon) {
+		// A sliver is judged by its HEIGHT (the perpendicular distance of the
+		// off-vertex to the longest edge), not its absolute area. Area scales with
+		// the edge lengths, so a long, pencil-thin triangle whose vertices are
+		// collinear to within the weld tolerance can still clear a fixed area
+		// epsilon -- which is exactly how a face-cap triangulator slips a spurious
+		// collinear triangle (e.g. a two-digit "tens" glyph on a trapezohedron
+		// kite) past the old test, leaving 1 boundary + 2 non-manifold edges. The
+		// height test is scale-invariant and consistent with the vertex weld.
+		const ab = dist(a, b),
+			bc = dist(b, c),
+			ca = dist(c, a);
+		const longest = Math.max(ab, bc, ca);
+		const height = longest > 0 ? doubleArea(a, b, c) / longest : 0;
+		if (!distinct || height <= tolerance) {
 			// a collinear sliver of three distinct points contributes a T-junction
-			// at its middle vertex; coincident-corner triangles are just dropped.
+			// at its middle vertex (the one opposite the longest edge, i.e. sitting
+			// on it); coincident-corner triangles are just dropped.
 			if (distinct) {
-				const ab = dist(a, b),
-					bc = dist(b, c),
-					ca = dist(c, a);
-				const mid = ab >= bc && ab >= ca ? c : bc >= ab && bc >= ca ? a : b;
+				const mid = longest === ab ? c : longest === bc ? a : b;
 				if (!junctions.has(mid.key)) {
 					junctions.set(mid.key, mid);
 				}

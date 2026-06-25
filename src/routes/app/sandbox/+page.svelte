@@ -25,6 +25,7 @@
 	import { Legend, type LegendSet } from '$lib/utils/legends';
 	import Scene from '$lib/components/scene/Scene.svelte';
 	import Layout from '$lib/components/layout/Layout.svelte';
+	import { toNonIndexed } from '$lib/utils/3d';
 
 	function time<R>(msg: string, fn: () => R): R {
 		const before = performance.now();
@@ -34,7 +35,7 @@
 	}
 
 	// --- exploration controls --------------------------------------------------
-	let selectedKind = $state<keyof typeof dice>('cube_d6');
+	let selectedKind = $state<keyof typeof dice>('d6_cube');
 	let selectedFontKey = $state<keyof typeof fonts>('voltaire');
 	// which mesh to show + check: the post-export() merged/deduped geometry, or
 	// the raw "working" build (the per-face preview group). lets us see whether

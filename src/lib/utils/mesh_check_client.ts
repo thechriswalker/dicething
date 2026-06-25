@@ -56,3 +56,15 @@ export function checkMeshInWorker(
 		w.postMessage({ id, positions: copy, options }, [copy.buffer]);
 	});
 }
+
+// During dev, the worker is a long-lived singleton that keeps running the code
+// it was built with; editing the check logic won't take effect until it is
+// recreated. Tear it down on HMR so a hot update picks up the new worker bundle
+// instead of silently using the stale one (no full page reload required).
+if (import.meta.hot) {
+	import.meta.hot.dispose(() => {
+		worker?.terminate();
+		worker = undefined;
+		pending.clear();
+	});
+}

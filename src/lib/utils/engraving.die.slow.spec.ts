@@ -53,7 +53,7 @@ const testLegends: Array<[string, Legend]> = [
 // structural report. Empty glyphs (a font missing the logo, say) engrave blank
 // and trivially pass.
 function exportD6(legends: ReturnType<typeof loadImmutableLegends>, legend: Legend) {
-	const builder = new Builder(dice.cube_d6, legends);
+	const builder = new Builder(dice.d6_cube, legends);
 	const faceParams = Array.from({ length: 6 }, () => ({ legend }));
 	const mesh = builder.export({}, faceParams);
 	return checkMesh(mesh.geometry.getAttribute('position').array);
@@ -70,5 +70,25 @@ describe('builtin fonts engrave a printable d6', () => {
 				expect(report.boundaryEdgeCount, 'open/boundary edges').toBe(0);
 			});
 		}
+	}
+});
+
+// The percentile die ("d%") engraves the two-digit "tens" glyphs (00, 10, 20 ..
+// 90) onto a fairly small, slanted trapezohedron kite. A long glyph segment can
+// make the cap triangulator emit a pencil-thin (long but sub-tolerance-tall)
+// collinear triangle whose absolute area still clears a fixed epsilon, so it
+// survived degenerate-repair and left the solid non-manifold. Regression: build
+// the whole d% (every tens glyph) on every font and require a clean solid.
+describe('builtin fonts engrave a printable d% (trapezohedron tens)', () => {
+	for (const [fontName, json] of fontSets) {
+		it(`${fontName}`, () => {
+			const legends = loadImmutableLegends(json);
+			const builder = new Builder(dice.d00_trapezohedron, legends);
+			const mesh = builder.export({}, []);
+			const report = checkMesh(mesh.geometry.getAttribute('position').array);
+			expect(report.degenerateTriangleCount, 'degenerate triangles').toBe(0);
+			expect(report.nonManifoldEdgeCount, 'non-manifold edges').toBe(0);
+			expect(report.boundaryEdgeCount, 'open/boundary edges').toBe(0);
+		});
 	}
 });

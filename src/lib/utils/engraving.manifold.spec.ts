@@ -98,6 +98,9 @@ describe('engraving is manifold', () => {
 		expect(countNonManifoldEdges(engraveMerged(loadGlyph(tektur, 0)))).toBe(0);
 	});
 
+	// engraves and structurally checks every glyph of every builtin font, so it is
+	// legitimately long-running (a few seconds); give it a generous timeout so it
+	// doesn't flake under CPU contention from other test files in the pool.
 	it('every symbol of every builtin font engraves to a manifold mesh', () => {
 		const failures: string[] = [];
 		for (const [name, font] of allFonts) {
@@ -112,5 +115,5 @@ describe('engraving is manifold', () => {
 			}
 		}
 		expect(failures).toEqual([]);
-	});
+	}, 30000);
 });

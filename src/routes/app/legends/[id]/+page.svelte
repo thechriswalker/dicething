@@ -36,11 +36,13 @@
 	import { shapeToJSON } from '$lib/utils/to_json';
 	import { addUnderline, defaultUnderline } from '$lib/utils/underline';
 	import {
-		checkLegendCandidate,
+		auditDiceKinds,
+		checkLegendCandidateAllDice,
 		gatherLegendCandidates,
 		isBrokenResult,
 		type LegendCheckResult
 	} from '$lib/utils/validate_legends';
+	import { checkMeshInWorker } from '$lib/utils/mesh_check_client';
 	import {
 		AlertTriangle,
 		ArrowLeftIcon,
@@ -437,16 +439,23 @@
 		// flush any pending regeneration so we check the latest shapes.
 		regenerateDebounced.flush();
 		const candidates = gatherLegendCandidates(set, fontBuffer);
-		checkTotal = candidates.length;
+		// every glyph is engraved on every die model, so the work is the product
+		// of the two.
+		checkTotal = candidates.length * auditDiceKinds.length;
 		checkDone = 0;
 		const collected: Array<LegendCheckResult> = [];
 		for (const candidate of candidates) {
-			const result = await checkLegendCandidate(candidate);
+			const results = await checkLegendCandidateAllDice(
+				candidate,
+				(p) => checkMeshInWorker(p),
+				() => {
+					checkDone += 1;
+				}
+			);
 			if (runId !== checkRunId) {
 				return; // a newer run (or navigation) superseded this one
 			}
-			collected.push(result);
-			checkDone = collected.length;
+			collected.push(...results);
 		}
 		checkResults = collected;
 		checking = false;
@@ -552,6 +561,9 @@
 									{#each brokenResults as r}
 										<li class="flex flex-wrap items-baseline gap-x-2">
 											<span class="font-mono font-semibold">{r.label}</span>
+											{#if r.dieName}
+												<span class="text-surface-600-400 text-xs">{r.dieName}</span>
+											{/if}
 											<span class="text-surface-700-300">{issuesFor(r).join(', ')}</span>
 										</li>
 									{/each}

@@ -17,7 +17,7 @@ export const myPreset: Preset = {
 			legends: await legendPickerFactory(opts[0]),
 			dice: [
 				{
-					kind: 'crystal_d4',
+					kind: 'd4_crystal',
 					parameters: {
 						crystal_height: 18,
 						crystal_width: 12,
@@ -32,14 +32,14 @@ export const myPreset: Preset = {
 					]
 				},
 				{
-					kind: 'cube_d6',
+					kind: 'd6_cube',
 					parameters: {
 						polyhedron_size: 18
 					} as Record<string, number>,
 					face_parameters: []
 				},
 				{
-					kind: 'cube_d6',
+					kind: 'd6_cube',
 					parameters: {
 						polyhedron_size: 18
 					} as Record<string, number>,
@@ -53,7 +53,7 @@ export const myPreset: Preset = {
 					]
 				},
 				{
-					kind: 'trapezohedron_d8',
+					kind: 'd8_trapezohedron',
 					parameters: {
 						trapezohedron_radius: 14,
 						trapezohedron_height: 36
@@ -70,7 +70,7 @@ export const myPreset: Preset = {
 					]
 				},
 				{
-					kind: 'trapezohedron_d10',
+					kind: 'd10_trapezohedron',
 					parameters: {
 						trapezohedron_radius: 14,
 						trapezohedron_height: 36
@@ -89,7 +89,7 @@ export const myPreset: Preset = {
 					]
 				},
 				{
-					kind: 'trapezohedron_d00',
+					kind: 'd00_trapezohedron',
 					parameters: {
 						trapezohedron_radius: 14,
 						trapezohedron_height: 36
@@ -108,21 +108,21 @@ export const myPreset: Preset = {
 					]
 				},
 				{
-					kind: 'dodecahedron_d12',
+					kind: 'd12_dodecahedron',
 					parameters: {
 						polyhedron_size: 22
 					} as Record<string, number>,
 					face_parameters: []
 				},
 				{
-					kind: 'icosahedron_d20',
+					kind: 'd20_icosahedron',
 					parameters: {
 						polyhedron_size: 25
 					} as Record<string, number>,
 					face_parameters: []
 				},
 				{
-					kind: 'icosahedron_d20',
+					kind: 'd20_icosahedron',
 					parameters: {
 						polyhedron_size: 25
 					} as Record<string, number>,

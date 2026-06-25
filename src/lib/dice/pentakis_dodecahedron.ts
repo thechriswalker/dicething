@@ -26,7 +26,7 @@ function truncatedIcosahedronVertices(): Array<Vector3> {
 }
 
 export const PentakisDodecahedronD60: DieModel = convexPolyhedronDie({
-	id: 'pentakis_dodecahedron_d60',
+	id: 'd60_pentakis_dodecahedron',
 	name: 'D60 Pentakis',
 	source: truncatedIcosahedronVertices,
 	defaultSize: 30,

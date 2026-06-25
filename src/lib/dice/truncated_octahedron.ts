@@ -70,7 +70,7 @@ function placedToFaces(placed: PlacedFaces, isNumberFace: boolean): Array<DieFac
 }
 
 export const TruncatedOctahedronD8: DieModel = {
-	id: 'truncated_octahedron_d8',
+	id: 'd8_truncated_octahedron',
 	name: 'D8 Truncated',
 	parameters: [
 		{ id: SIZE_PARAM, defaultValue: defaultSize, min: 12, max: 60, step: 0.5 },

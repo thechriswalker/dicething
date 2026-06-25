@@ -34,9 +34,9 @@ const oddPrismParameters: Array<DiceParameter> = [
 	{ id: 'prism_twist', defaultValue: defaultTwist, min: 0.1, max: 0.9, step: 0.01 }
 ];
 
-export const OddPrismD3 = oddPrism('odd_prism_d3', 'D3 Prism', 3);
-export const OddPrismD5 = oddPrism('odd_prism_d5', 'D5 Prism', 5);
-export const OddPrismD7 = oddPrism('odd_prism_d7', 'D7 Prism', 7);
+export const OddPrismD3 = oddPrism('d3_odd_prism', 'D3 Prism', 3);
+export const OddPrismD5 = oddPrism('d5_odd_prism', 'D5 Prism', 5);
+export const OddPrismD7 = oddPrism('d7_odd_prism', 'D7 Prism', 7);
 
 function oddPrism(id: string, name: string, sides: number): DieModel {
 	return { id, name, parameters: oddPrismParameters, build: build(sides) };

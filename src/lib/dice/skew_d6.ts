@@ -44,7 +44,7 @@ function antiprismVertices(params: Record<string, number>): Array<Vector3> {
 // trapezohedral (D3) symmetry are all derived from the source. the left/right
 // mirror is produced by the chiral `handedness` parameter.
 export const SkewD6: DieModel = convexPolyhedronDie({
-	id: 'skew_d6',
+	id: 'd6_skew',
 	name: 'D6 Skew',
 	source: antiprismVertices,
 	defaultSize: 16,

@@ -14,6 +14,7 @@
 import { Shape, Vector2 } from 'three';
 import { SVGLoader } from 'three/examples/jsm/loaders/SVGLoader.js';
 import { centerShapes, scaleShapes } from './shapes';
+import { removeRedundantPoints } from './engraving';
 
 const _svg = new SVGLoader();
 
@@ -139,34 +140,6 @@ function distanceToBoundary(x: number, y: number, points: Array<Vector2>): numbe
 	return min;
 }
 
-// drop points that are (near) collinear with their neighbours, so polygon paths
-// (whose straight edges getPoints() over-samples) stay lean while curves keep
-// enough points to read as smooth.
-function simplifyLoop(points: Array<Vector2>, tol: number): Array<Vector2> {
-	const n = points.length;
-	if (n < 3) {
-		return points;
-	}
-	const out: Array<Vector2> = [];
-	for (let i = 0; i < n; i++) {
-		const prev = points[(i - 1 + n) % n];
-		const cur = points[i];
-		const next = points[(i + 1) % n];
-		const dx = next.x - prev.x;
-		const dy = next.y - prev.y;
-		const len = Math.hypot(dx, dy);
-		// perpendicular distance from `cur` to the line prev->next.
-		const dist =
-			len < 1e-12
-				? Math.hypot(cur.x - prev.x, cur.y - prev.y)
-				: Math.abs((cur.x - prev.x) * dy - (cur.y - prev.y) * dx) / len;
-		if (dist > tol) {
-			out.push(cur);
-		}
-	}
-	return out.length >= 3 ? out : points;
-}
-
 // largest inscribed circle ("pole of inaccessibility") via a simple grid search
 // then a local refinement. returns the circle as a 32-gon point loop. used as a
 // safe convex fit region for concave outlines.
@@ -279,7 +252,16 @@ export function parseCoinPath(d: string): ParsedCoinPath | null {
 		return null;
 	}
 	const shape = normalize(chosen);
-	const outline = ensureClockwise(simplifyLoop(dedupeClose(shape.getPoints(96)), 0.002));
+	// Iteratively drop duplicate / near-collinear points (compounding removals,
+	// re-reading live neighbours) rather than the single-pass `simplifyLoop`. A
+	// single pass measures each point against its ORIGINAL neighbours, so once
+	// some points are removed it can leave a residual triple that is near-collinear
+	// among the SURVIVORS. The triangulator (libtess) then silently skips that
+	// middle vertex in the face cap while the coin's rim walls still use it as a
+	// segment corner -- a T-junction that makes the exported solid non-manifold.
+	// The outline is unit-sized (max dim 1); 1e-4 here is ~0.0008-0.006 mm once the
+	// coin is scaled to its 8-60 mm diameter, well below any visible feature.
+	const outline = ensureClockwise(removeRedundantPoints(dedupeClose(shape.getPoints(96)), 1e-4));
 	if (outline.length < 3) {
 		return null;
 	}
