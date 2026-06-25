@@ -17,7 +17,8 @@ insert_entry() {
   else
     echo "${key}=" >> ${FILE}
   fi
-  sed -i 's/'"${key}"'=.*/'"${key}=${val}"'/' ${FILE}
+  tmp=$(mktemp)
+  sed 's/'"${key}"'=.*/'"${key}=${val}"'/' ${FILE} > "${tmp}" && mv "${tmp}" ${FILE}
 }
 
 insert_entry "PUBLIC_APP_VERSION" "$(git describe --tags --always)"
