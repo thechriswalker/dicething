@@ -11,17 +11,17 @@ import type { DiceParameter, DieFaceModel, DieModel, StringParameter } from '$li
 import { Transform } from '$lib/utils/3d';
 import { parseCoinPath, validateCoinPath } from '$lib/utils/coin_path';
 import { stackedExplode } from '$lib/utils/explode';
-import { Legend, pickForNumber } from '$lib/utils/legends';
+import { Legend } from '$lib/utils/legends';
 import { orientCoplanarVertices } from '$lib/utils/shapes';
 import { Shape, Vector2, Vector3 } from 'three';
 
 const defaultDiameter = 24;
 const defaultThickness = 3;
-const defaultSegments = 7;
+const defaultSegments = 9;
 // shape mode toggle values.
 const MODE_POLYGON = 0;
 const MODE_CUSTOM = 1;
-const defaultMode = MODE_CUSTOM;
+const defaultMode = MODE_POLYGON;
 // a sensible default slope so a user only needs to raise the "amount" to get a
 // reasonable bevel.
 const defaultBevelAngle = 40;
