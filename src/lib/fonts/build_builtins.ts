@@ -37,14 +37,12 @@ async function createFontBasedLegends(
 	const data = (await readFile(src)).buffer;
 
 	const shapes = createShapesFromFont(data, strings);
-	const names = strings.map((s) => legendNameForText(s.text));
 	if (extraIcons) {
 		// splice the icons (the maker logo) in at MAKER_LOGO_SLOT so the standard
 		// slots (0-30) stay put and the remaining numbers fall at 32+.
 		extraIcons.forEach(({ name, shapes: icon }, i) => {
 			const at = MAKER_LOGO_SLOT + i;
 			shapes.splice(at, 0, icon);
-			names.splice(at, 0, name);
 		});
 	}
 
@@ -54,8 +52,8 @@ async function createFontBasedLegends(
 		JSON.stringify({
 			id: builtinPrefix + varname,
 			name,
-			names,
-			shapes: shapes
+			shapes: shapes,
+			names: [], // just use all the default names.
 		}),
 		{ encoding: 'utf8' }
 	);

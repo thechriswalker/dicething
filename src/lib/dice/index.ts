@@ -98,7 +98,7 @@ const diceTags: Record<keyof typeof dice, DieTags> = {
 	d24_tetrakis_hexahedron: { kind: 'polyhedron', variant: 'tetrakis', sides: '24' },
 	d24_pentagonal_icositetrahedron: { kind: 'skew', variant: 'pentagonal', sides: '24' },
 	d30_rhombic_triacontahedron: { kind: 'polyhedron', variant: 'rhombic', sides: '30' },
-	d60_deltoidal_hexecontahedron: { kind: 'polyheron', variant: 'deltoidal', sides: '60' },
+	d60_deltoidal_hexecontahedron: { kind: 'polyhedron', variant: 'deltoidal', sides: '60' },
 	d60_pentakis_dodecahedron: { kind: 'polyhedron', variant: 'pentakis', sides: '60' },
 	d60_pentagonal_hexecontahedron: { kind: 'skew', variant: 'pentagonal', sides: '60' }
 };

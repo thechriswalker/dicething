@@ -107,7 +107,7 @@ export function legendForValue(value: number): Legend {
 	if (value === 9) {
 		return Legend.NINE_MARKED;
 	}
-	const slot = textToSlot.get(String(value));
+	const slot = textToSlot.get(String(value)); // this is the magic for large numbers.
 	return slot === undefined ? Legend.BLANK : slot;
 }
 

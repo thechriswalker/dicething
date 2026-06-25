@@ -1,18 +1,41 @@
 # DiceThing
 
-**This is a work in progress.**
+DiceThing is a tool for creating custom dice models suitable for printing.
 
-DiceThing is a tools for creating custom dice models suitable for printing.
+My instance at [dicething.org](https://dicething.org)
 
 It is highly inspired by [DiceMaker](https://ankhe.itch.io/dicemaker) which is a fantastic tool, but not open source, so we cannot build on it and make improvements or add features.
 
-Half-way through building this I found [DiceGen](https://dicegen.com/) which is also similar but opinionated in different ways. I haven't looked through the code for that one much (it is open source :heart:) and I think the font-handling is superior. I wonder if I can use a full CSG style approach to improve the pipeline of `font -> paths -> outline`, as currently fonts with paths that self-intersect cause rendering issues (see Josefine Sans character 3)
+Half-way through building this I found [DiceGen](https://dicegen.com/) which is also similar but opinionated in different ways. I haven't looked through the code for that one much (it is open source :heart:) and I think the font-handling is superior. I have spent a lot of time on improving that and the SVG import functionality so hopefully, this project is up to scratch in that regard.
 
 This project also aims to be completely web-based, for a zero-install experience. Web technologies are quite capable of handling the 3D modelling required for this.
 
-## Screenshot
+## Screenshots
 
-![Screenshot](images/dicething-ui.png)
+<details><summary>Main Dice Builder</summary>
+![Builder Screenshot](images/dicething-dice-builder.png)
+</details>
+
+<details><summary>Dice Shape Picker</summary>
+![Shape Picker Screenshot](images/dicething-shape-picker.png)
+</details>
+
+<details><summary>Legend Set Editor - Bad Glyphs</summary>
+![Legend Set Editor Bad Glyphs Screenshot](images/dicething-legends-broken-glyphs.png)
+</details>
+
+<details><summary>Legend Set Editor - SVG Import</summary>
+![Legend Set Editor SVG Import Screenshot](images/dicething-legends-svg.png)
+</details>
+
+<details><summary>Exporting a Set</summary>
+![Export](images/dicething-export.png)
+</details>
+
+<details><summary>Whirlwind Tour Video (...soon)</summary>
+when I get a chance...
+</details>
+
 
 ## Features
 
@@ -33,12 +56,6 @@ I have some other features in mind that I might add (Z-Stretch compensation, Aut
 
 This is a SvelteKit project and I use Bun as the runtime but others may work.
 
-The only unusual thing is that I share most of the code with 2 `routes/` folders. The reason is that I wanted a "splash page" as well as the app, but I want them to share theme/components/logic/$lib/ ... and making it a monorepo was too much.
-
-So instead I have 2 routes folders `routes/splash` and `routes/app` and the sveltekit config is changed dynamically depending on the presence of the `BUILD_SPASH_PAGE=true` environment variable. But we have `bun run dev:app` and `bun run dev:splash` to control that (as well as `bun run build:app` and `bun run build:splash`). They also build to 2 separate static folders that can be deployed wherever you want.
-
-For my instance that means `https://dicething.org/` and `https://app.dicething.org/`
-
 Basics:
 
 ```
@@ -49,19 +66,24 @@ bun run dev
 A full static build can be produced with:
 
 ```
-bun run build:app # or build:splash
+bun run build
 ```
 
 ## Notes
 
 I originally started this with three.js and a CSG library. But the renders were slow and the resultant STL files were broken in subtle ways.
+
 In the end, I wrote a custom engraving algorithm that works in 2D and then wires up the engravings to form a 3D model. This is much faster and produces better results.
 
-However there are still problems with the exported STLs, and I have discovered that this is almost always due to the fonts. The font conversion to paths is not always "clean", and sometimes paths overlap. This doesn't cause a rendering problem on screen, but the meshes get complicated and sometime appear non-manifold. Careful handling of the fonts before legend creation helps. This will likely need more work in the future.
+But only visually...
 
-Finally, it would be nice to have all the geometry and rendering done off-screen, with an offscreen canvas in a worker. That way even the 10's of ms it takes to render won't block anything.
+There were still problems with the exported STLs, and I have discovered that this is almost always due to the fonts. The font conversion to paths is not always "clean", and sometimes paths overlap. This doesn't cause a rendering problem on screen, but the meshes get complicated and sometime appear non-manifold. Careful handling of the fonts before legend creation helps.
+
+After much work, the geometry on the engraving still wasn't correct, and I flipped from three.js's earcut `ShapeGeometry` triangulation to `libtess` a more forgiving algorithm that works better with holes and non-convex shapes. This work also helped fix a lot of the font issues I was seeing and font-loading now works on many fonts that it previously failed on.
 
 ## Checklist
+
+This was / is my list of features I want to get in. Remarkably most of them got done, or I decided not to do it for a reason.
 
 ### Technical
 
@@ -92,6 +114,7 @@ The UI section will need a whole lot more...
   - [x] customisable scale/rotation/translation
   - [x] per-face engraving depth
   - [x] per-face legend override
+- [ ] position/orient all Die shapes for optimal printing.
 - [x] Rendering
   - [x] basic scene render and materials
   - [x] customisable materials for faces/engravings
@@ -103,11 +126,12 @@ The UI section will need a whole lot more...
   - [x] Bad manifold detection and edge fixing (not 100%, some errors don't cause problems, but it is a warning)
   - [x] multiple dice scene for rendering full sets.
   - [x] mouse pointer integration (for click detection/handling)
-- [x] Blanks / Platformms
+- [x] Blanks / Platforms
   - [x] generate a die with blanks at a given "inset" from the source parameters
   - [x] generate platforms automatically from the number faces (custom face shape needed for caltrop)
   - [x] make blank/platform generation configurable.
   - [x] how to make the output accessible to the renderer
+  - [ ] Supports? (fins are easiest, but real supports could be done!)
 - [x] Save / Load JSON
   - [x] create a serialisation format (JSON, but a schema)
   - [x] save
@@ -123,7 +147,7 @@ The UI section will need a whole lot more...
   - [x] Add "symbol from font by text" with letter spacing
   - [x] Add "line under symbol" for 6/9 marked symbols - hopefully without breaking the centering?
   - [-] Add "lucide" icons as legends - potrace? or from font lucide is available as a font... (we can certainly import svgs from lucide now, the "pick from font directly though might be a nice feature for UX, i.e. insert icon -> icon picker -> legend)
-  - [ ] Add custom legend from image. that needs potrace working on a canvas. possibly with some knobs to turn...
+  - [-] Add custom legend from image. that needs potrace working on a canvas. possibly with some knobs to turn...
         Maybe a disclaimer that for best results provide an SVG pre-converted from "stoke to path" with inkscape instructions.
         In fact maybe ONLY allow that...
         Yeah, I don't think we will allow raster images at all.
@@ -157,7 +181,7 @@ The first flow will be
   - [x] previews of die
   - [x] main selected die view
   - [x] edit singel die parameters
-  - [ ] close die parameter draw (for space)
+  - [-] close die parameter draw (for space) (not doing it)
   - [x] save changes!
   - [x] title edit
   - [x] legend editor (component)
@@ -180,3 +204,7 @@ There are significant code paths to help reduce this issue, but please let me kn
 ### AI Usage
 
 Some of the code here was produced by LLMs. I actually built the majority before I started using them, which turned out to be a blessing because I learnt so much and feel that the code, build flow and interface design is all exatly how I want it. However, the project stagnated a bit and use LLMs has let me iterate much more quickly and focus on some of the more tricky features (like the SVG imports and font-fixing) that I was stuggling to find the time to work on myself. I doubt I would have go this to such a usable state with them. On the other hand, I would not descibe this project as vibe-coded. I have heavily guided the LLM, not just released it on the codebase.
+
+## Contributing
+
+I started this project because I was unhappy I could not contibute to DiceMaker to add new shapes or features. I want you to be able to add features to this software, so not only is open source and MIT licensed, but it you have worthwhile contributions I'd be happy to accept them. Please reach out / open an issue first however, I may be working on something similar or want to implement the feature myself. If not though, I will say and I will welcome thoughtful PRs. Please keep slop and time-wasting to a minimum, nobody wants that.
