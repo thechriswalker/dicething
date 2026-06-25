@@ -13,29 +13,39 @@ This project also aims to be completely web-based, for a zero-install experience
 ## Screenshots
 
 <details><summary>Main Dice Builder</summary>
+
 ![Builder Screenshot](images/dicething-dice-builder.png)
+
 </details>
 
 <details><summary>Dice Shape Picker</summary>
+
 ![Shape Picker Screenshot](images/dicething-shape-picker.png)
+
 </details>
 
 <details><summary>Legend Set Editor - Bad Glyphs</summary>
+
 ![Legend Set Editor Bad Glyphs Screenshot](images/dicething-legends-broken-glyphs.png)
+
 </details>
 
 <details><summary>Legend Set Editor - SVG Import</summary>
+
 ![Legend Set Editor SVG Import Screenshot](images/dicething-legends-svg.png)
+
 </details>
 
+
 <details><summary>Exporting a Set</summary>
+
 ![Export](images/dicething-export.png)
+
 </details>
 
 <details><summary>Whirlwind Tour Video (...soon)</summary>
 when I get a chance...
 </details>
-
 
 ## Features
 
