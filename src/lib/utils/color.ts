@@ -1,6 +1,9 @@
 // get the RGB value for a CSS color.
 
-import { browser } from '$app/environment';
+// `OffscreenCanvas` exists both on the main thread and inside web workers, but
+// not during SSR. Feature-detect it directly instead of importing SvelteKit's
+// `$app/environment`, whose virtual module can't be resolved in the worker build.
+const canUseCanvas = typeof OffscreenCanvas !== 'undefined';
 
 export class RGB {
 	constructor(
@@ -52,7 +55,7 @@ let getRGBFromCanvas = (_: string) => {
 	return new RGB(0, 0, 0);
 };
 
-if (browser) {
+if (canUseCanvas) {
 	const cvs = new OffscreenCanvas(1, 1);
 	const ctx = cvs.getContext('2d');
 	if (ctx) {
