@@ -309,10 +309,10 @@ export class Builder {
 		// and then finding the distance from the origin to the plane.
 		// but that requires the object to not be exploded,
 		// so we need to use the faces transform to get the position of the center
-		// of the face. 
+		// of the face.
 		const volume = this.faces.reduce((sum, f, i) => {
 			const area = getAreaOfShapeAtOrigin(f.shape);
-			const obj = new PlaneGeometry(1,1);
+			const obj = new PlaneGeometry(1, 1);
 			f.transform.applyToGeometry(obj);
 			const position = obj.getAttribute('position');
 			const plane = new Plane().setFromCoplanarPoints(
@@ -450,35 +450,37 @@ export class Builder {
 					this.faceObjects[i].remove(...this.faceObjects[i].children);
 				}
 				this.lastFaceParams[i] = newFaceParams;
-				this.buildFace(i, dieParams.engraving_depth, newFaceParams, { forExport: false }).forEach((g) => {
-					g.userData.diceThingFace = i;
-					g.userData.diceThingId = this.id;
-					let m: Material;
-					let visible = true;
-					switch (g.userData.diceThingPart) {
-						case Part.Engraved:
-							m = this.engraveMaterial;
-							break;
-						case Part.Walls:
-							m = this.wallMaterial;
-							break;
-						case Part.Front:
-							m = this.frontMaterial;
-							break;
-						case Part.Symbol:
-							m = this.errorMaterial;
-							visible = !g.userData.diceThingSymbolOK;
-							break;
-						default:
-							console.error('unknown part?', g);
-							m = this.frontMaterial;
-							break;
+				this.buildFace(i, dieParams.engraving_depth, newFaceParams, { forExport: false }).forEach(
+					(g) => {
+						g.userData.diceThingFace = i;
+						g.userData.diceThingId = this.id;
+						let m: Material;
+						let visible = true;
+						switch (g.userData.diceThingPart) {
+							case Part.Engraved:
+								m = this.engraveMaterial;
+								break;
+							case Part.Walls:
+								m = this.wallMaterial;
+								break;
+							case Part.Front:
+								m = this.frontMaterial;
+								break;
+							case Part.Symbol:
+								m = this.errorMaterial;
+								visible = !g.userData.diceThingSymbolOK;
+								break;
+							default:
+								console.error('unknown part?', g);
+								m = this.frontMaterial;
+								break;
+						}
+						const mesh = new Mesh(g, m);
+						mesh.userData = { ...g.userData };
+						mesh.visible = visible;
+						this.faceObjects[i].add(mesh);
 					}
-					const mesh = new Mesh(g, m);
-					mesh.userData = { ...g.userData };
-					mesh.visible = visible;
-					this.faceObjects[i].add(mesh);
-				});
+				);
 				this.refreshLegendAreaOutline(i);
 			}
 		}
@@ -1005,10 +1007,7 @@ function simplifyStringParams(
 	return output;
 }
 
-function stringParamsEqual(
-	prev: Record<string, string>,
-	next: Record<string, string>
-): boolean {
+function stringParamsEqual(prev: Record<string, string>, next: Record<string, string>): boolean {
 	const pk = Object.keys(prev);
 	const nk = Object.keys(next);
 	if (pk.length !== nk.length) {

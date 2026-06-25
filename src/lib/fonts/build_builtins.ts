@@ -53,7 +53,7 @@ async function createFontBasedLegends(
 			id: builtinPrefix + varname,
 			name,
 			shapes: shapes,
-			names: [], // just use all the default names.
+			names: [] // just use all the default names.
 		}),
 		{ encoding: 'utf8' }
 	);
@@ -74,8 +74,6 @@ async function loadSVGIcon(
 	const shapes = createShapesFromSVG(data, svgIconScale(data));
 	return { name, shapes };
 }
-
-
 
 async function buildAll() {
 	const baseDir = new URL(dirname(import.meta.url)).pathname;
@@ -107,7 +105,7 @@ async function buildAll() {
 		try {
 			const { renderOptions: modRenderOptions } = await import(builtins + '/' + d + '/index.ts');
 			renderOptions = modRenderOptions;
-		} catch { }
+		} catch {}
 		const strings = addRenderOptions(defaultStrings, renderOptions);
 		await createFontBasedLegends(src, dst, d, name, strings, icons);
 		fontMeta.push({
@@ -173,25 +171,35 @@ export type Builtin = {
     readonly load: () => Promise<ReturnType<typeof loadImmutableLegends>>;
 }
 
-type BuiltinID = "blanks"|"${fontMeta.map(x => x.varname).join('"|"')}";
+type BuiltinID = "blanks"|"${fontMeta.map((x) => x.varname).join('"|"')}";
 
 const builtins: Record<BuiltinID, Builtin> = {
 	blanks: { id: "blanks", name: "Blanks", fontUrl: "", license: "", load: async () => blanks, preview: "" } as Builtin,
 ${fontMeta
-			.map((x) => {
-				return (
-					'    ' +
-					x.varname +
-					': { id: "' + x.varname +
-					'", name: ' + x.name +
-					', preview: ' + x.varname + 'SVG' +
-					', fontUrl: ' + x.fontDir + 'FontUrl' +
-					', license: ' + x.fontDir + 'License' +
-					', load: deferredFontLoader("' + x.varname + '")' +
-					' } as Builtin,'
-				);
-			})
-			.join('\n')}
+	.map((x) => {
+		return (
+			'    ' +
+			x.varname +
+			': { id: "' +
+			x.varname +
+			'", name: ' +
+			x.name +
+			', preview: ' +
+			x.varname +
+			'SVG' +
+			', fontUrl: ' +
+			x.fontDir +
+			'FontUrl' +
+			', license: ' +
+			x.fontDir +
+			'License' +
+			', load: deferredFontLoader("' +
+			x.varname +
+			'")' +
+			' } as Builtin,'
+		);
+	})
+	.join('\n')}
 } as const;
 
 export const defaultFont = builtins.germania_one;

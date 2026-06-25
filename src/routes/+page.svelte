@@ -8,32 +8,33 @@
 </script>
 
 <Layout>
-	<div class="flex min-h-full flex-col items-center justify-center p-4 relative">
+	<div class="relative flex min-h-full flex-col items-center justify-center p-4">
 		<BouncyDice />
 		<div
-			class="card z-10 rounded-4xl preset-glass-surface flex w-full max-w-2xl flex-col items-center gap-6 p-8 text-center text-surface-900"
+			class="card preset-glass-surface text-surface-900 z-10 flex w-full max-w-2xl flex-col items-center gap-6 rounded-4xl p-8 text-center"
 		>
 			<div class="flex flex-col items-center gap-2">
 				<div class="text-8xl">
 					<Logo />
 				</div>
-				<h1 class="h1 ">{m.meta_app_name()}</h1>
+				<h1 class="h1">{m.meta_app_name()}</h1>
 				<h2 class="h3 text-surface-700">{m.meta_app_tagline()}</h2>
 			</div>
-			
-			<div class="flex w-full flex-col justify-center gap-4 sm:flex-row1">
-				<a href="/dice" class="btn btn-lg preset-filled-primary-500 flex-1 text-2xl rounded-xl">
-						<BoxIcon class="size-[1em] inline-block" />
-						{m.home_create_dice()}
+
+			<div class="sm:flex-row1 flex w-full flex-col justify-center gap-4">
+				<a href="/dice" class="btn btn-lg preset-filled-primary-500 flex-1 rounded-xl text-2xl">
+					<BoxIcon class="inline-block size-[1em]" />
+					{m.home_create_dice()}
 				</a>
-				<a href="/legends" class="btn btn-lg preset-filled-secondary-500 flex-1 text-2xl rounded-xl">
-					<TypeOutlineIcon class="size-[1em] inline-block" />
+				<a
+					href="/legends"
+					class="btn btn-lg preset-filled-secondary-500 flex-1 rounded-xl text-2xl"
+				>
+					<TypeOutlineIcon class="inline-block size-[1em]" />
 					{m.home_create_legends()}
 				</a>
 			</div>
-			<div
-				class="flex w-full flex-row items-center justify-center gap-4 text-sm text-surface-700"
-			>
+			<div class="text-surface-700 flex w-full flex-row items-center justify-center gap-4 text-sm">
 				<span>{PUBLIC_APP_VERSION}</span>
 				<a href={PUBLIC_APP_REPO_URL} class="inline-flex items-center gap-1 hover:underline">
 					{#if PUBLIC_APP_REPO_URL.includes('github.com')}

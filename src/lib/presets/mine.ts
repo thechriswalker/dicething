@@ -8,9 +8,9 @@ import { legendPickerFactory, legendPickerOption } from './_util';
 // and 2 D20s, one with a symbol on the crit.
 // this is how I make my molds - with 9 dice.
 export const myPreset: Preset = {
-	id: "mine",
+	id: 'mine',
 	options() {
-		return [legendPickerOption(builtins.alice_in_wonderland.id)]
+		return [legendPickerOption(builtins.alice_in_wonderland.id)];
 	},
 	async factory(opts) {
 		return {
@@ -150,6 +150,6 @@ export const myPreset: Preset = {
 					]
 				}
 			]
-		}
+		};
 	}
-}
+};

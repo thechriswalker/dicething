@@ -178,9 +178,7 @@ export function debugLegendName(n: Legend): string {
 // generate *more* glyphs. Builtin fonts are served from the bundle (so we just
 // need the builtin id), uploaded fonts are persisted in IndexedDB keyed by the
 // legend set id (see $lib/interfaces/fontstore).
-export type LegendFontOrigin =
-	| { kind: 'builtin'; builtinId: string }
-	| { kind: 'uploaded' };
+export type LegendFontOrigin = { kind: 'builtin'; builtinId: string } | { kind: 'uploaded' };
 
 // Options for the generated underline modifier (e.g. for marked 6/9).
 export type UnderlineOptions = {

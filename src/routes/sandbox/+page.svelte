@@ -189,9 +189,7 @@
 		} else {
 			time('working build', () => builder.build({}, faceParams, { explode: false }));
 			displayed = builder.diceGroup;
-			positions = time('collect working positions', () =>
-				collectGroupPositions(builder.diceGroup)
-			);
+			positions = time('collect working positions', () => collectGroupPositions(builder.diceGroup));
 		}
 		scene.scene.add(displayed);
 
@@ -331,7 +329,11 @@
 						String(report.degenerateTriangleCount),
 						report.degenerateTriangleCount > 0
 					],
-					['Duplicate tris', String(report.duplicateTriangleCount), report.duplicateTriangleCount > 0]
+					[
+						'Duplicate tris',
+						String(report.duplicateTriangleCount),
+						report.duplicateTriangleCount > 0
+					]
 				]
 			: []
 	);
@@ -345,11 +347,13 @@
 				<span>Mesh</span>
 				<div class="flex gap-1">
 					<button
-						class={'btn ' + (meshMode === 'export' ? 'preset-filled-primary-500' : 'preset-tonal-surface')}
+						class={'btn ' +
+							(meshMode === 'export' ? 'preset-filled-primary-500' : 'preset-tonal-surface')}
 						onclick={() => setMode('export')}>export</button
 					>
 					<button
-						class={'btn ' + (meshMode === 'working' ? 'preset-filled-primary-500' : 'preset-tonal-surface')}
+						class={'btn ' +
+							(meshMode === 'working' ? 'preset-filled-primary-500' : 'preset-tonal-surface')}
 						onclick={() => setMode('working')}>working</button
 					>
 				</div>
@@ -357,7 +361,11 @@
 
 			<label class="flex flex-col text-sm">
 				<span>Die</span>
-				<select class="select" value={selectedKind} onchange={(e) => onKindChange(e.currentTarget.value)}>
+				<select
+					class="select"
+					value={selectedKind}
+					onchange={(e) => onKindChange(e.currentTarget.value)}
+				>
 					{#each Object.entries(dice) as [k, v]}
 						<option value={k}>{v.name}</option>
 					{/each}
@@ -366,7 +374,11 @@
 
 			<label class="flex flex-col text-sm">
 				<span>Legend font</span>
-				<select class="select" value={selectedFontKey} onchange={(e) => onFontChange(e.currentTarget.value)}>
+				<select
+					class="select"
+					value={selectedFontKey}
+					onchange={(e) => onFontChange(e.currentTarget.value)}
+				>
 					{#each Object.entries(fonts) as [k, v]}
 						<option value={k}>{v.name}</option>
 					{/each}

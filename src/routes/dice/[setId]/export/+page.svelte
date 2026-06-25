@@ -27,7 +27,14 @@
 	import { mergeMeshReports, type MeshCheckReport } from '$lib/utils/mesh_check';
 	import { toNonIndexed } from '$lib/utils/3d';
 	import { onMount } from 'svelte';
-	import { BufferAttribute, BufferGeometry, DoubleSide, Group, Mesh, MeshBasicMaterial } from 'three';
+	import {
+		BufferAttribute,
+		BufferGeometry,
+		DoubleSide,
+		Group,
+		Mesh,
+		MeshBasicMaterial
+	} from 'three';
 	import { AlertTriangle, ArrowLeftIcon, DownloadIcon, Frame, SparklesIcon } from '@lucide/svelte';
 	import { Button } from 'bits-ui';
 
@@ -173,9 +180,7 @@
 
 	// flatten every die's problem-triangle buffer into one (or undefined when
 	// there are none).
-	function concatBadPositions(
-		buffers: Array<Float32Array | undefined>
-	): Float32Array | undefined {
+	function concatBadPositions(buffers: Array<Float32Array | undefined>): Float32Array | undefined {
 		const present = buffers.filter((b): b is Float32Array => !!b && b.length > 0);
 		if (present.length === 0) {
 			return undefined;
@@ -475,7 +480,7 @@
 				</div>
 			{/snippet}
 			{#if showTuning}
-				<Collapsible defaultOpen={false} title={m.export_render_tuning_title()} >
+				<Collapsible defaultOpen={false} title={m.export_render_tuning_title()}>
 					<div class="flex flex-col gap-2 pt-2">
 						<p class="text-surface-600-400 text-xs">{m.export_render_tuning_hint()}</p>
 						<span class="text-sm font-semibold">{m.export_render_tuning_base_colour()}</span>
@@ -630,7 +635,11 @@
 											</div>
 										{/snippet}
 										{#snippet children(props)}
-											<span {...props} class="text-error-500 cursor-help" aria-label={m.engraving_errors_title()}>
+											<span
+												{...props}
+												class="text-error-500 cursor-help"
+												aria-label={m.engraving_errors_title()}
+											>
 												<AlertTriangle size={16} />
 											</span>
 										{/snippet}

@@ -153,7 +153,7 @@
 	{/if}
 {/snippet}
 
-<Menu class="flex h-full flex-row items-center justify-end gap-2 positioner">
+<Menu class="positioner flex h-full flex-row items-center justify-end gap-2">
 	<Menu.Trigger class={triggerClasses}>
 		{#if data.icon}
 			{@const Icon = data.icon}
@@ -171,8 +171,9 @@
 		</Menu.Positioner>
 	</Portal>
 </Menu>
+
 <style>
-	:global(div[data-part="positioner"]) {
+	:global(div[data-part='positioner']) {
 		--z-index: 1000 !important;
 	}
 </style>

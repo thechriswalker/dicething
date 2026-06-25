@@ -45,7 +45,12 @@ function getRenderFunction() {
 				try {
 					const legends = loadImmutableLegends(l);
 					const builder = new Builder(dice[d.kind], legends, d.id);
-					builder.build(d.parameters, d.face_parameters, { explode: false }, d.string_parameters ?? {});
+					builder.build(
+						d.parameters,
+						d.face_parameters,
+						{ explode: false },
+						d.string_parameters ?? {}
+					);
 					scene.add(builder.diceGroup);
 					const largeFace = builder.getFaces().findLast((x) => x.isNumberFace);
 					const camera = new PerspectiveCamera(30, 1, 1, 500);

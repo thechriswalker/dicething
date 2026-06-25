@@ -6,10 +6,7 @@
 	import type { Snippet } from 'svelte';
 	import LightDarkContext from '../light_switch/LightDarkContext.svelte';
 
-	let {
-		children,
-		header
-	}: { children: Snippet; header?: Snippet } = $props();
+	let { children, header }: { children: Snippet; header?: Snippet } = $props();
 </script>
 
 <LightMode />

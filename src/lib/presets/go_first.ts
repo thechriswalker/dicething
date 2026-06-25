@@ -19,7 +19,6 @@ import type { Preset, PresetOptionDie } from '$lib/interfaces/presets';
 import { legendForValue } from '$lib/utils/legends';
 import { legendPickerFactory, legendPickerOption } from './_util';
 
-
 const defaultSize = 20;
 
 // every registered die with 12 sides is a valid shape for these go-first D12s.
@@ -30,17 +29,18 @@ const d12Shapes = (): Array<string> =>
 
 // this is parameterized, so maybe I can have preset with parameters?
 export const goFirstPreset: Preset = {
-	id: "go_first",
+	id: 'go_first',
 	options() {
 		const shapes = d12Shapes();
-		return [legendPickerOption(builtins.germania_one.id),
-		{
-			kind: "die",
-			id: "d12_shape",
-			options: shapes,
-			value: shapes.includes("d12_dodecahedron") ? "d12_dodecahedron" : shapes[0],
-		}
-		]
+		return [
+			legendPickerOption(builtins.germania_one.id),
+			{
+				kind: 'die',
+				id: 'd12_shape',
+				options: shapes,
+				value: shapes.includes('d12_dodecahedron') ? 'd12_dodecahedron' : shapes[0]
+			}
+		];
 	},
 	async factory(opts) {
 		const [legendOption, shapeOption] = opts;
@@ -78,4 +78,4 @@ export const goFirstPreset: Preset = {
 			]
 		};
 	}
-}
+};

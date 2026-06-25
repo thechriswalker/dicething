@@ -37,7 +37,11 @@
 			<button type="button" class="btn preset-tonal-surface" onclick={close}>
 				{m.delete_set_cancel()}
 			</button>
-			<button type="button" class="btn preset-filled-error-500" onclick={() => confirmDelete(close)}>
+			<button
+				type="button"
+				class="btn preset-filled-error-500"
+				onclick={() => confirmDelete(close)}
+			>
 				{m.delete_set_confirm()}
 			</button>
 		</div>

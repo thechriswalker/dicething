@@ -27,9 +27,7 @@ const legends = loadImmutableLegends(germania as unknown as SerialisedLegendSet)
 function buildCoin(params: Record<string, number>, blank: boolean) {
 	const builder = new Builder(dice.d2_coin, legends);
 	builder.build(params, [], { explode: false }, {});
-	const faceParams = blank
-		? builder.getFaces().map(() => ({ legend: Legend.BLANK }))
-		: [];
+	const faceParams = blank ? builder.getFaces().map(() => ({ legend: Legend.BLANK })) : [];
 	return builder.export(params, faceParams, {}).geometry;
 }
 

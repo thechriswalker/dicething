@@ -60,12 +60,12 @@
 			href={PUBLIC_APP_REPO_URL}
 			class="btn preset-filled-primary-500 inline-flex flex-row items-center gap-1"
 		>
-		{#if PUBLIC_APP_REPO_URL.includes("github.com")}
-			<Github class="icon-text" />
-			Source on GitHub
+			{#if PUBLIC_APP_REPO_URL.includes('github.com')}
+				<Github class="icon-text" />
+				Source on GitHub
 			{:else}
-			<GitBranch class="icon-text" />
-			Source Code 
+				<GitBranch class="icon-text" />
+				Source Code
 			{/if}
 		</a>
 	</p>

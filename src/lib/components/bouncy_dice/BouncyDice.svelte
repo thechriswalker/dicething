@@ -22,7 +22,7 @@
 		let camera = new PerspectiveCamera(30, 1, 1, 500);
 		$effect(() => {
 			renderer.setSize(boxSize, boxSize);
-			camera.position.set(0, 0, boxSize/4.5);
+			camera.position.set(0, 0, boxSize / 4.5);
 			camera.lookAt(new Vector3(0, 0, 0));
 		});
 		//el.appendChild(renderer.domElement);
@@ -46,10 +46,10 @@
 			dice.d60_pentakis_dodecahedron
 		];
 		const pickRandomModel = (prev: DieModel | null = null) => {
-			while(true){
+			while (true) {
 				const randomIndex = Math.floor(Math.random() * models.length);
 				const model = models[randomIndex];
-				if(model !== prev) {
+				if (model !== prev) {
 					return model;
 				}
 			}
@@ -58,12 +58,12 @@
 		const legends: LegendSet[] = [];
 		let chain = Promise.resolve();
 		[
-			builtins.germania_one, 
-			builtins.alice_in_wonderland, 
-			builtins.averia, 
+			builtins.germania_one,
+			builtins.alice_in_wonderland,
+			builtins.averia,
 			builtins.voltaire,
-			builtins.tektur, 
-			builtins.siamese_katsong, 
+			builtins.tektur,
+			builtins.siamese_katsong,
 			builtins.josefin_medium
 		].forEach(async (l) => {
 			chain = chain.finally(async () => {
@@ -75,16 +75,16 @@
 			});
 		});
 		const pickRandomLegend = (prev: LegendSet | null = null) => {
-			if(legends.length === 0) {
+			if (legends.length === 0) {
 				return blanks;
 			}
 			if (legends.length === 1) {
 				return legends[0];
 			}
-			while(true){
+			while (true) {
 				const randomIndex = Math.floor(Math.random() * legends.length);
 				const legend = legends[randomIndex];
-				if(legend !== prev) {
+				if (legend !== prev) {
 					return legend;
 				}
 			}
@@ -227,9 +227,9 @@
 	}
 </script>
 
-<div class="absolute z-1 h-screen w-screen overflow-hidden pointer-events-none" bind:this={wrap}>
+<div class="pointer-events-none absolute z-1 h-screen w-screen overflow-hidden" bind:this={wrap}>
 	<!-- these are both ignored, because this is a purely visual thing, and has no semantic meaning -->
 	<!-- svelte-ignore a11y_click_events_have_key_events -->
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
-	<div class="absolute pointer-events-auto" onclick={() => changeDice()} bind:this={cvs}></div>
+	<div class="pointer-events-auto absolute" onclick={() => changeDice()} bind:this={cvs}></div>
 </div>

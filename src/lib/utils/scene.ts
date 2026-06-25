@@ -198,9 +198,7 @@ export function createBaseSceneAndRenderer(
 				const line = o as { isLine?: boolean };
 				const part = o.userData?.diceThingPart;
 				const isOtherGlowFill =
-					typeof part === 'string' &&
-					part.startsWith('legend-area-glow') &&
-					part !== keepGlowPart;
+					typeof part === 'string' && part.startsWith('legend-area-glow') && part !== keepGlowPart;
 				if (line.isLine || isOtherGlowFill) {
 					o.visible = false;
 					hidden.push(o);

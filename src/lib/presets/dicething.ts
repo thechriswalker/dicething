@@ -3,9 +3,9 @@ import { Vector2 } from 'three';
 import { legendPickerFactory, legendPickerOption } from './_util';
 
 export const dicethingPreset: Preset = {
-	id: "dicething",
+	id: 'dicething',
 	options() {
-		return [legendPickerOption()]
+		return [legendPickerOption()];
 	},
 	async factory(opts) {
 		return {
@@ -67,6 +67,6 @@ export const dicethingPreset: Preset = {
 					face_parameters: []
 				}
 			]
-		}
+		};
 	}
-}
+};

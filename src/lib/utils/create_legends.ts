@@ -55,7 +55,11 @@ export function legendSetFromFont(
 	// matching the offline builtin generator (see build_builtins loadSVGIcon).
 	// Splice it in at MAKER_LOGO_SLOT (appended if there are fewer tokens).
 	const at = Math.min(MAKER_LOGO_SLOT, shapes.length);
-	shapes.splice(at, 0, createShapesFromSVG(dicethingLogo, svgIconScale(dicethingLogo)) as unknown as Array<unknown>);
+	shapes.splice(
+		at,
+		0,
+		createShapesFromSVG(dicethingLogo, svgIconScale(dicethingLogo)) as unknown as Array<unknown>
+	);
 	names.splice(at, 0, 'Logo');
 	sources.splice(at, 0, { kind: 'svg' });
 

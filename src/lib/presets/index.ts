@@ -7,15 +7,19 @@ import { classic } from './classic';
 import { dicethingPreset } from './dicething';
 import { everythingPreset } from './everything';
 import { myPreset } from './mine';
-import { empty } from "./empty"
+import { empty } from './empty';
 
-const presets = [empty, classic, dicethingPreset, myPreset, goFirstPreset, everythingPreset]
+const presets = [empty, classic, dicethingPreset, myPreset, goFirstPreset, everythingPreset];
 
-export async function fromPreset(preset: Preset, name: string, options: Array<PresetOption>): Promise<DiceSet> {
+export async function fromPreset(
+	preset: Preset,
+	name: string,
+	options: Array<PresetOption>
+): Promise<DiceSet> {
 	const base = (await preset.factory(options)) as DiceSet;
 	base.name = name;
 	// this is going to way easier if we go "unsafe" as far as TS is concerned.
-	base.id = uuid()
+	base.id = uuid();
 	base.updated = Date.now();
 	const prefs = getPreferences();
 	base.dice.forEach((x) => {

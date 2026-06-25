@@ -1,5 +1,12 @@
 <script lang="ts">
-	import { Dialog, Portal, useDialog, SegmentedControl, Switch, Tabs } from '@skeletonlabs/skeleton-svelte';
+	import {
+		Dialog,
+		Portal,
+		useDialog,
+		SegmentedControl,
+		Switch,
+		Tabs
+	} from '@skeletonlabs/skeleton-svelte';
 	import { Moon, Settings, Sun, SunMoon, XIcon } from '@lucide/svelte';
 	import type { Snippet } from 'svelte';
 	import type { HTMLButtonAttributes } from 'svelte/elements';
@@ -68,14 +75,23 @@
 				</header>
 				<Dialog.Description class="max-h-[calc(85vh-5rem)] overflow-y-auto">
 					<Tabs defaultValue="general">
-						<Tabs.List class="flex gap-2 border-b border-surface-300-700">
-							<Tabs.Trigger value="general" class="btn hover:preset-tonal data-[selected]:preset-filled-primary-500">
+						<Tabs.List class="border-surface-300-700 flex gap-2 border-b">
+							<Tabs.Trigger
+								value="general"
+								class="btn hover:preset-tonal data-[selected]:preset-filled-primary-500"
+							>
 								{m.preferences_tab_general()}
 							</Tabs.Trigger>
-							<Tabs.Trigger value="defaults" class="btn hover:preset-tonal data-[selected]:preset-filled-primary-500">
+							<Tabs.Trigger
+								value="defaults"
+								class="btn hover:preset-tonal data-[selected]:preset-filled-primary-500"
+							>
 								{m.preferences_tab_defaults()}
 							</Tabs.Trigger>
-							<Tabs.Trigger value="developer" class="btn hover:preset-tonal data-[selected]:preset-filled-primary-500">
+							<Tabs.Trigger
+								value="developer"
+								class="btn hover:preset-tonal data-[selected]:preset-filled-primary-500"
+							>
 								{m.preferences_tab_developer()}
 							</Tabs.Trigger>
 						</Tabs.List>
@@ -149,7 +165,9 @@
 								<div class="flex flex-col gap-2">
 									<p class="h5">{m.preferences_default_legend_set()}</p>
 									{#if savedLegends.length > 0}
-										<p class="text-surface-600-400 text-sm font-semibold">{m.preset_options_custom()}</p>
+										<p class="text-surface-600-400 text-sm font-semibold">
+											{m.preset_options_custom()}
+										</p>
 										<div class="grid grid-cols-3 gap-3">
 											{#each savedLegends as set (set.id)}
 												{@const border =
@@ -172,7 +190,9 @@
 											{/each}
 										</div>
 									{/if}
-									<p class="text-surface-600-400 text-sm font-semibold">{m.preset_options_builtin()}</p>
+									<p class="text-surface-600-400 text-sm font-semibold">
+										{m.preset_options_builtin()}
+									</p>
 									<div class="grid grid-cols-3 gap-3">
 										{#each builtinList as f (f.id)}
 											{@const border =
@@ -185,7 +205,11 @@
 											>
 												<strong>{f.name}</strong>
 												<div class="flex h-[24px] items-center justify-center">
-													<img src={f.preview} alt={m.preset_options_font_preview()} class="max-h-[24px] dark:invert" />
+													<img
+														src={f.preview}
+														alt={m.preset_options_font_preview()}
+														class="max-h-[24px] dark:invert"
+													/>
 												</div>
 											</button>
 										{/each}

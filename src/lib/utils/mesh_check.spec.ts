@@ -9,12 +9,7 @@ function tetrahedron(): number[] {
 	const c = [0, 1, 0];
 	const d = [0, 0, 1];
 	const tri = (p: number[], q: number[], r: number[]) => [...p, ...q, ...r];
-	return [
-		...tri(a, c, b),
-		...tri(a, b, d),
-		...tri(a, d, c),
-		...tri(b, c, d)
-	];
+	return [...tri(a, c, b), ...tri(a, b, d), ...tri(a, d, c), ...tri(b, c, d)];
 }
 
 describe('checkMesh', () => {

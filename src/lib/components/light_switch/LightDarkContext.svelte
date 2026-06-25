@@ -24,11 +24,11 @@
 		ctx.isLight = !isDark;
 		ctx.isDark = isDark;
 		ctx.mode = mode;
-		console.log("light dark context updated", {
+		console.log('light dark context updated', {
 			bgColorCss,
 			bgColor: ctx.bgColor,
 			fgColorCss,
-			fgColor: ctx.fgColor,
+			fgColor: ctx.fgColor
 		});
 	}
 	if (browser) {

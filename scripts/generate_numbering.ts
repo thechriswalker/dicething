@@ -260,9 +260,7 @@ function buildOrderCentroids(die: DieEntry, handed: number): Array<Vector3> {
 		params['handedness'] = handed;
 	}
 	const model = die.build(params);
-	return model.faces
-		.filter((f) => f.isNumberFace)
-		.map((f) => f.transform.translation.clone());
+	return model.faces.filter((f) => f.isNumberFace).map((f) => f.transform.translation.clone());
 }
 
 const results: Array<{ id: string; n: number; value: NumberingOrder }> = [];
@@ -329,6 +327,9 @@ ${entries}
 };
 `;
 
-const outPath = resolve(dirname(fileURLToPath(import.meta.url)), '../src/lib/dice/numbering_orders.ts');
+const outPath = resolve(
+	dirname(fileURLToPath(import.meta.url)),
+	'../src/lib/dice/numbering_orders.ts'
+);
 writeFileSync(outPath, header);
 console.log(`\nwrote ${outPath}`);

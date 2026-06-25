@@ -301,9 +301,7 @@
 	</Tooltip>
 {/snippet}
 
-<div
-	class="card preset-tonal-surface flex flex-col gap-2 p-4 {devMode ? 'w-108' : 'w-72'}"
->
+<div class="card preset-tonal-surface flex flex-col gap-2 p-4 {devMode ? 'w-108' : 'w-72'}">
 	<div class="flex gap-2">
 		<button
 			type="button"
@@ -360,11 +358,7 @@
 		<div class="flex flex-col gap-2">
 			<div class="flex items-center justify-between">
 				<span class="font-semibold">{m.dice_parameters_json_title()}</span>
-				<button
-					type="button"
-					class="btn btn-sm preset-tonal-primary"
-					onclick={copyJson}
-				>
+				<button type="button" class="btn btn-sm preset-tonal-primary" onclick={copyJson}>
 					<CopyIcon class="size-4" />
 					{m.dice_parameters_json_copy()}
 				</button>
@@ -394,268 +388,271 @@
 		</div>
 	{:else}
 		<CollapsibleGroup bind:value={openSection}>
-		<Collapsible value="dice" title={m.dice_name({ kind })} defaultOpen={false}>
-			<p class="flex justify-between">
-				<span>{m.dice_parameters_approx_volume()}:</span>
-				<span>{numberFormat(vol)}{typeof vol === 'number' ? ' ml' : ''}</span>
-			</p>
-			<p class="flex justify-between">
-				<span>{m.dice_parameters_face_to_face_distance()}:</span> <span>{numberFormat(f2f)}</span>
-			</p>
-			{#if devMode && paramMode === 'raw'}
-				<div class="flex flex-col gap-3">
-					{#each allDieParams as p (p.id)}
-						{#if paramVisible(p.visibleWhen)}
-							<div class="flex flex-col gap-1">
-								<p class="flex items-center justify-between gap-2">
-									<span class="flex items-center gap-1 truncate">
-										{m.dice_parameters_name({ id: p.id })}
-										{@render helpIcon(m.dice_parameters_description({ id: p.id }))}
+			<Collapsible value="dice" title={m.dice_name({ kind })} defaultOpen={false}>
+				<p class="flex justify-between">
+					<span>{m.dice_parameters_approx_volume()}:</span>
+					<span>{numberFormat(vol)}{typeof vol === 'number' ? ' ml' : ''}</span>
+				</p>
+				<p class="flex justify-between">
+					<span>{m.dice_parameters_face_to_face_distance()}:</span> <span>{numberFormat(f2f)}</span>
+				</p>
+				{#if devMode && paramMode === 'raw'}
+					<div class="flex flex-col gap-3">
+						{#each allDieParams as p (p.id)}
+							{#if paramVisible(p.visibleWhen)}
+								<div class="flex flex-col gap-1">
+									<p class="flex items-center justify-between gap-2">
+										<span class="flex items-center gap-1 truncate">
+											{m.dice_parameters_name({ id: p.id })}
+											{@render helpIcon(m.dice_parameters_description({ id: p.id }))}
+										</span>
+										<label class="flex shrink-0 items-center gap-1 text-xs">
+											<input
+												type="checkbox"
+												class="checkbox"
+												checked={!dieIsSet(p)}
+												onchange={(e) => setDieUnset(p, (e.target as HTMLInputElement).checked)}
+											/>
+											{m.dice_parameters_raw_unset()}
+										</label>
+									</p>
+									<input
+										type="text"
+										inputmode="decimal"
+										class="input {outOfRange(p, rawDieValue(p)) ? 'border-warning-500' : ''}"
+										value={rawDieValue(p)}
+										disabled={!dieIsSet(p)}
+										oninput={(e) => setRawDie(p, (e.target as HTMLInputElement).value)}
+									/>
+									<span class="text-surface-500 text-xs">
+										{m.dice_parameters_raw_range({ min: p.min, max: p.max, step: p.step })}
 									</span>
-									<label class="flex shrink-0 items-center gap-1 text-xs">
-										<input
-											type="checkbox"
-											class="checkbox"
-											checked={!dieIsSet(p)}
-											onchange={(e) => setDieUnset(p, (e.target as HTMLInputElement).checked)}
-										/>
-										{m.dice_parameters_raw_unset()}
-									</label>
-								</p>
-								<input
-									type="text"
-									inputmode="decimal"
-									class="input {outOfRange(p, rawDieValue(p)) ? 'border-warning-500' : ''}"
-									value={rawDieValue(p)}
-									disabled={!dieIsSet(p)}
-									oninput={(e) => setRawDie(p, (e.target as HTMLInputElement).value)}
-								/>
-								<span class="text-surface-500 text-xs">
-									{m.dice_parameters_raw_range({ min: p.min, max: p.max, step: p.step })}
-								</span>
-							</div>
+								</div>
+							{/if}
+						{/each}
+						{#each model.stringParameters ?? [] as p (p.id)}
+							{#if paramVisible(p.visibleWhen)}
+								<label class="flex flex-col gap-1">
+									<span>{m.dice_parameters_name({ id: p.id })}</span>
+									<textarea
+										class="textarea font-mono text-xs"
+										rows="2"
+										spellcheck="false"
+										value={sparams?.[p.id] ?? p.defaultValue}
+										oninput={(e) => setStringParam(p.id, (e.target as HTMLTextAreaElement).value)}
+									></textarea>
+								</label>
+							{/if}
+						{/each}
+					</div>
+				{:else}
+					{#each model.parameters as p}
+						{@const currentValue = dparams[p.id] ?? p.defaultValue}
+						{#if paramVisible(p.visibleWhen)}
+							{#if p.display?.kind === 'toggle'}
+								<div id="parameter-{p.id}" class="flex flex-col gap-1">
+									<p class="flex items-center justify-between">
+										<span class="flex items-center gap-1">
+											{m.dice_parameters_name({ id: p.id })}:
+											{@render helpIcon(m.dice_parameters_description({ id: p.id }))}
+										</span>
+									</p>
+									<SegmentedControl
+										value={String(currentValue)}
+										onValueChange={(e) => {
+											if (e.value != null) dparams[p.id] = Number(e.value);
+										}}
+									>
+										<SegmentedControl.Control>
+											<SegmentedControl.Indicator class="bg-primary-500" />
+											{#each p.display.options as opt}
+												<SegmentedControl.Item value={String(opt.value)}>
+													<SegmentedControl.ItemText
+														class="data-[state=checked]:text-primary-contrast-500"
+													>
+														{m.dice_parameter_option({ key: opt.label })}
+													</SegmentedControl.ItemText>
+													<SegmentedControl.ItemHiddenInput />
+												</SegmentedControl.Item>
+											{/each}
+										</SegmentedControl.Control>
+									</SegmentedControl>
+								</div>
+							{:else}
+								<label id="parameter-{p.id}" class="flex flex-col">
+									<p class="flex items-center justify-between">
+										<span class="flex items-center gap-1">
+											{m.dice_parameters_name({ id: p.id })}:
+											{@render helpIcon(m.dice_parameters_description({ id: p.id }))}
+										</span>
+										<span>({currentValue})</span>
+									</p>
+									<!-- Bits UI Slider component! -->
+
+									<Slider
+										class="py-1"
+										value={currentValue}
+										onChange={(newValue) => (dparams[p.id] = newValue)}
+										min={p.min}
+										max={p.max}
+										step={p.step}
+									/>
+								</label>
+							{/if}
 						{/if}
 					{/each}
-					{#each model.stringParameters ?? [] as p (p.id)}
+					{#each model.stringParameters ?? [] as p}
 						{#if paramVisible(p.visibleWhen)}
-							<label class="flex flex-col gap-1">
-								<span>{m.dice_parameters_name({ id: p.id })}</span>
+							{@const value = sparams?.[p.id] ?? p.defaultValue}
+							{@const validation = p.validate?.(value)}
+							<label id="parameter-{p.id}" class="flex flex-col">
+								<p class="flex items-center justify-between">
+									<span class="flex items-center gap-1">
+										{m.dice_parameters_name({ id: p.id })}:
+										{@render helpIcon(m.dice_parameters_description({ id: p.id }))}
+									</span>
+								</p>
 								<textarea
-									class="textarea font-mono text-xs"
-									rows="2"
+									class="textarea {validation && !validation.valid ? 'border-error-500' : ''}"
+									rows="3"
 									spellcheck="false"
-									value={sparams?.[p.id] ?? p.defaultValue}
+									{value}
 									oninput={(e) => setStringParam(p.id, (e.target as HTMLTextAreaElement).value)}
 								></textarea>
+								{#if validation && !validation.valid && validation.error}
+									<span class="text-error-500 mt-1 text-sm">
+										{m.dice_parameter_message({ key: validation.error })}
+									</span>
+								{:else if validation && validation.warning}
+									<span class="text-warning-500 mt-1 text-sm">
+										{m.dice_parameter_message({ key: validation.warning })}
+									</span>
+								{/if}
 							</label>
 						{/if}
 					{/each}
-				</div>
-			{:else}
-			{#each model.parameters as p}
-				{@const currentValue = dparams[p.id] ?? p.defaultValue}
-				{#if paramVisible(p.visibleWhen)}
-					{#if p.display?.kind === 'toggle'}
-						<div id="parameter-{p.id}" class="flex flex-col gap-1">
-							<p class="flex items-center justify-between">
-								<span class="flex items-center gap-1">
-									{m.dice_parameters_name({ id: p.id })}:
-									{@render helpIcon(m.dice_parameters_description({ id: p.id }))}
-								</span>
-							</p>
-							<SegmentedControl
-								value={String(currentValue)}
-								onValueChange={(e) => {
-									if (e.value != null) dparams[p.id] = Number(e.value);
-								}}
-							>
-								<SegmentedControl.Control>
-									<SegmentedControl.Indicator class="bg-primary-500" />
-									{#each p.display.options as opt}
-										<SegmentedControl.Item value={String(opt.value)}>
-											<SegmentedControl.ItemText
-												class="data-[state=checked]:text-primary-contrast-500"
-											>
-												{m.dice_parameter_option({ key: opt.label })}
-											</SegmentedControl.ItemText>
-											<SegmentedControl.ItemHiddenInput />
-										</SegmentedControl.Item>
-									{/each}
-								</SegmentedControl.Control>
-							</SegmentedControl>
-						</div>
-					{:else}
-						<label id="parameter-{p.id}" class="flex flex-col">
-							<p class="flex items-center justify-between">
-								<span class="flex items-center gap-1">
-									{m.dice_parameters_name({ id: p.id })}:
-									{@render helpIcon(m.dice_parameters_description({ id: p.id }))}
-								</span>
-								<span>({currentValue})</span>
-							</p>
-							<!-- Bits UI Slider component! -->
-
-							<Slider
-								class="py-1"
-								value={currentValue}
-								onChange={(newValue) => (dparams[p.id] = newValue)}
-								min={p.min}
-								max={p.max}
-								step={p.step}
-							/>
-						</label>
-					{/if}
-				{/if}
-			{/each}
-			{#each model.stringParameters ?? [] as p}
-				{#if paramVisible(p.visibleWhen)}
-					{@const value = sparams?.[p.id] ?? p.defaultValue}
-					{@const validation = p.validate?.(value)}
-					<label id="parameter-{p.id}" class="flex flex-col">
+					<label id="parameter-{engravingParam.id}" class="flex flex-col">
 						<p class="flex items-center justify-between">
 							<span class="flex items-center gap-1">
-								{m.dice_parameters_name({ id: p.id })}:
-								{@render helpIcon(m.dice_parameters_description({ id: p.id }))}
+								{m.dice_parameters_name({ id: engravingParam.id })}:
+								{@render helpIcon(m.dice_parameters_description({ id: engravingParam.id }))}
+							</span>
+							<span>
+								({engravingDepth})
 							</span>
 						</p>
-						<textarea
-							class="textarea {validation && !validation.valid ? 'border-error-500' : ''}"
-							rows="3"
-							spellcheck="false"
-							{value}
-							oninput={(e) => setStringParam(p.id, (e.target as HTMLTextAreaElement).value)}
-						></textarea>
-						{#if validation && !validation.valid && validation.error}
-							<span class="text-error-500 mt-1 text-sm">
-								{m.dice_parameter_message({ key: validation.error })}
+						<!-- Bits UI Slider component! -->
+
+						<Slider
+							class="py-1"
+							value={engravingDepth}
+							onChange={(e) => (dparams[engravingParam.id] = e)}
+							min={engravingParam.min}
+							max={engravingParam.max}
+							step={engravingParam.step}
+						></Slider>
+					</label>
+					<label id="parameter-{engravingToleranceParam.id}" class="flex flex-col">
+						<p class="flex items-center justify-between">
+							<span class="flex items-center gap-1">
+								{m.dice_parameters_name({ id: engravingToleranceParam.id })}:
+								{@render helpIcon(
+									m.dice_parameters_description({ id: engravingToleranceParam.id })
+								)}
 							</span>
-						{:else if validation && validation.warning}
-							<span class="text-warning-500 mt-1 text-sm">
-								{m.dice_parameter_message({ key: validation.warning })}
+							<span>
+								({engravingTolerance})
 							</span>
-						{/if}
+						</p>
+						<Slider
+							class="py-1"
+							value={engravingTolerance}
+							onChange={(e) => (dparams[engravingToleranceParam.id] = e)}
+							min={engravingToleranceParam.min}
+							max={engravingToleranceParam.max}
+							step={engravingToleranceParam.step}
+						></Slider>
 					</label>
 				{/if}
-			{/each}
-			<label id="parameter-{engravingParam.id}" class="flex flex-col">
-				<p class="flex items-center justify-between">
-					<span class="flex items-center gap-1">
-						{m.dice_parameters_name({ id: engravingParam.id })}:
-						{@render helpIcon(m.dice_parameters_description({ id: engravingParam.id }))}
-					</span>
-					<span>
-						({engravingDepth})
-					</span>
-				</p>
-				<!-- Bits UI Slider component! -->
-
-				<Slider
-					class="py-1"
-					value={engravingDepth}
-					onChange={(e) => (dparams[engravingParam.id] = e)}
-					min={engravingParam.min}
-					max={engravingParam.max}
-					step={engravingParam.step}
-				></Slider>
-			</label>
-			<label id="parameter-{engravingToleranceParam.id}" class="flex flex-col">
-				<p class="flex items-center justify-between">
-					<span class="flex items-center gap-1">
-						{m.dice_parameters_name({ id: engravingToleranceParam.id })}:
-						{@render helpIcon(m.dice_parameters_description({ id: engravingToleranceParam.id }))}
-					</span>
-					<span>
-						({engravingTolerance})
-					</span>
-				</p>
-				<Slider
-					class="py-1"
-					value={engravingTolerance}
-					onChange={(e) => (dparams[engravingToleranceParam.id] = e)}
-					min={engravingToleranceParam.min}
-					max={engravingToleranceParam.max}
-					step={engravingToleranceParam.step}
-				></Slider>
-			</label>
-			{/if}
-		</Collapsible>
-		<Collapsible value="face" title={m.dice_current_face()} defaultOpen={false}>
-			<label class="mt-4 flex flex-col">
-				<select
-					class="select"
-					value={faceSelectValue}
-					onchange={(e) => {
-						const v = (e.target as HTMLSelectElement).value;
-						if (v === 'none') {
-							selectMode = 'none';
-							selectedFaces = [];
-						} else if (v === 'multi') {
-							// seed the multi selection with the current single face, if any.
-							if (selectMode !== 'multi') {
-								selectedFaces = selectMode === 'single' && selectedFace >= 0 ? [selectedFace] : [];
+			</Collapsible>
+			<Collapsible value="face" title={m.dice_current_face()} defaultOpen={false}>
+				<label class="mt-4 flex flex-col">
+					<select
+						class="select"
+						value={faceSelectValue}
+						onchange={(e) => {
+							const v = (e.target as HTMLSelectElement).value;
+							if (v === 'none') {
+								selectMode = 'none';
+								selectedFaces = [];
+							} else if (v === 'multi') {
+								// seed the multi selection with the current single face, if any.
+								if (selectMode !== 'multi') {
+									selectedFaces =
+										selectMode === 'single' && selectedFace >= 0 ? [selectedFace] : [];
+								}
+								selectMode = 'multi';
+							} else {
+								selectMode = 'single';
+								selectedFaces = [];
+								selectedFace = Number(v);
+								onChangeSelectedFace?.(selectedFace);
 							}
-							selectMode = 'multi';
-						} else {
-							selectMode = 'single';
-							selectedFaces = [];
-							selectedFace = Number(v);
-							onChangeSelectedFace?.(selectedFace);
-						}
-					}}
-				>
-					<option value="none">{m.face_select_none()}</option>
-					<option value="multi">{m.face_select_multi()}</option>
-					{#each visibleFaces as { face, i } (i)}
-						<option value={String(i)}>{faceName(face, i)}</option>
-					{/each}
-				</select>
-			</label>
-			{#if selectMode === 'multi'}
-				<div class="mt-2 flex items-center justify-end gap-2 text-sm">
-					<button
-						type="button"
-						class="anchor"
-						onclick={() => {
-							selectedFaces = visibleFaces.map(({ i }) => i);
-						}}>{m.face_select_all()}</button
+						}}
 					>
-					<span>/</span>
-					<button
-						type="button"
-						class="anchor"
-						onclick={() => {
-							selectedFaces = [];
-						}}>{m.face_select_clear()}</button
-					>
-				</div>
-				<div class="border-surface-300-700 mt-1 max-h-32 overflow-y-auto rounded border">
-					{#each visibleFaces as { face, i } (i)}
-						<label class="hover:bg-surface-200-800 flex items-center gap-2 px-2 py-1">
-							<input
-								type="checkbox"
-								class="checkbox"
-								checked={selectedFaces.includes(i)}
-								onchange={(e) => {
-									const checked = (e.target as HTMLInputElement).checked;
-									const set = new Set(selectedFaces);
-									if (checked) {
-										set.add(i);
-										selectedFace = i;
-										onChangeSelectedFace?.(i);
-									} else {
-										set.delete(i);
-									}
-									// staying in multi mode even when 0 or 1 remain selected.
-									selectedFaces = [...set].sort((a, b) => a - b);
-								}}
-							/>
-							<span>{faceName(face, i)}</span>
-						</label>
-					{/each}
-				</div>
-			{/if}
-			{#if targetFaces.length > 0}
-				<!-- 
+						<option value="none">{m.face_select_none()}</option>
+						<option value="multi">{m.face_select_multi()}</option>
+						{#each visibleFaces as { face, i } (i)}
+							<option value={String(i)}>{faceName(face, i)}</option>
+						{/each}
+					</select>
+				</label>
+				{#if selectMode === 'multi'}
+					<div class="mt-2 flex items-center justify-end gap-2 text-sm">
+						<button
+							type="button"
+							class="anchor"
+							onclick={() => {
+								selectedFaces = visibleFaces.map(({ i }) => i);
+							}}>{m.face_select_all()}</button
+						>
+						<span>/</span>
+						<button
+							type="button"
+							class="anchor"
+							onclick={() => {
+								selectedFaces = [];
+							}}>{m.face_select_clear()}</button
+						>
+					</div>
+					<div class="border-surface-300-700 mt-1 max-h-32 overflow-y-auto rounded border">
+						{#each visibleFaces as { face, i } (i)}
+							<label class="hover:bg-surface-200-800 flex items-center gap-2 px-2 py-1">
+								<input
+									type="checkbox"
+									class="checkbox"
+									checked={selectedFaces.includes(i)}
+									onchange={(e) => {
+										const checked = (e.target as HTMLInputElement).checked;
+										const set = new Set(selectedFaces);
+										if (checked) {
+											set.add(i);
+											selectedFace = i;
+											onChangeSelectedFace?.(i);
+										} else {
+											set.delete(i);
+										}
+										// staying in multi mode even when 0 or 1 remain selected.
+										selectedFaces = [...set].sort((a, b) => a - b);
+									}}
+								/>
+								<span>{faceName(face, i)}</span>
+							</label>
+						{/each}
+					</div>
+				{/if}
+				{#if targetFaces.length > 0}
+					<!-- 
 	face params are specific:
 	
 	legend
@@ -666,158 +663,158 @@
 	that we bind to the faceparams
 	
 	-->
-				{#if selectMode === 'multi'}
-					<button
-						type="button"
-						class="btn preset-tonal-primary my-2 w-full justify-start"
-						onclick={() => onSyncFaces?.()}>{m.face_parameters_sync()}</button
-					>
-				{:else}
-					<label class="my-2 flex items-center justify-between">
-						<!-- >{
+					{#if selectMode === 'multi'}
+						<button
+							type="button"
+							class="btn preset-tonal-primary my-2 w-full justify-start"
+							onclick={() => onSyncFaces?.()}>{m.face_parameters_sync()}</button
+						>
+					{:else}
+						<label class="my-2 flex items-center justify-between">
+							<!-- >{
 			//m['face_params.legend']()
 			} -->
-						{m.face_parameters_selected_legend()}
-						<Modal>
-							{#snippet title()}
-								{m.face_parameters_pick_legend()}
-							{/snippet}
-							{#snippet trigger(props)}
-								<button {...props} class="btn preset-filled-primary-500 p-0">
-									<LegendPreview {legends} legend={faceLegend} class="size-12" />
-								</button>
-							{/snippet}
-							{#snippet inner(close)}
-								{#if onEditLegends}
-									<div class="mb-2 flex justify-end">
-										<button
-											type="button"
-											class="btn btn-sm preset-tonal-secondary"
-											onclick={() => {
-												close();
-												onEditLegends?.();
-											}}
-										>
-											<PencilIcon class="size-4" />
-											{isBuiltin(legends.id)
-												? m.legends_clone_builtin_edit()
-												: m.legends_edit_legends()}
-										</button>
-									</div>
-								{/if}
-								<LegendViewer
-									{legends}
-									selectedLegend={faceLegend}
-									onSelectedLegend={(next) => {
-										updateTargetFaces((p) => (p.legend = next));
-										close();
-									}}
-								/>
-							{/snippet}
-						</Modal>
+							{m.face_parameters_selected_legend()}
+							<Modal>
+								{#snippet title()}
+									{m.face_parameters_pick_legend()}
+								{/snippet}
+								{#snippet trigger(props)}
+									<button {...props} class="btn preset-filled-primary-500 p-0">
+										<LegendPreview {legends} legend={faceLegend} class="size-12" />
+									</button>
+								{/snippet}
+								{#snippet inner(close)}
+									{#if onEditLegends}
+										<div class="mb-2 flex justify-end">
+											<button
+												type="button"
+												class="btn btn-sm preset-tonal-secondary"
+												onclick={() => {
+													close();
+													onEditLegends?.();
+												}}
+											>
+												<PencilIcon class="size-4" />
+												{isBuiltin(legends.id)
+													? m.legends_clone_builtin_edit()
+													: m.legends_edit_legends()}
+											</button>
+										</div>
+									{/if}
+									<LegendViewer
+										{legends}
+										selectedLegend={faceLegend}
+										onSelectedLegend={(next) => {
+											updateTargetFaces((p) => (p.legend = next));
+											close();
+										}}
+									/>
+								{/snippet}
+							</Modal>
+						</label>
+					{/if}
+					<label class="flex flex-col">
+						<p class="flex justify-between">
+							<span>
+								{m.face_parameters_scale()}
+							</span>
+							<span>
+								({numberFormat(faceLegendScale)})
+							</span>
+						</p>
+
+						<Slider
+							class="py-1"
+							value={faceLegendScale}
+							onChange={(nextScale) => {
+								updateTargetFaces((p) => (p.scale = nextScale));
+							}}
+							min={0.1}
+							max={5.0}
+							step={0.01}
+						></Slider>
+					</label>
+					<label class="flex flex-col">
+						<p class="flex justify-between">
+							<span>
+								{m.face_parameters_offset_x()}
+							</span>
+							<span>
+								({faceLegendOffset.x.toFixed(2)})
+							</span>
+						</p>
+						<Slider
+							class="py-1"
+							value={faceLegendOffset.x}
+							onChange={(nextOffset) => {
+								updateTargetFaces((p) => {
+									p.offset = (p.offset?.clone() ?? new Vector2(0, 0)).setX(nextOffset);
+								});
+							}}
+							min={-20}
+							max={20}
+							step={0.1}
+						></Slider>
+					</label>
+					<label class="flex flex-col">
+						<p class="flex justify-between">
+							<span>
+								{m.face_parameters_offset_y()}
+							</span>
+							<span>
+								({faceLegendOffset.y.toFixed(2)})
+							</span>
+						</p>
+						<Slider
+							class="py-1"
+							value={faceLegendOffset.y}
+							onChange={(nextOffset) => {
+								updateTargetFaces((p) => {
+									p.offset = (p.offset?.clone() ?? new Vector2(0, 0)).setY(nextOffset);
+								});
+							}}
+							min={-20}
+							max={20}
+							step={0.1}
+						></Slider>
+					</label>
+					<label class="flex flex-col">
+						<p class="flex justify-between">
+							<span>
+								{m.face_parameters_rotation()}
+							</span>
+							<span>
+								({faceRotationDegrees.toFixed(2)})
+							</span>
+						</p>
+						<Slider
+							class="py-1"
+							value={faceRotationDegrees}
+							onChange={(nextRotation) => {
+								updateTargetFaces((p) => (p.rotation = degToRad(nextRotation)));
+							}}
+							min={-180}
+							max={180}
+							step={0.1}
+						></Slider>
 					</label>
 				{/if}
-				<label class="flex flex-col">
-					<p class="flex justify-between">
-						<span>
-							{m.face_parameters_scale()}
-						</span>
-						<span>
-							({numberFormat(faceLegendScale)})
-						</span>
-					</p>
-
-					<Slider
-						class="py-1"
-						value={faceLegendScale}
-						onChange={(nextScale) => {
-							updateTargetFaces((p) => (p.scale = nextScale));
-						}}
-						min={0.1}
-						max={5.0}
-						step={0.01}
-					></Slider>
-				</label>
-				<label class="flex flex-col">
-					<p class="flex justify-between">
-						<span>
-							{m.face_parameters_offset_x()}
-						</span>
-						<span>
-							({faceLegendOffset.x.toFixed(2)})
-						</span>
-					</p>
-					<Slider
-						class="py-1"
-						value={faceLegendOffset.x}
-						onChange={(nextOffset) => {
-							updateTargetFaces((p) => {
-								p.offset = (p.offset?.clone() ?? new Vector2(0, 0)).setX(nextOffset);
-							});
-						}}
-						min={-20}
-						max={20}
-						step={0.1}
-					></Slider>
-				</label>
-				<label class="flex flex-col">
-					<p class="flex justify-between">
-						<span>
-							{m.face_parameters_offset_y()}
-						</span>
-						<span>
-							({faceLegendOffset.y.toFixed(2)})
-						</span>
-					</p>
-					<Slider
-						class="py-1"
-						value={faceLegendOffset.y}
-						onChange={(nextOffset) => {
-							updateTargetFaces((p) => {
-								p.offset = (p.offset?.clone() ?? new Vector2(0, 0)).setY(nextOffset);
-							});
-						}}
-						min={-20}
-						max={20}
-						step={0.1}
-					></Slider>
-				</label>
-				<label class="flex flex-col">
-					<p class="flex justify-between">
-						<span>
-							{m.face_parameters_rotation()}
-						</span>
-						<span>
-							({faceRotationDegrees.toFixed(2)})
-						</span>
-					</p>
-					<Slider
-						class="py-1"
-						value={faceRotationDegrees}
-						onChange={(nextRotation) => {
-							updateTargetFaces((p) => (p.rotation = degToRad(nextRotation)));
-						}}
-						min={-180}
-						max={180}
-						step={0.1}
-					></Slider>
-				</label>
-			{/if}
-			{#if displayFace >= 0}
-				<div class="mt-4 flex flex-col gap-2">
-					<button
-						type="button"
-						class="btn preset-tonal-primary justify-start"
-						onclick={() => onApplyToAll?.()}>{m.format_painter_apply_all()}</button
-					>
-					<button
-						type="button"
-						class="btn preset-tonal-primary justify-start"
-						onclick={() => onEnterFormatPaint?.()}>{m.format_painter_enter()}</button
-					>
-				</div>
-			{/if}
-		</Collapsible>
-	</CollapsibleGroup>
+				{#if displayFace >= 0}
+					<div class="mt-4 flex flex-col gap-2">
+						<button
+							type="button"
+							class="btn preset-tonal-primary justify-start"
+							onclick={() => onApplyToAll?.()}>{m.format_painter_apply_all()}</button
+						>
+						<button
+							type="button"
+							class="btn preset-tonal-primary justify-start"
+							onclick={() => onEnterFormatPaint?.()}>{m.format_painter_enter()}</button
+						>
+					</div>
+				{/if}
+			</Collapsible>
+		</CollapsibleGroup>
 	{/if}
 </div>

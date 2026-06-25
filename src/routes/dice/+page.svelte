@@ -59,7 +59,9 @@
 	<div class="flex min-h-full flex-col items-center justify-center">
 		<div class="card preset-filled-surface-100-900 p-4">
 			<h2 class="h2 my-4">{m.start_new_set_header()}</h2>
-			<div class="m-auto my-2 grid max-w-[90vw] min-w-[60vh] auto-rows-fr grid-cols-1 gap-4 md:grid-cols-2">
+			<div
+				class="m-auto my-2 grid max-w-[90vw] min-w-[60vh] auto-rows-fr grid-cols-1 gap-4 md:grid-cols-2"
+			>
 				{#each presets as preset}
 					{@const presetOptions = preset.options()}
 					<Modal>
@@ -126,7 +128,10 @@
 							<div
 								class="btn preset-tonal-primary relative flex flex-col justify-start gap-1 text-wrap"
 							>
-								<a class="flex flex-col justify-start gap-1 pr-8 text-wrap" href={'/dice/' + set.id}>
+								<a
+									class="flex flex-col justify-start gap-1 pr-8 text-wrap"
+									href={'/dice/' + set.id}
+								>
 									<h6 class="text-xl">{set.name}</h6>
 									<p><Time t={set.updated} /></p>
 								</a>

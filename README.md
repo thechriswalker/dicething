@@ -36,7 +36,6 @@ This project also aims to be completely web-based, for a zero-install experience
 
 </details>
 
-
 <details><summary>Exporting a Set</summary>
 
 ![Export](images/dicething-export.png)
@@ -158,9 +157,9 @@ The UI section will need a whole lot more...
   - [x] Add "line under symbol" for 6/9 marked symbols - hopefully without breaking the centering?
   - [-] Add "lucide" icons as legends - potrace? or from font lucide is available as a font... (we can certainly import svgs from lucide now, the "pick from font directly though might be a nice feature for UX, i.e. insert icon -> icon picker -> legend)
   - [-] Add custom legend from image. that needs potrace working on a canvas. possibly with some knobs to turn...
-        Maybe a disclaimer that for best results provide an SVG pre-converted from "stoke to path" with inkscape instructions.
-        In fact maybe ONLY allow that...
-        Yeah, I don't think we will allow raster images at all.
+    Maybe a disclaimer that for best results provide an SVG pre-converted from "stoke to path" with inkscape instructions.
+    In fact maybe ONLY allow that...
+    Yeah, I don't think we will allow raster images at all.
 
 ### User Interface
 
@@ -207,7 +206,7 @@ The first flow will be
 
 Most issues come from font problems when converted to SVG paths for engraving.
 
-Similar issue when importing SVGs. 
+Similar issue when importing SVGs.
 
 There are significant code paths to help reduce this issue, but please let me know if you find any fonts / svgs that should work but don't.
 

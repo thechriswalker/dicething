@@ -177,7 +177,7 @@ function findBadTriangles(pos: TypedArray): Mesh | null {
 
 export function removeDuplicateTriangles(g: BufferGeometry): BufferGeometry {
 	g = toNonIndexed(g);
-	
+
 	// we don't care about order, so simply iterate and remove.
 	const tris = new Map<string, Triangle>();
 	const pos = g.getAttribute('position').array;
@@ -230,7 +230,7 @@ type KeyedVertex = { x: number; y: number; z: number; key: string };
 // redundant and just dropped.
 export function repairDegenerateTriangles(g: BufferGeometry, tolerance = 1e-4): BufferGeometry {
 	g = toNonIndexed(g);
-	
+
 	const pos = g.getAttribute('position').array;
 	const invTol = 1 / tolerance;
 	const keyOf = (x: number, y: number, z: number) =>
@@ -241,8 +241,7 @@ export function repairDegenerateTriangles(g: BufferGeometry, tolerance = 1e-4): 
 			z = pos[i + 2];
 		return { x, y, z, key: keyOf(x, y, z) };
 	};
-	const dist = (a: KeyedVertex, b: KeyedVertex) =>
-		Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
+	const dist = (a: KeyedVertex, b: KeyedVertex) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
 	// twice the triangle area (magnitude of the edge cross product).
 	const doubleArea = (a: KeyedVertex, b: KeyedVertex, c: KeyedVertex) => {
 		const ux = b.x - a.x,

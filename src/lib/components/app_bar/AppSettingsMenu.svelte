@@ -4,7 +4,13 @@
 	import Menu from '$lib/components/menu/Menu.svelte';
 	import type { MenuItemSubmenu } from '$lib/components/menu/menu';
 	import { m } from '$lib/paraglide/messages';
-	import { Box, MessageCircleQuestion, Settings, SlidersHorizontal, TypeOutline } from '@lucide/svelte';
+	import {
+		Box,
+		MessageCircleQuestion,
+		Settings,
+		SlidersHorizontal,
+		TypeOutline
+	} from '@lucide/svelte';
 
 	let aboutOpen = $state(false);
 	let prefsOpen = $state(false);

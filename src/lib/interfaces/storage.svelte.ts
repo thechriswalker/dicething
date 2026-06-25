@@ -306,7 +306,7 @@ export async function cloneLegendSet(src: LegendSet): Promise<MutableLegendSet> 
 		}
 	}
 	const d = new Date();
-	const pad = (n: number) => n > 9 ? n : "0"+n;
+	const pad = (n: number) => (n > 9 ? n : '0' + n);
 	const date = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 	const name = `${serial.name} (clone ${date})`;
 	const clone = loadMutableLegends({ ...serial, id, name, font, sources, updated: Date.now() });

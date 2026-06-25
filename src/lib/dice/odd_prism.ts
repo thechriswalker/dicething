@@ -114,8 +114,7 @@ function build(sides: number): DieModel['build'] {
 		);
 		const bottomTransforms = topTransforms.map((t) => t.clone().rotateByAxisAngle(zAxis, Math.PI));
 
-		const normalOf = (t: Transform) =>
-			new Vector3(0, 0, 1).applyQuaternion(t.rotation).normalize();
+		const normalOf = (t: Transform) => new Vector3(0, 0, 1).applyQuaternion(t.rotation).normalize();
 		const topNormals = topTransforms.map(normalOf);
 		const bottomNormals = bottomTransforms.map(normalOf);
 		// body faces point radially out in the xz-plane.

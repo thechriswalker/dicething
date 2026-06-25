@@ -2,9 +2,9 @@ import type { Preset } from '$lib/interfaces/presets';
 import { legendPickerFactory, legendPickerOption } from './_util';
 
 export const classic: Preset = {
-	id: "classic",
+	id: 'classic',
 	options() {
-		return [legendPickerOption()]
+		return [legendPickerOption()];
 	},
 	async factory(opts) {
 		// the 7 dice classic dnd set
@@ -35,12 +35,18 @@ export const classic: Preset = {
 				},
 				{
 					kind: 'd10_trapezohedron',
-					parameters: { trapezohedron_radius: 12, trapezohedron_height: 20 } as Record<string, number>,
+					parameters: { trapezohedron_radius: 12, trapezohedron_height: 20 } as Record<
+						string,
+						number
+					>,
 					face_parameters: []
 				},
 				{
 					kind: 'd00_trapezohedron',
-					parameters: { trapezohedron_radius: 12, trapezohedron_height: 20 } as Record<string, number>,
+					parameters: { trapezohedron_radius: 12, trapezohedron_height: 20 } as Record<
+						string,
+						number
+					>,
 					face_parameters: []
 				},
 				{ kind: 'd12_dodecahedron', parameters: { polyhedron_size: 15 }, face_parameters: [] },
@@ -49,7 +55,7 @@ export const classic: Preset = {
 					parameters: { polyhedron_size: 15 } as Record<string, number>,
 					face_parameters: []
 				}
-			],
-		}
+			]
+		};
 	}
-}
+};

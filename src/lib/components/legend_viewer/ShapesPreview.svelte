@@ -38,7 +38,4 @@
 	});
 </script>
 
-<div
-	bind:this={el}
-	class={'aspect-1 rounded bg-cyan-900 p-1 text-cyan-50 ' + classes}
-></div>
+<div bind:this={el} class={'aspect-1 rounded bg-cyan-900 p-1 text-cyan-50 ' + classes}></div>

@@ -1,11 +1,4 @@
-import {
-	Camera,
-	Matrix4,
-	Quaternion,
-	Vector3,
-	type BufferGeometry,
-	type Object3D
-} from 'three';
+import { Camera, Matrix4, Quaternion, Vector3, type BufferGeometry, type Object3D } from 'three';
 
 export interface Rotatable<T = void> {
 	applyQuaternion(q: Quaternion): T;

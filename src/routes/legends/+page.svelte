@@ -222,11 +222,18 @@
 						</div>
 						{@render setPreview(set)}
 						<div class="mt-2 flex flex-row flex-wrap gap-2">
-							<button class="btn btn-sm preset-tonal-primary" onclick={() => goto('/legends/' + set.id)}>
+							<button
+								class="btn btn-sm preset-tonal-primary"
+								onclick={() => goto('/legends/' + set.id)}
+							>
 								<PencilIcon class="size-4" />
 								{m.legends_edit()}
 							</button>
-							<button class="btn btn-sm preset-tonal-surface" disabled={busy} onclick={() => cloneCustom(set)}>
+							<button
+								class="btn btn-sm preset-tonal-surface"
+								disabled={busy}
+								onclick={() => cloneCustom(set)}
+							>
 								<CopyIcon class="size-4" />
 								{m.legends_clone()}
 							</button>
@@ -257,7 +264,11 @@
 					<h3 class="text-lg font-semibold">{b.name}</h3>
 					<img height="20px" src={b.preview} alt="" class="h-8 self-start dark:invert" />
 					<div class="mt-2 flex flex-row flex-wrap gap-2">
-						<button class="btn btn-sm preset-tonal-primary" disabled={busy} onclick={() => cloneBuiltin(b)}>
+						<button
+							class="btn btn-sm preset-tonal-primary"
+							disabled={busy}
+							onclick={() => cloneBuiltin(b)}
+						>
 							<CopyIcon class="size-4" />
 							{m.legends_clone()}
 						</button>
@@ -273,7 +284,8 @@
 									</button>
 								{/snippet}
 								{#snippet inner(_close)}
-									<pre class="max-h-[60vh] max-w-[80vw] overflow-auto text-sm whitespace-pre-wrap">{b.license}</pre>
+									<pre
+										class="max-h-[60vh] max-w-[80vw] overflow-auto text-sm whitespace-pre-wrap">{b.license}</pre>
 								{/snippet}
 							</Modal>
 						{/if}

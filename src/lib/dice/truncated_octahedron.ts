@@ -113,7 +113,9 @@ export const TruncatedOctahedronD8: DieModel = {
 				cut(apexX, apexZ, t)
 			]);
 			// square: the cut points around the +x apex.
-			const squareSeed = orderCoplanar(neighbours(AXES[0]).map((n) => cut(apexX, n.clone().multiplyScalar(scale), t)));
+			const squareSeed = orderCoplanar(
+				neighbours(AXES[0]).map((n) => cut(apexX, n.clone().multiplyScalar(scale), t))
+			);
 
 			const hexagons = placedToFaces(orbitFace(hexSeed, rotations), true);
 			const squares = placedToFaces(orbitFace(squareSeed, rotations), false);

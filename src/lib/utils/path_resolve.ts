@@ -79,7 +79,10 @@ type Loop = {
 // Entry point
 // ---------------------------------------------------------------------------
 
-export function resolveShapeBoundaries(shapes: Array<Shape>, opts: ResolveOptions = {}): Array<Shape> {
+export function resolveShapeBoundaries(
+	shapes: Array<Shape>,
+	opts: ResolveOptions = {}
+): Array<Shape> {
 	if (shapes.length === 0) {
 		return shapes;
 	}
@@ -499,10 +502,7 @@ function lerpV(a: Vector2, b: Vector2, t: number): Vector2 {
 // Inside / outside (winding)
 // ---------------------------------------------------------------------------
 
-function makeInsideTest(
-	polylines: Vector2[][],
-	rule: WindingRule
-): (p: Vector2) => boolean {
+function makeInsideTest(polylines: Vector2[][], rule: WindingRule): (p: Vector2) => boolean {
 	return (p: Vector2) => {
 		let wn = 0;
 		let crossings = 0;
@@ -774,10 +774,7 @@ function pointInPolygon(p: Vector2, poly: Vector2[]): boolean {
 	for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
 		const vi = poly[i];
 		const vj = poly[j];
-		if (
-			vi.y > p.y !== vj.y > p.y &&
-			p.x < ((vj.x - vi.x) * (p.y - vi.y)) / (vj.y - vi.y) + vi.x
-		) {
+		if (vi.y > p.y !== vj.y > p.y && p.x < ((vj.x - vi.x) * (p.y - vi.y)) / (vj.y - vi.y) + vi.x) {
 			inside = !inside;
 		}
 	}

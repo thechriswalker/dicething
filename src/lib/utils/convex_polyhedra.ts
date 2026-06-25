@@ -148,10 +148,7 @@ export function orderCoplanar(verts: Array<Vector3>): Array<Vector3> {
 	// any three non-collinear points fix the plane normal.
 	let normal = new Vector3();
 	for (let i = 2; i < verts.length; i++) {
-		normal = verts[1]
-			.clone()
-			.sub(verts[0])
-			.cross(verts[i].clone().sub(verts[0]));
+		normal = verts[1].clone().sub(verts[0]).cross(verts[i].clone().sub(verts[0]));
 		if (normal.lengthSq() > 1e-12) {
 			break;
 		}
@@ -387,7 +384,9 @@ function resolveNumberingOrder(id: string, handed: number, n: number): Array<num
 	const entry = numberingOrders[id];
 	let order: Array<number> | undefined;
 	if (entry) {
-		order = Array.isArray(entry[0]) ? (entry as Array<Array<number>>)[handed] : (entry as Array<number>);
+		order = Array.isArray(entry[0])
+			? (entry as Array<Array<number>>)[handed]
+			: (entry as Array<number>);
 	}
 	if (order && isPermutation(order, n)) {
 		return order;

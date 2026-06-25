@@ -5,12 +5,7 @@ import dice from '$lib/dice';
 import type { DieFaceModel } from '$lib/interfaces/dice';
 import type { Dice, DiceSet } from '$lib/interfaces/storage.svelte';
 import { Builder } from './builder';
-import {
-	Legend,
-	loadMutableLegends,
-	type LegendSet,
-	type SerialisedLegendSet
-} from './legends';
+import { Legend, loadMutableLegends, type LegendSet, type SerialisedLegendSet } from './legends';
 import { extraBuildOptions, type OptionValues } from './build_options';
 import { blanks, isBuiltin, loadBuiltinById } from '$lib/fonts';
 import { uuid } from './uuid';
@@ -38,7 +33,10 @@ export type BuildExportMeshesArgs = {
 
 // Build the merged, print-ready mesh for every selected die plus any artifacts
 // (blanks, platforms, ...) contributed by enabled build options.
-export function buildExportMeshes(set: DiceSet, args: BuildExportMeshesArgs = {}): Array<NamedMesh> {
+export function buildExportMeshes(
+	set: DiceSet,
+	args: BuildExportMeshesArgs = {}
+): Array<NamedMesh> {
 	const optionStates = args.optionStates ?? {};
 	const includeDice = args.includeDice ?? true;
 	const out: Array<NamedMesh> = [];
@@ -256,7 +254,9 @@ export async function importSetJson(json: string): Promise<DiceSet> {
 // Resolve the legend set referenced by an imported file: prefer the matching
 // built-in font when the id is built-in, otherwise rebuild the embedded
 // (custom) legends so they get persisted alongside the set.
-async function resolveImportedLegends(legends: SerialisedLegendSet | undefined): Promise<LegendSet> {
+async function resolveImportedLegends(
+	legends: SerialisedLegendSet | undefined
+): Promise<LegendSet> {
 	if (!legends || !legends.id) {
 		return blanks;
 	}

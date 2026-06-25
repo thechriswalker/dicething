@@ -90,9 +90,7 @@ export function gatherLegendCandidates(
 // exported solid. The glyph is placed in the slots the d6 defaults to so the
 // builder's legend-fitting scales it onto the face exactly as it would in a
 // real export.
-export async function checkLegendCandidate(
-	candidate: LegendCandidate
-): Promise<LegendCheckResult> {
+export async function checkLegendCandidate(candidate: LegendCandidate): Promise<LegendCheckResult> {
 	try {
 		const shapes = Array.from({ length: 10 }, () => candidate.shapes);
 		const names = shapes.map(() => candidate.label);

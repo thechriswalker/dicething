@@ -1294,9 +1294,7 @@
 							<Button.Root
 								{...props}
 								class={'btn-icon ' +
-									(legendAreaVisible
-										? 'preset-filled-secondary-500'
-										: 'preset-filled-primary-500')}
+									(legendAreaVisible ? 'preset-filled-secondary-500' : 'preset-filled-primary-500')}
 								aria-label={m.controls_toggle_legend_area()}
 								onclick={() => {
 									legendAreaVisible = !legendAreaVisible;

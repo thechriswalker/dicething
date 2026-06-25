@@ -98,7 +98,7 @@ triangulates with `libtess` (a port of SGI's GLU sweep-line tessellator).
   with no bridging, so its boundary edges match the contour walls we extrude.
 - Caps (libtess) and walls (built straight from the loop points) MUST agree on
   the boundary. `engraving.ts` strips redundant/near-collinear points
-  (`RedundantPointEpsilon`) from every loop *before* triangulation so they do.
+  (`RedundantPointEpsilon`) from every loop _before_ triangulation so they do.
 - `unionBoundaryLoops()` is a second libtess pass in boundary-only NONZERO mode -
   it merges a self-overlapping triangle/contour "soup" into clean nested loops
   where a naive edge-walk would fragment at self-touch points.
@@ -129,13 +129,13 @@ legends.
   degenerate when two corners weld to the same vertex (zero-length edge). A thin
   three-distinct-vertex sliver still has real edges that balance with its
   neighbours - dropping it would orphan those edges and open the mesh. Sliver
-  detection uses triangle *height* (perpendicular distance to the longest edge),
+  detection uses triangle _height_ (perpendicular distance to the longest edge),
   which is scale-invariant; a fixed area epsilon fails because Float32 area
   flips above/below threshold depending on where the die sits in the export grid.
 - **T-junction repair** (`repairDegenerateTriangles`): libtess occasionally emits
   a collinear sliver whose middle vertex M sits exactly on a neighbour's edge - a
   T-junction. The sliver is topologically load-bearing (it's the only thing
-  closing that side), so deleting it cracks the mesh. Instead we *split* every
+  closing that side), so deleting it cracks the mesh. Instead we _split_ every
   real triangle that has M on one of its edges (T -> two triangles), then drop
   the slivers. Result: same closed surface, no degenerate triangles.
 - Hard-edge seams between adjacent faces are intentionally left unwelded by
@@ -156,6 +156,6 @@ legends.
   (especially the geometry utils). Read the header comment of a util before
   changing it; many "obvious simplifications" are bugs that were already fixed.
 - Don't add narrating comments. Keep the existing explanatory comments that
-  capture *why* a non-obvious choice was made.
+  capture _why_ a non-obvious choice was made.
 - After geometry/engraving/export changes: `bun run check`, `bun run test`, and
   `bun run test:slow`.

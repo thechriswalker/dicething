@@ -11,10 +11,7 @@ import { Vector3 } from 'three';
 // truncated icosidodecahedron's coordinate sets by sign-parity alternation.
 // Vertex-transitivity guarantees the dual is face-transitive, i.e. the 60
 // pentagons are congruent and the die is fair.
-function snubDodecahedronPart(
-	base: [number, number, number],
-	oddMinus: boolean
-): Array<Vector3> {
+function snubDodecahedronPart(base: [number, number, number], oddMinus: boolean): Array<Vector3> {
 	const out: Array<Vector3> = [];
 	for (const [a, b, c] of evenPerms(base[0], base[1], base[2])) {
 		for (let s = 0; s < 8; s++) {

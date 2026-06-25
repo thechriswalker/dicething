@@ -117,9 +117,15 @@ export function checkMesh(
 
 	for (let t = 0; t < triangleCount; t++) {
 		const o = t * 9;
-		const ax = positions[o], ay = positions[o + 1], az = positions[o + 2];
-		const bx = positions[o + 3], by = positions[o + 4], bz = positions[o + 5];
-		const cx = positions[o + 6], cy = positions[o + 7], cz = positions[o + 8];
+		const ax = positions[o],
+			ay = positions[o + 1],
+			az = positions[o + 2];
+		const bx = positions[o + 3],
+			by = positions[o + 4],
+			bz = positions[o + 5];
+		const cx = positions[o + 6],
+			cy = positions[o + 7],
+			cz = positions[o + 8];
 
 		const ka = idOf(ax, ay, az);
 		const kb = idOf(bx, by, bz);

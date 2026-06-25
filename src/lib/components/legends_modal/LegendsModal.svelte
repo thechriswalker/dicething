@@ -60,9 +60,10 @@
 
 <Modal>
 	{#snippet title()}
-	<div class="flex flex-row items-center justify-start gap-4 text-4xl">
-	    <TypeOutline class="icon-text" /> {m.menu_legends()}
-	</div>
+		<div class="flex flex-row items-center justify-start gap-4 text-4xl">
+			<TypeOutline class="icon-text" />
+			{m.menu_legends()}
+		</div>
 	{/snippet}
 	{#snippet trigger(props)}
 		<button {...props} class="btn preset-outlined-surface-500">
@@ -73,31 +74,26 @@
 	{#snippet inner(close)}
 		<div class="flex w-[90vw] flex-col gap-4">
 			<section class="flex flex-row items-end justify-start gap-4">
-					<div
-						class="preset-filled-surface-50-950 preset-outlined flex flex-col gap-2 rounded-md p-3"
-					>
-						<strong>{current.name}</strong>
-						<div class="flex h-[24px] items-center">
-							{#if previewFor(current)}
-								<img
-									src={previewFor(current)}
-									alt={current.name}
-									class="h-[24px] dark:invert"
-								/>
-							{/if}
-						</div>
+				<div
+					class="preset-filled-surface-50-950 preset-outlined flex flex-col gap-2 rounded-md p-3"
+				>
+					<strong>{current.name}</strong>
+					<div class="flex h-[24px] items-center">
+						{#if previewFor(current)}
+							<img src={previewFor(current)} alt={current.name} class="h-[24px] dark:invert" />
+						{/if}
 					</div>
-					<button
-						class="btn preset-filled-primary-500"
-						onclick={() => {
-							onEdit();
-							close();
-						}}
-					>
-						<PencilIcon class="size-4" />
-						{currentIsBuiltin ? m.legends_clone_builtin_edit() : m.legends_edit_legends()}
-					</button>
-				
+				</div>
+				<button
+					class="btn preset-filled-primary-500"
+					onclick={() => {
+						onEdit();
+						close();
+					}}
+				>
+					<PencilIcon class="size-4" />
+					{currentIsBuiltin ? m.legends_clone_builtin_edit() : m.legends_edit_legends()}
+				</button>
 			</section>
 
 			<hr class="hr" />

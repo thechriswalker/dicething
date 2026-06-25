@@ -13,7 +13,11 @@
 	import { dieToJSON, type Dice } from '$lib/interfaces/storage.svelte';
 	import type { LegendSet } from '$lib/utils/legends';
 
-	const { die, legends, class: classes = "" }: { die: Dice; legends: LegendSet, class?: string } = $props();
+	const {
+		die,
+		legends,
+		class: classes = ''
+	}: { die: Dice; legends: LegendSet; class?: string } = $props();
 
 	let imageURL = $state('');
 

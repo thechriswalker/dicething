@@ -77,7 +77,6 @@ export function numberStringToWords(s: string): string {
 	return legendNameForText(s);
 }
 
-
 export function addRenderOptions(
 	strings: string,
 	fontRenderOptions: Record<string, RenderOptions> = defaultRenderOptions
@@ -117,9 +116,7 @@ const UNSUPPORTED_SVG_ELEMENTS = ['text', 'image', 'foreignObject'];
 
 // Return the distinct unsupported element names present in an SVG string.
 export function unsupportedSVGElements(svg: string): Array<string> {
-	return UNSUPPORTED_SVG_ELEMENTS.filter((tag) =>
-		new RegExp(`<${tag}[\\s/>]`, 'i').test(svg)
-	);
+	return UNSUPPORTED_SVG_ELEMENTS.filter((tag) => new RegExp(`<${tag}[\\s/>]`, 'i').test(svg));
 }
 
 // SVGLoader defaults an unspecified fill to black, so a path is "filled" unless
@@ -150,7 +147,10 @@ export function svgIconScale(svg: string, target: number = 10): number {
 	if (!viewbox) {
 		return 1;
 	}
-	const parts = viewbox[1].trim().split(/[\s,]+/).map(Number);
+	const parts = viewbox[1]
+		.trim()
+		.split(/[\s,]+/)
+		.map(Number);
 	const max = Math.max(parts[2], parts[3]);
 	return max > 0 && isFinite(max) ? target / max : 1;
 }
@@ -377,8 +377,7 @@ function pointInPolygon(pt: Vector2, poly: Array<Vector2>): boolean {
 		const a = poly[i];
 		const b = poly[j];
 		const intersects =
-			a.y > pt.y !== b.y > pt.y &&
-			pt.x < ((b.x - a.x) * (pt.y - a.y)) / (b.y - a.y) + a.x;
+			a.y > pt.y !== b.y > pt.y && pt.x < ((b.x - a.x) * (pt.y - a.y)) / (b.y - a.y) + a.x;
 		if (intersects) {
 			inside = !inside;
 		}
@@ -413,7 +412,7 @@ function loopsToShapes(loops: Array<Array<Vector2>>): Array<Shape> {
 	});
 
 	const orient = (pts: Array<Vector2>, area: number, ccw: boolean) =>
-		(area >= 0) === ccw ? pts : [...pts].reverse();
+		area >= 0 === ccw ? pts : [...pts].reverse();
 
 	const outers: Array<{ shape: Shape; pts: Array<Vector2>; abs: number }> = [];
 	ls.forEach((l, i) => {
