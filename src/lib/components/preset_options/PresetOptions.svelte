@@ -51,7 +51,7 @@
 	}
 </script>
 
-<div class="flex flex-col gap-4">
+<div class="flex flex-col gap-4 min-w-200">
 	<div class="text-lg">{description}</div>
 	<p class="h5">{m.preset_options_set_name()}</p>
 	<input
@@ -137,12 +137,13 @@
 							}}
 						>
 							<strong>{set.name}</strong>
+							<div class="h-[24px] flex items-center justify-center">
 							<img
-								height="10px"
 								src={legendSetPreview(set)}
 								alt={m.preset_options_font_preview()}
-								class="dark:invert"
+								class="dark:invert max-h-[24px]"
 							/>
+							</div>
 						</button>
 					{/each}
 				</div>
@@ -162,7 +163,9 @@
 						}}
 					>
 						<strong>{f.name}</strong>
-						<img height="10px" src={f.preview} alt={m.preset_options_font_preview()} class="dark:invert" />
+						<div class="h-[24px] flex items-center justify-center">
+							<img src={f.preview} alt={m.preset_options_font_preview()} class="dark:invert max-h-[24px]" />
+						</div>
 					</button>
 				{/each}
 			</div>

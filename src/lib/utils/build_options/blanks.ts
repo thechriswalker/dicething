@@ -1,4 +1,5 @@
 import type { FaceParams } from '$lib/interfaces/dice';
+import { m } from '$lib/paraglide/messages';
 import { engravingParam } from '../builder';
 import { Legend } from '../legends';
 import { controlValue, type ExtraBuildContext, type ExtraBuildOption } from './types';
@@ -12,40 +13,40 @@ const controls: ExtraBuildOption['controls'] = [
 	{
 		id: 'bigger',
 		kind: 'bool',
-		label: 'Bigger blank',
+		label: m.export_opt_blanks_bigger_label,
 		default: false,
-		help: 'Smaller blanks are the normal ones. Bigger blanks are for making smooth (un-engraved) dice.'
+		help: m.export_opt_blanks_bigger_help
 	},
 	{
 		id: 'tolerance',
 		kind: 'number',
-		label: 'Tolerance',
+		label: m.export_opt_blanks_tolerance_label,
 		min: 0,
 		max: 10,
 		step: 0.05,
 		default: 0.7,
-		unit: 'mm',
-		help: 'Blank is inset by the max engraving depth of the die plus this tolerance.',
+		unit: m.export_unit_mm,
+		help: m.export_opt_blanks_tolerance_help,
 		visibleWhen: { control: 'bigger', equals: false }
 	},
 	{
 		id: 'outset',
 		kind: 'number',
-		label: 'Outset',
+		label: m.export_opt_blanks_outset_label,
 		min: 0.1,
 		max: 10,
 		step: 0.05,
 		default: 1,
-		unit: 'mm',
-		help: 'Blank is the die size outset (grown) by this amount.',
+		unit: m.export_unit_mm,
+		help: m.export_opt_blanks_outset_help,
 		visibleWhen: { control: 'bigger', equals: true }
 	}
 ];
 
 export const blanksOption: ExtraBuildOption = {
 	id: 'blanks',
-	label: 'Blanks',
-	description: 'Identical shapes with no engraving.',
+	label: m.export_opt_blanks_label,
+	description: m.export_opt_blanks_description,
 	defaultEnabled: false,
 	controls,
 	generate(ctx) {

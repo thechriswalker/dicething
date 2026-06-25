@@ -305,7 +305,11 @@ export async function cloneLegendSet(src: LegendSet): Promise<MutableLegendSet> 
 			console.warn('failed to copy font blob for clone', e);
 		}
 	}
-	const clone = loadMutableLegends({ ...serial, id, font, sources, updated: Date.now() });
+	const d = new Date();
+	const pad = (n: number) => n > 9 ? n : "0"+n;
+	const date = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+	const name = `${serial.name} (clone ${date})`;
+	const clone = loadMutableLegends({ ...serial, id, name, font, sources, updated: Date.now() });
 	saveLegendSet(clone);
 	return clone;
 }

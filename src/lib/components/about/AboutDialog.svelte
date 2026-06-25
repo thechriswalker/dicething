@@ -38,7 +38,7 @@
 		<Dialog.Backdrop class="bg-surface-50-950/50 fixed inset-0 z-50" />
 		<Dialog.Positioner class="fixed inset-0 z-50 flex items-center justify-center p-4">
 			<Dialog.Content
-				class="card preset-filled-surface-100-900 max-h-[85vh] w-full max-w-3xl space-y-4 overflow-hidden p-4 shadow-xl {animation}"
+				class="card preset-filled-surface-100-900 max-h-[85vh] w-full max-w-3xl space-y-4 overflow-hidden p-4 pb-8 shadow-xl {animation}"
 			>
 				<header class="flex items-start justify-between gap-4">
 					<Dialog.Title class="h1 flex items-center gap-4">

@@ -1,12 +1,11 @@
 import dice from '$lib/dice';
-import { defaultFont } from '$lib/fonts';
 import type { Preset, PresetOption, PresetOptionSelection, UnidentifiedDiceSet } from '$lib/interfaces/presets';
 import { legendPickerFactory, legendPickerOption } from './_util';
 
 export const everythingPreset: Preset = {
     id: "everything",
     options() {
-        return [legendPickerOption(defaultFont.id)];
+        return [legendPickerOption()];
     },
     async factory(opts: Array<PresetOption>) {
         return {

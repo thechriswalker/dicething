@@ -1,4 +1,3 @@
-import { defaultFont } from '$lib/fonts';
 import type { Preset, UnidentifiedDiceSet } from '$lib/interfaces/presets';
 import { Vector2 } from 'three';
 import { legendPickerFactory, legendPickerOption } from './_util';
@@ -6,7 +5,7 @@ import { legendPickerFactory, legendPickerOption } from './_util';
 export const dicethingPreset: Preset = {
 	id: "dicething",
 	options() {
-		return [legendPickerOption(defaultFont.id)]
+		return [legendPickerOption()]
 	},
 	async factory(opts) {
 		return {

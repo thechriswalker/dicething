@@ -13,6 +13,7 @@ import {
 	type BufferGeometry
 } from 'three';
 import { SVGLoader } from 'three/examples/jsm/loaders/SVGLoader.js';
+import { m } from '$lib/paraglide/messages';
 import { resolveShapeBoundaries } from './path_resolve';
 import { centerShapes, scaleShapes } from './shapes';
 import { unionBoundaryLoops } from './tessellate';
@@ -40,73 +41,40 @@ export const defaultRenderOptions: Record<string, RenderOptions> = {
 	'9.': { letterSpacing: -0.1 }
 };
 
-// the teens and the
-const specialCases: Record<string, string> = {
-	'0': 'Zero',
-	'00': 'Double Zero',
-	'6.': 'Marked Six',
-	'9.': 'Marked Nine',
-	'11': 'Eleven',
-	'12': 'Twelve',
-	'13': 'Thirteen',
-	'14': 'Fourteen',
-	'15': 'Fifteen',
-	'16': 'Sixteen',
-	'17': 'Seventeen',
-	'18': 'Eighteen',
-	'19': 'Nineteen'
+// Maps the non-numeric / special source tokens to their `legend_name` message
+// key. Plain numeric tokens (e.g. "7", "42") use the number itself as the key.
+const TOKEN_NAME_KEY: Record<string, string> = {
+	'0': 'zero',
+	'00': 'double_zero',
+	'6.': 'marked_six',
+	'9.': 'marked_nine'
 };
-const ones: Array<string> = [
-	'', // zero
-	'One',
-	'Two',
-	'Three',
-	'Four',
-	'Five',
-	'Six',
-	'Seven',
-	'Eight',
-	'Nine'
-];
-const tens: Array<string> = [
-	'', // <10
-	'Ten',
-	'Twenty',
-	'Thirty',
-	'Forty',
-	'Fifty',
-	'Sixty',
-	'Seventy',
-	'Eighty',
-	'Ninety'
-];
-// only english and only up to 99.
-export function numberStringToWords(s: string): string {
-	// special cases first.
-	if (s in specialCases) {
-		return specialCases[s];
+
+// The `legend_name` message key for a source token, or undefined when the token
+// isn't a known number/special (i.e. a custom character set glyph).
+export function legendNameKeyForText(s: string): string | undefined {
+	if (s in TOKEN_NAME_KEY) {
+		return TOKEN_NAME_KEY[s];
 	}
 	const n = parseInt(s, 10);
-	if (!Number.isInteger(n)) {
-		throw new Error(`Attempt to use non-integer symbol in builtin: ${s}`);
-	}
-	if (n < 0 || n > 99) {
-		throw new Error(`Attempt to use out-of-range symbol in builtin: ${s}`);
-	}
-	const o = ones[n % 10];
-	const t = tens[Math.floor(n / 10)];
-	return [t, o].join(' ').trim();
-}
-
-// Name for a legend slot derived from its source text. Numeric tokens get their
-// English words (numberStringToWords); anything else (custom character sets)
-// falls back to the raw text rather than throwing.
-export function legendNameForText(s: string): string {
-	try {
-		return numberStringToWords(s);
-	} catch {
+	if (Number.isInteger(n) && String(n) === s && n >= 1 && n <= 99) {
 		return s;
 	}
+	return undefined;
+}
+
+// Localized name for a legend slot derived from its source text. Numeric/special
+// tokens resolve through the `legend_name` message (so they track the active
+// locale); anything else (custom character sets) falls back to the raw text.
+export function legendNameForText(s: string): string {
+	const key = legendNameKeyForText(s);
+	return key === undefined ? s : m.legend_name({ key, n: 0 });
+}
+
+// Back-compat alias: previously spelled out a number string in English. Now
+// routes through the localized `legend_name` message.
+export function numberStringToWords(s: string): string {
+	return legendNameForText(s);
 }
 
 

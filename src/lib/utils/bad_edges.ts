@@ -13,6 +13,7 @@ import {
 	type TypedArray
 } from 'three';
 import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { toNonIndexed } from './3d';
 
 // each triangle edge should be connected to EXACTLY 2 triangles.
 type Triangle = {
@@ -65,7 +66,7 @@ export function findAllBadTriangles(...obj: Array<Object3D>) {
 		if ((o as Mesh).isMesh) {
 			let g = (o as Mesh).geometry;
 			if (g.index !== null) {
-				g = g.toNonIndexed();
+				g = toNonIndexed(g);
 			} else {
 				g = g.clone();
 			}
@@ -82,7 +83,7 @@ export function findAllBadTriangles(...obj: Array<Object3D>) {
 	let buf = new BufferGeometry();
 	buf.setAttribute('position', new BufferAttribute(new Float32Array(vertices), 3));
 	buf = mergeVertices(buf);
-	buf = buf.toNonIndexed();
+	buf = toNonIndexed(buf);
 	buf = removeDuplicateTriangles(buf);
 
 	return findBadTriangles(buf.attributes.position.array);
@@ -175,9 +176,8 @@ function findBadTriangles(pos: TypedArray): Mesh | null {
 }
 
 export function removeDuplicateTriangles(g: BufferGeometry): BufferGeometry {
-	if (g.index) {
-		g = g.toNonIndexed();
-	}
+	g = toNonIndexed(g);
+	
 	// we don't care about order, so simply iterate and remove.
 	const tris = new Map<string, Triangle>();
 	const pos = g.getAttribute('position').array;
@@ -233,9 +233,8 @@ export function repairDegenerateTriangles(
 	tolerance = 1e-4,
 	areaEpsilon = 1e-6
 ): BufferGeometry {
-	if (g.index) {
-		g = g.toNonIndexed();
-	}
+	g = toNonIndexed(g);
+	
 	const pos = g.getAttribute('position').array;
 	const invTol = 1 / tolerance;
 	const keyOf = (x: number, y: number, z: number) =>

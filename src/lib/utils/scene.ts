@@ -26,6 +26,7 @@ import { OutlinePass } from 'three/addons/postprocessing/OutlinePass.js';
 import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { TrackballControls } from 'three/examples/jsm/controls/TrackballControls.js';
+import Stats from 'three/addons/libs/stats.module.js';
 import { getRGB } from './color';
 
 const defaultCameraPosition = new Vector3(0, 50, 80);
@@ -72,8 +73,8 @@ export function createBaseSceneAndRenderer(
 	);
 	composer.addPass(primaryOutlinePass);
 	primaryOutlinePass.edgeStrength = 4;
-	primaryOutlinePass.edgeGlow = 1;
-	primaryOutlinePass.edgeThickness = 2;
+	primaryOutlinePass.edgeGlow = 0.5;
+	primaryOutlinePass.edgeThickness = 1;
 	primaryOutlinePass.visibleEdgeColor = new Color(0xffffff);
 	// black hidden colour => occluded parts of the outline contribute nothing,
 	// so the glow is hidden behind the rest of the die instead of bleeding through.
@@ -91,7 +92,39 @@ export function createBaseSceneAndRenderer(
 	secondaryOutlinePass.visibleEdgeColor = new Color(0x00caca);
 	secondaryOutlinePass.hiddenEdgeColor = new Color(0x000000);
 
-	for (const pass of [primaryOutlinePass, secondaryOutlinePass]) {
+	// pulsing-glow highlight for the available-legend-area aid. its source is the
+	// invisible filled polygon the builder adds per face, so the glow traces the
+	// legend-area boundary while a thin line keeps the exact edge crisp.
+	const legendOutlinePass = new OutlinePass(
+		new Vector2(el.clientWidth, el.clientHeight),
+		scene,
+		camera
+	);
+	composer.addPass(legendOutlinePass);
+	legendOutlinePass.edgeStrength = 6;
+	legendOutlinePass.edgeGlow = 1;
+	legendOutlinePass.edgeThickness = 2;
+	// steady (no pulse); the pulse is reserved for the red "bad engraving" pass.
+	legendOutlinePass.pulsePeriod = 0;
+	legendOutlinePass.visibleEdgeColor = new Color(0x00cc00);
+	legendOutlinePass.hiddenEdgeColor = new Color(0x000000);
+
+	// red sibling of the legend pass for faces whose legend won't engrave cleanly.
+	const legendErrorOutlinePass = new OutlinePass(
+		new Vector2(el.clientWidth, el.clientHeight),
+		scene,
+		camera
+	);
+	composer.addPass(legendErrorOutlinePass);
+	legendErrorOutlinePass.edgeStrength = 6;
+	legendErrorOutlinePass.edgeGlow = 1;
+	legendErrorOutlinePass.edgeThickness = 2;
+	legendErrorOutlinePass.pulsePeriod = 2;
+	legendErrorOutlinePass.visibleEdgeColor = new Color(0xff2d2d);
+	legendErrorOutlinePass.hiddenEdgeColor = new Color(0x000000);
+
+	const legendPasses = [legendOutlinePass, legendErrorOutlinePass];
+	for (const pass of [primaryOutlinePass, secondaryOutlinePass, ...legendPasses]) {
 		// Fix: when several faces are selected, OutlinePass renders them all into
 		// one mask, and its prepare-mask shader marks "a selected object is here"
 		// (red channel) for every selected fragment regardless of whether it's
@@ -140,20 +173,43 @@ export function createBaseSceneAndRenderer(
 		// every grid line inside the face. Hiding lines for the whole pass render
 		// (the beauty RenderPass has already run) removes them as occluders while
 		// leaving the real mesh occluders that fix the hole bleed-through intact.
+		//
+		// The legend-area glow fills are non-line meshes that sit just in front of
+		// their face purely as the source for a legend highlight pass. Every pass
+		// must hide the fills it doesn't own: a stray fill writes occluder depth
+		// over the selected/hovered face and the discard above carves the legend
+		// boundary out of that face's glow (a stray hole in the white selection
+		// glow); likewise the lime pass must not be perturbed by red fills and vice
+		// versa. So each pass keeps only its own fill (by diceThingPart) and hides
+		// every other 'legend-area-glow*' fill (and all lines, as before).
+		const keepGlowPart =
+			pass === legendOutlinePass
+				? 'legend-area-glow'
+				: pass === legendErrorOutlinePass
+					? 'legend-area-glow-error'
+					: null;
 		const originalRender = pass.render.bind(pass);
 		pass.render = (...args: Parameters<typeof originalRender>) => {
-			const hiddenLines: Object3D[] = [];
+			const hidden: Object3D[] = [];
 			scene.traverse((o) => {
+				if (!o.visible) {
+					return;
+				}
 				const line = o as { isLine?: boolean };
-				if (line.isLine && o.visible) {
+				const part = o.userData?.diceThingPart;
+				const isOtherGlowFill =
+					typeof part === 'string' &&
+					part.startsWith('legend-area-glow') &&
+					part !== keepGlowPart;
+				if (line.isLine || isOtherGlowFill) {
 					o.visible = false;
-					hiddenLines.push(o);
+					hidden.push(o);
 				}
 			});
 			try {
 				originalRender(...args);
 			} finally {
-				for (const o of hiddenLines) {
+				for (const o of hidden) {
 					o.visible = true;
 				}
 			}
@@ -210,14 +266,70 @@ export function createBaseSceneAndRenderer(
 	};
 	let beforeRender = () => {};
 
+	// --- developer mode helpers (wireframe + stats) ---
+	let wireframeOn = false;
+	function applyWireframe() {
+		scene.traverse((o) => {
+			const mesh = o as Mesh;
+			if (!mesh.isMesh) {
+				return;
+			}
+			// leave overlay aids (e.g. the legend-area outline/glow) untouched.
+			const part = o.userData?.diceThingPart;
+			if (typeof part === 'string' && part.startsWith('legend-area')) {
+				return;
+			}
+			const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+			for (const mat of mats) {
+				const m = mat as Material & { wireframe?: boolean };
+				if (m && 'wireframe' in m && m.wireframe !== wireframeOn) {
+					m.wireframe = wireframeOn;
+				}
+			}
+		});
+	}
+	function setWireframe(on: boolean) {
+		wireframeOn = on;
+		// apply immediately so toggling off restores solid shading too.
+		applyWireframe();
+	}
+
+	let stats: Stats | undefined;
+	function setStatsVisible(on: boolean) {
+		if (on && !stats) {
+			stats = new Stats();
+			// pin the panel to the bottom-left of the scene container.
+			stats.dom.style.position = 'absolute';
+			stats.dom.style.left = '0';
+			stats.dom.style.top = 'auto';
+			stats.dom.style.bottom = '0';
+			if (!el.style.position) {
+				el.style.position = 'relative';
+			}
+			el.appendChild(stats.dom);
+		}
+		if (stats) {
+			stats.dom.style.display = on ? 'block' : 'none';
+		}
+	}
+	onDispose.push(() => {
+		stats?.dom.remove();
+	});
+
 	function render() {
 		if (disposed) {
 			return;
 		}
+		stats?.begin();
 		beforeRender();
 		anim = requestAnimationFrame(render);
 		controls.update();
+		// while on, re-apply so meshes built after the toggle become wireframe too.
+		if (wireframeOn) {
+			applyWireframe();
+		}
 		composer.render();
+		stats?.end();
 	}
 
 	return {
@@ -228,11 +340,19 @@ export function createBaseSceneAndRenderer(
 		renderer,
 		composer,
 		render,
+		setWireframe,
+		setStatsVisible,
 		setPrimarySelectedItems(selectedItems: Array<Object3D>) {
 			primaryOutlinePass.selectedObjects = selectedItems;
 		},
 		setSecondarySeletedItems(selectedItems: Array<Object3D>) {
 			secondaryOutlinePass.selectedObjects = selectedItems;
+		},
+		setLegendAreaItems(selectedItems: Array<Object3D>) {
+			legendOutlinePass.selectedObjects = selectedItems;
+		},
+		setLegendAreaErrorItems(selectedItems: Array<Object3D>) {
+			legendErrorOutlinePass.selectedObjects = selectedItems;
 		},
 		onBeforeRender(fn: () => void) {
 			beforeRender = fn;

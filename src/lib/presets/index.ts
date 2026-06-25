@@ -1,3 +1,4 @@
+import { getPreferences } from '$lib/interfaces/preferences.svelte';
 import type { Preset, PresetOption } from '$lib/interfaces/presets';
 import type { DiceSet } from '$lib/interfaces/storage.svelte';
 import { goFirstPreset } from '$lib/presets/go_first';
@@ -16,8 +17,12 @@ export async function fromPreset(preset: Preset, name: string, options: Array<Pr
 	// this is going to way easier if we go "unsafe" as far as TS is concerned.
 	base.id = uuid()
 	base.updated = Date.now();
+	const prefs = getPreferences();
 	base.dice.forEach((x) => {
 		x.id = uuid();
+		// seed the user's preferred engraving defaults unless the preset set them.
+		x.parameters.engraving_depth ??= prefs.defaultEngravingDepth;
+		x.parameters.engraving_tolerance ??= prefs.defaultEngravingTolerance;
 	});
 	return base;
 }

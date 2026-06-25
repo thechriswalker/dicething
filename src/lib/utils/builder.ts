@@ -7,12 +7,17 @@ import type {
 } from '$lib/interfaces/dice';
 import {
 	BufferGeometry,
+	Float32BufferAttribute,
 	Group,
+	LineBasicMaterial,
+	LineLoop,
 	Material,
 	Mesh,
 	MeshBasicMaterial,
 	MeshNormalMaterial,
 	Quaternion,
+	Shape,
+	ShapeGeometry,
 	Vector3,
 	Plane,
 	type Object3D,
@@ -35,13 +40,48 @@ export type EngravingError = {
 };
 import { mergeGeometries, mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { removeDuplicateTriangles, repairDegenerateTriangles } from './bad_edges';
-import { findBestLegendScalingFactor, getAreaOfShapeAtOrigin } from './shapes';
+import { findBestLegendScalingFactor, getAreaOfShapeAtOrigin, insetConvexPolygon } from './shapes';
 import { uuid } from './uuid';
-import { Transform } from './3d';
+import { toNonIndexed, Transform } from './3d';
 
 const _genericNormalMaterial = new MeshNormalMaterial({ wireframe: !true });
 const _engraveBackMaterial = new MeshBasicMaterial({ color: 0x666666 });
 const _badElementMaterial = new MeshBasicMaterial({ color: 0xff0000, side: DoubleSide });
+// outline of the available legend area (face fit-shape inset by the tolerance).
+// a thin line drawn over the face (depthTest off) in a vivid colour. it stays
+// crisp; the prominence comes from the pulsing-glow highlight pass driven by the
+// invisible fill below.
+const _legendAreaMaterial = new LineBasicMaterial({
+	color: 0x00cc00,
+	depthTest: false,
+	transparent: true
+});
+// red variant used when the face's legend won't engrave cleanly (too large /
+// build failure), so the area aid doubles as a fit warning.
+const _legendAreaErrorMaterial = new LineBasicMaterial({
+	color: 0xff2d2d,
+	depthTest: false,
+	transparent: true
+});
+// invisible filled polygon matching the legend area. it is never drawn in the
+// beauty pass (colorWrite off) and never occludes the die (depthWrite off); it
+// exists purely as the source object for the pulsing-glow OutlinePass, which
+// outlines its silhouette to highlight the legend area. lines can't be used as
+// OutlinePass sources (the pass hides all lines for its mask), hence the fill.
+const _legendAreaGlowMaterial = new MeshBasicMaterial({
+	colorWrite: false,
+	depthWrite: false,
+	depthTest: false
+});
+// userData.diceThingPart markers for the legend-area aids so they can be found,
+// removed, and excluded from hover/selection raycasting. both share the
+// 'legend-area' prefix so the wireframe pass can skip them in one check.
+const LEGEND_AREA_PART = 'legend-area';
+const LEGEND_AREA_GLOW_PART = 'legend-area-glow';
+// glow fill for faces whose engraving is "bad"; fed into a separate red glow
+// pass. note it keeps the 'legend-area-glow' prefix so the scene's per-pass
+// glow-hiding still matches it.
+const LEGEND_AREA_GLOW_ERROR_PART = 'legend-area-glow-error';
 
 export class Builder {
 	private renderCount = 0;
@@ -53,6 +93,12 @@ export class Builder {
 	private individualLegendScaling = false;
 	public currentSmallestLegendScaling: number = 1;
 	public readonly currentLegendScaling = new Map<Legend, number>();
+	// minimum legend inset from the face edge for the last build/export. fed into
+	// engrave() as the clearance and into the legend auto-scaling.
+	private currentTolerance: number = engravingToleranceParam.defaultValue;
+	// when true, each number face carries an outline of the available legend area
+	// (its fit-shape inset by the tolerance) as a design aid in the editor.
+	private showLegendArea = false;
 	private faces: Array<DieFaceModel> = [];
 	private faceObjects: Array<Object3D> = [];
 	private lastFaceParams: Array<FaceParams> = [];
@@ -134,6 +180,111 @@ export class Builder {
 	// the previewer to nudge the thumbnail view off the head-on face axis.
 	public getPreviewTransform(): Transform | undefined {
 		return this.previewTransform;
+	}
+
+	// Toggle the available-legend-area outline on every (number) face. The outline
+	// is the face's convex fit-shape inset by the current engraving tolerance.
+	setLegendAreaVisible(on: boolean) {
+		if (this.showLegendArea === on) {
+			return;
+		}
+		this.showLegendArea = on;
+		for (let i = 0; i < this.faceObjects.length; i++) {
+			if (this.faceObjects[i]) {
+				this.refreshLegendAreaOutline(i);
+			}
+		}
+	}
+
+	// (re)build the legend-area aids on a face group. Removes any existing ones
+	// first, then adds a fresh thin outline loop plus an invisible fill (the
+	// source for the pulsing-glow highlight pass) when enabled. Both are built at
+	// the origin so they animate with the face group (a child of faceObjects[i]).
+	private refreshLegendAreaOutline(i: number) {
+		const group = this.faceObjects[i];
+		if (!group) {
+			return;
+		}
+		const existing = group.children.filter((c) => {
+			const part = c.userData?.diceThingPart;
+			return typeof part === 'string' && part.startsWith(LEGEND_AREA_PART);
+		});
+		group.remove(...existing);
+		existing.forEach((c) => (c as Mesh | LineLoop).geometry?.dispose());
+		const face = this.faces[i];
+		if (!this.showLegendArea || !face || face.hidden) {
+			return;
+		}
+		// show on every number face, and on a non-number ("blank") face only when it
+		// actually carries a legend (a non-blank glyph has been placed on it).
+		const effectiveLegend = this.lastFaceParams[i]?.legend ?? face.defaultLegend;
+		if (!face.isNumberFace && effectiveLegend === Legend.BLANK) {
+			return;
+		}
+		const fitTarget = face.fitShape ?? face.shape;
+		const pts = insetConvexPolygon(fitTarget, this.currentTolerance);
+		if (pts.length < 3) {
+			return;
+		}
+		// lift slightly off the face surface so it doesn't z-fight with the front.
+		const z = 0.12;
+
+		// faces whose legend won't engrave cleanly get the red variant so the area
+		// aid doubles as a fit warning.
+		const hasError = !!this.faceEngravingErrors[i];
+
+		// thin outline drawn as a closed loop.
+		const positions = new Float32Array(pts.length * 3);
+		for (let k = 0; k < pts.length; k++) {
+			positions[k * 3] = pts[k].x;
+			positions[k * 3 + 1] = pts[k].y;
+			positions[k * 3 + 2] = z;
+		}
+		const lineGeo = new BufferGeometry();
+		lineGeo.setAttribute('position', new Float32BufferAttribute(positions, 3));
+		const line = new LineLoop(lineGeo, hasError ? _legendAreaErrorMaterial : _legendAreaMaterial);
+		// always draw the outline on top of the die.
+		line.renderOrder = 999;
+		line.userData.diceThingPart = LEGEND_AREA_PART;
+		line.userData.diceThingFace = i;
+		line.userData.diceThingId = this.id;
+		// never pick the outline when hovering/selecting faces.
+		line.raycast = () => {};
+		group.add(line);
+
+		// invisible filled polygon: the silhouette source for the glow pass. tagged
+		// by error state so the matching (lime or red) glow pass picks it up.
+		const glowGeo = new ShapeGeometry(new Shape(pts));
+		glowGeo.translate(0, 0, z);
+		const glow = new Mesh(glowGeo, _legendAreaGlowMaterial);
+		glow.userData.diceThingPart = hasError ? LEGEND_AREA_GLOW_ERROR_PART : LEGEND_AREA_GLOW_PART;
+		glow.userData.diceThingFace = i;
+		glow.userData.diceThingId = this.id;
+		glow.raycast = () => {};
+		group.add(glow);
+	}
+
+	private collectGlowObjects(part: string): Array<Object3D> {
+		const objs: Array<Object3D> = [];
+		for (const group of this.faceObjects) {
+			group?.children.forEach((c) => {
+				if (c.userData?.diceThingPart === part) {
+					objs.push(c);
+				}
+			});
+		}
+		return objs;
+	}
+
+	// invisible filled polygons used as the source for the pulsing-glow highlight
+	// pass. only present while the legend area is visible. the error variant feeds
+	// the separate red glow pass for faces that won't engrave cleanly.
+	getLegendAreaGlowObjects(): Array<Object3D> {
+		return this.collectGlowObjects(LEGEND_AREA_GLOW_PART);
+	}
+
+	getLegendAreaGlowErrorObjects(): Array<Object3D> {
+		return this.collectGlowObjects(LEGEND_AREA_GLOW_ERROR_PART);
 	}
 
 	// just get the front section of the face.
@@ -253,6 +404,7 @@ export class Builder {
 	): number {
 		dieParams = simplifyDieParams(dieParams, this.model.parameters);
 		stringParams = simplifyStringParams(stringParams, this.model.stringParameters);
+		this.currentTolerance = dieParams.engraving_tolerance;
 		const dieChanged =
 			this.forceRerenderBlank ||
 			!dieParamsEqual(this.lastDieParams, dieParams) ||
@@ -327,6 +479,7 @@ export class Builder {
 					mesh.visible = visible;
 					this.faceObjects[i].add(mesh);
 				});
+				this.refreshLegendAreaOutline(i);
 			}
 		}
 		this.forceRerenderBlank = false;
@@ -544,7 +697,7 @@ export class Builder {
 			allLegends.forEach((l) => {
 				const shapes = this.legends.get(l);
 				if (shapes.length > 0) {
-					const scale = findBestLegendScalingFactor(fitTarget, shapes);
+					const scale = findBestLegendScalingFactor(fitTarget, shapes, this.currentTolerance);
 					this.currentLegendScaling.set(l, scale); // save for later
 					if (scale < smallest) {
 						smallest = scale;
@@ -570,6 +723,7 @@ export class Builder {
 		// to ensure everything is tight.
 		dieParams = simplifyDieParams(dieParams, this.model.parameters);
 		stringParams = simplifyStringParams(stringParams, this.model.stringParameters);
+		this.currentTolerance = dieParams.engraving_tolerance;
 		const dieChanged =
 			this.forceRerenderBlank ||
 			!dieParamsEqual(this.lastDieParams, dieParams) ||
@@ -605,9 +759,7 @@ export class Builder {
 				// export (we always export in the solid/printing position).
 				face.transform.applyToGeometry(g);
 				// ensure we can merge them
-				if (g.index) {
-					g = g.toNonIndexed();
-				}
+				g = toNonIndexed(g);
 				g.computeVertexNormals();
 				delete g.attributes.uv;
 				geos.push(g);
@@ -653,7 +805,7 @@ export class Builder {
 				symbols,
 				params,
 				engravingDepth + (params.extraDepth ?? 0),
-				undefined, // clearance
+				this.currentTolerance, // clearance: minimum inset from the face edge
 				opts.forExport ? DefaultDivisions : 2 * DefaultDivisions, // will need to "up" this to make a "high quality" render.
 				face.fitShape // convex containment region for non-convex faces
 			);
@@ -684,7 +836,7 @@ export class Builder {
 				[], // force to blank
 				params,
 				engravingDepth + (params.extraDepth ?? 0),
-				undefined, // clearance
+				this.currentTolerance, // clearance: minimum inset from the face edge
 				opts.forExport ? DefaultDivisions : 2 * DefaultDivisions // will need to "up" this to make a "high quality" render.
 			);
 		}
@@ -792,6 +944,18 @@ export const engravingParam: DiceParameter = {
 	step: 0.01
 };
 
+// minimum distance a legend must be inset from a face edge. Threaded into
+// engrave() as the `clearance` and into legend auto-scaling so legends shrink to
+// honor the inset. Like engraving_depth it is not part of any DieModel's params;
+// it's appended to every die and always preserved by simplifyDieParams.
+export const engravingToleranceParam: DiceParameter = {
+	id: 'engraving_tolerance',
+	defaultValue: 0.5,
+	min: 0,
+	max: 3,
+	step: 0.05
+};
+
 function simplifyDieParams(
 	obj: Record<string, number>,
 	params: Array<DiceParameter>
@@ -812,6 +976,12 @@ function simplifyDieParams(
 		output.engraving_depth = value;
 	} else {
 		output.engraving_depth = engravingParam.defaultValue;
+	}
+	// and the engraving tolerance (always preserved, like depth).
+	if ('engraving_tolerance' in obj) {
+		output.engraving_tolerance = clampParam(obj.engraving_tolerance, engravingToleranceParam);
+	} else {
+		output.engraving_tolerance = engravingToleranceParam.defaultValue;
 	}
 	return output;
 }

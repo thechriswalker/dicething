@@ -138,7 +138,10 @@
 			const world = parent.clone().multiply(o.matrix);
 			const mesh = o as Mesh;
 			if (mesh.isMesh) {
-				const g = mesh.geometry.index ? mesh.geometry.toNonIndexed() : mesh.geometry.clone();
+				let g = toNonIndexed(mesh.geometry);
+				if (g === mesh.geometry) {
+					g = g.clone();
+				}
 				g.applyMatrix4(world);
 				const arr = g.getAttribute('position').array;
 				for (let i = 0; i < arr.length; i++) {

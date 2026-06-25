@@ -1,5 +1,6 @@
 import { Shape } from 'three';
-import { defaultStrings } from './font';
+import { m } from '$lib/paraglide/messages';
+import { defaultStrings, legendNameForText } from './font';
 import { shapeFromJSON, shapeToJSON } from './to_json';
 
 export enum Legend {
@@ -51,15 +52,50 @@ export const MAKER_LOGO_SLOT = 31;
 // truth in $lib/utils/font so the generators and the dice number->slot
 // mapping can never drift apart.
 const textToSlot: Map<string, Legend> = (() => {
-	const m = new Map<string, Legend>();
+	const map = new Map<string, Legend>();
 	defaultStrings.split(' ').forEach((tok, i) => {
 		const slot = (i < MAKER_LOGO_SLOT ? i : i + 1) as Legend;
-		if (!m.has(tok)) {
-			m.set(tok, slot);
+		if (!map.has(tok)) {
+			map.set(tok, slot);
 		}
 	});
-	return m;
+	return map;
 })();
+
+// Inverse of textToSlot: the canonical source token for a slot. Used to derive
+// a slot's localized name (via legend_name) at render time, now that there's a
+// single canonical legend ordering and names no longer need to be baked in.
+const slotToText: Map<Legend, string> = (() => {
+	const map = new Map<Legend, string>();
+	for (const [tok, slot] of textToSlot) {
+		if (!map.has(slot)) {
+			map.set(slot, tok);
+		}
+	}
+	return map;
+})();
+
+// Localized display name for a known legend slot (blank, maker logo, or any of
+// the canonical numeric/special slots), or undefined for custom-symbol slots
+// (which carry a user-supplied name instead).
+export function localizedLegendName(l: Legend): string | undefined {
+	if (l === Legend.BLANK) {
+		return m.legend_name({ key: 'blank', n: 0 });
+	}
+	if (l === Legend.MAKER_LOGO) {
+		return m.legend_name({ key: 'logo', n: 0 });
+	}
+	const tok = slotToText.get(l);
+	if (tok !== undefined) {
+		return legendNameForText(tok);
+	}
+	// custom-symbol slots have no canonical token: number them from 1 via the
+	// `legend_name` wildcard ("Custom Legend (n)").
+	if (l >= Legend.CUSTOM_SYMBOLS_START) {
+		return m.legend_name({ key: 'custom', n: l + 1 - Legend.CUSTOM_SYMBOLS_START });
+	}
+	return undefined;
+}
 
 // The Legend slot that should display a given numeric value. 6 and 9 resolve to
 // their marked variants (as large dice always want the disambiguating dot);
@@ -232,7 +268,9 @@ export function loadImmutableLegends(s: SerialisedLegendSet): ImmutableLegendSet
 			if (l in data === false) {
 				l = Legend.BLANK;
 			}
-			return l in s.names ? s.names[l] : debugLegendName(l);
+			// canonical slots derive their name from the active locale; custom
+			// symbols keep their baked, user-supplied name.
+			return localizedLegendName(l) ?? (l in s.names ? s.names[l] : debugLegendName(l));
 		},
 		get(l: Legend) {
 			// anything not in the array is a blank.
@@ -298,7 +336,9 @@ export function loadMutableLegends(s: SerialisedLegendSet): MutableLegendSet {
 			if (l in data === false) {
 				l = Legend.BLANK;
 			}
-			return l in names ? names[l] : debugLegendName(l);
+			// canonical slots derive their name from the active locale; custom
+			// symbols keep their baked, user-supplied name.
+			return localizedLegendName(l) ?? (l in names ? names[l] : debugLegendName(l));
 		},
 		get(l: Legend) {
 			// anything not in the array is a blank.

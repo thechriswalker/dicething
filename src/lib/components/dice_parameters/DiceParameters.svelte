@@ -1,14 +1,15 @@
 <script lang="ts">
 	import dice from '$lib/dice';
 	import type { Dice } from '$lib/interfaces/storage.svelte';
-	import type { FaceParams } from '$lib/interfaces/dice';
+	import type { DiceParameter, FaceParams } from '$lib/interfaces/dice';
 	import { isBuiltin } from '$lib/fonts';
+	import { getPreferences } from '$lib/interfaces/preferences.svelte';
 	import { m } from '$lib/paraglide/messages';
-	import { engravingParam, type Builder } from '$lib/utils/builder';
+	import { engravingParam, engravingToleranceParam, type Builder } from '$lib/utils/builder';
 	import { type LegendSet } from '$lib/utils/legends';
 	import { Vector2 } from 'three';
 	import { degToRad, radToDeg } from 'three/src/math/MathUtils.js';
-	import { InfoIcon, PencilIcon } from '@lucide/svelte';
+	import { CopyIcon, InfoIcon, PencilIcon, Redo2, Undo2 } from '@lucide/svelte';
 	import { SegmentedControl } from '@skeletonlabs/skeleton-svelte';
 	import Slider from '$lib/components/slider/Slider.svelte';
 	import Tooltip from '$lib/components/tooltip/Tooltip.svelte';
@@ -36,6 +37,10 @@
 		onEnterFormatPaint?: () => void;
 		onSyncFaces?: () => void;
 		onEditLegends?: () => void;
+		canUndo?: boolean;
+		canRedo?: boolean;
+		onUndo?: () => void;
+		onRedo?: () => void;
 	};
 
 	let {
@@ -53,7 +58,11 @@
 		onApplyToAll,
 		onEnterFormatPaint,
 		onSyncFaces,
-		onEditLegends
+		onEditLegends,
+		canUndo = false,
+		canRedo = false,
+		onUndo,
+		onRedo
 	}: Props = $props();
 
 	let model = $derived(dice[kind]);
@@ -99,6 +108,9 @@
 	let f2f = $derived(renderPass ? builder.getFace2FaceDistance() : '-');
 	let firstBlank = $derived(faces.findIndex((x) => !x.isNumberFace));
 	let engravingDepth = $derived(dparams[engravingParam.id] ?? engravingParam.defaultValue);
+	let engravingTolerance = $derived(
+		dparams[engravingToleranceParam.id] ?? engravingToleranceParam.defaultValue
+	);
 
 	function faceName(face: { isNumberFace: boolean }, i: number): string {
 		return face.isNumberFace
@@ -115,6 +127,24 @@
 	});
 	// the face whose values are shown on the sliders. for multi we show the first.
 	let displayFace = $derived(targetFaces.length > 0 ? targetFaces[0] : -1);
+
+	// which accordion section is open ('dice' | 'face' | null). controlled so we
+	// can pop the face section open when a face gets selected (e.g. by clicking it
+	// in the 3D view). 'dice' to start so the panel opens on the die overview.
+	let openSection = $state<string | null>('dice');
+	// when the active selection changes, jump to the face section. plain (non-$state)
+	// tracking var so re-opening doesn't fight the user manually collapsing it.
+	// seeded with the initial selection so we don't force it open on first mount.
+	let lastSelectionKey = selectMode === 'single' ? `single:${selectedFace}` : selectMode;
+	$effect(() => {
+		const key = selectMode === 'single' ? `single:${selectedFace}` : selectMode;
+		if (key !== lastSelectionKey) {
+			lastSelectionKey = key;
+			if (selectMode !== 'none') {
+				openSection = 'face';
+			}
+		}
+	});
 
 	// the current value of the face <select>. driving the select's `value`
 	// directly (rather than per-option `selected` attributes) keeps it in sync
@@ -138,6 +168,120 @@
 	);
 	let faceLegendOffset = $derived(fparams[displayFace]?.offset ?? new Vector2(0, 0));
 	let faceRotationDegrees = $derived(radToDeg(fparams[displayFace]?.rotation ?? 0));
+
+	// ---- developer mode: raw + JSON parameter editing ----
+	const prefs = getPreferences();
+	let devMode = $derived(prefs.developerMode);
+	// editing mode for the parameter panel. only meaningful in developer mode.
+	type ParamMode = 'controls' | 'raw' | 'json';
+	let paramMode = $state<ParamMode>('controls');
+	// when developer mode is turned off, snap back to the normal controls.
+	$effect(() => {
+		if (!devMode && paramMode !== 'controls') {
+			paramMode = 'controls';
+		}
+	});
+
+	// every numeric die parameter (model params + the two engraving params) so the
+	// raw editor can expose each one as a free text field.
+	let allDieParams = $derived<Array<DiceParameter>>([
+		...model.parameters,
+		engravingParam,
+		engravingToleranceParam
+	]);
+
+	// raw text drafts so a user can type intermediate/invalid strings (e.g. "-",
+	// "1.") without the value being clobbered before it parses.
+	let rawDrafts = $state<Record<string, string>>({});
+	function rawDieValue(p: DiceParameter): string {
+		if (p.id in rawDrafts) {
+			return rawDrafts[p.id];
+		}
+		return String(dparams[p.id] ?? p.defaultValue);
+	}
+	function setRawDie(p: DiceParameter, text: string) {
+		rawDrafts[p.id] = text;
+		const n = Number(text);
+		// apply ANY finite number the user enters (not clamped to min/max).
+		if (text.trim() !== '' && Number.isFinite(n)) {
+			dparams[p.id] = n;
+		}
+	}
+	function dieIsSet(p: DiceParameter): boolean {
+		return p.id in dparams;
+	}
+	function setDieUnset(p: DiceParameter, unset: boolean) {
+		if (unset) {
+			const { [p.id]: _drop, ...rest } = dparams;
+			dparams = rest;
+		} else {
+			dparams[p.id] = dparams[p.id] ?? p.defaultValue;
+		}
+		const { [p.id]: _d, ...restDraft } = rawDrafts;
+		rawDrafts = restDraft;
+	}
+	function outOfRange(p: DiceParameter, text: string): boolean {
+		const n = Number(text);
+		if (text.trim() === '' || !Number.isFinite(n)) {
+			return true;
+		}
+		return n < p.min || n > p.max;
+	}
+
+	// ---- JSON editor ----
+	function jsonReplacer(_key: string, value: unknown) {
+		if (value instanceof Vector2) {
+			return { _: 'v2', x: value.x, y: value.y };
+		}
+		return value;
+	}
+	function jsonReviver(_key: string, value: any) {
+		if (value && typeof value === 'object' && value._ === 'v2') {
+			return new Vector2(value.x, value.y);
+		}
+		return value;
+	}
+	function currentJson(): string {
+		return JSON.stringify(
+			{
+				parameters: dparams,
+				string_parameters: sparams ?? {},
+				face_parameters: fparams
+			},
+			jsonReplacer,
+			2
+		);
+	}
+	let jsonText = $state('');
+	let jsonError = $state<string | null>(null);
+	// (re)load the editor text from the live values whenever we enter JSON mode.
+	$effect(() => {
+		if (paramMode === 'json') {
+			jsonText = currentJson();
+			jsonError = null;
+		}
+	});
+	function applyJson() {
+		try {
+			const parsed = JSON.parse(jsonText, jsonReviver);
+			if (!parsed || typeof parsed !== 'object' || typeof parsed.parameters !== 'object') {
+				throw new Error('missing "parameters" object');
+			}
+			dparams = parsed.parameters ?? {};
+			sparams = parsed.string_parameters ?? {};
+			fparams = parsed.face_parameters ?? [];
+			jsonError = null;
+		} catch (e) {
+			jsonError = e instanceof Error ? e.message : String(e);
+		}
+	}
+	async function copyJson() {
+		try {
+			await navigator.clipboard.writeText(jsonText);
+		} catch (e) {
+			console.warn('clipboard write failed', e);
+		}
+	}
 </script>
 
 <!-- a small "i" affordance that reveals help text on hover/focus. -->
@@ -157,8 +301,99 @@
 	</Tooltip>
 {/snippet}
 
-<div class="card preset-tonal-surface flex w-72 flex-col gap-2 p-4">
-	<CollapsibleGroup defaultValue="dice">
+<div
+	class="card preset-tonal-surface flex flex-col gap-2 p-4 {devMode ? 'w-108' : 'w-72'}"
+>
+	<div class="flex gap-2">
+		<button
+			type="button"
+			class="btn btn-sm preset-tonal-primary flex-1 justify-center"
+			aria-label={m.controls_undo()}
+			disabled={!canUndo}
+			onclick={() => onUndo?.()}
+		>
+			<Undo2 class="size-4" />
+			{m.controls_undo()}
+		</button>
+		<button
+			type="button"
+			class="btn btn-sm preset-tonal-primary flex-1 justify-center"
+			aria-label={m.controls_redo()}
+			disabled={!canRedo}
+			onclick={() => onRedo?.()}
+		>
+			<Redo2 class="size-4" />
+			{m.controls_redo()}
+		</button>
+	</div>
+	{#if devMode}
+		<SegmentedControl
+			value={paramMode}
+			onValueChange={(e) => {
+				if (e.value) paramMode = e.value as ParamMode;
+			}}
+		>
+			<SegmentedControl.Control>
+				<SegmentedControl.Indicator class="bg-primary-500" />
+				<SegmentedControl.Item value="controls">
+					<SegmentedControl.ItemText class="data-[state=checked]:text-primary-contrast-500 px-2">
+						{m.dice_parameters_mode_controls()}
+					</SegmentedControl.ItemText>
+					<SegmentedControl.ItemHiddenInput />
+				</SegmentedControl.Item>
+				<SegmentedControl.Item value="raw">
+					<SegmentedControl.ItemText class="data-[state=checked]:text-primary-contrast-500 px-2">
+						{m.dice_parameters_mode_raw()}
+					</SegmentedControl.ItemText>
+					<SegmentedControl.ItemHiddenInput />
+				</SegmentedControl.Item>
+				<SegmentedControl.Item value="json">
+					<SegmentedControl.ItemText class="data-[state=checked]:text-primary-contrast-500 px-2">
+						{m.dice_parameters_mode_json()}
+					</SegmentedControl.ItemText>
+					<SegmentedControl.ItemHiddenInput />
+				</SegmentedControl.Item>
+			</SegmentedControl.Control>
+		</SegmentedControl>
+	{/if}
+	{#if devMode && paramMode === 'json'}
+		<div class="flex flex-col gap-2">
+			<div class="flex items-center justify-between">
+				<span class="font-semibold">{m.dice_parameters_json_title()}</span>
+				<button
+					type="button"
+					class="btn btn-sm preset-tonal-primary"
+					onclick={copyJson}
+				>
+					<CopyIcon class="size-4" />
+					{m.dice_parameters_json_copy()}
+				</button>
+			</div>
+			<textarea
+				class="textarea font-mono text-xs {jsonError ? 'border-error-500' : ''}"
+				rows="16"
+				spellcheck="false"
+				bind:value={jsonText}
+			></textarea>
+			{#if jsonError}
+				<span class="text-error-500 text-sm">{jsonError}</span>
+			{/if}
+			<div class="flex justify-end gap-2">
+				<button
+					type="button"
+					class="btn btn-sm preset-tonal-surface"
+					onclick={() => {
+						jsonText = currentJson();
+						jsonError = null;
+					}}>{m.dice_parameters_json_reset()}</button
+				>
+				<button type="button" class="btn btn-sm preset-filled-primary-500" onclick={applyJson}
+					>{m.dice_parameters_json_apply()}</button
+				>
+			</div>
+		</div>
+	{:else}
+		<CollapsibleGroup bind:value={openSection}>
 		<Collapsible value="dice" title={m.dice_name({ kind })} defaultOpen={false}>
 			<p class="flex justify-between">
 				<span>{m.dice_parameters_approx_volume()}:</span>
@@ -167,6 +402,56 @@
 			<p class="flex justify-between">
 				<span>{m.dice_parameters_face_to_face_distance()}:</span> <span>{numberFormat(f2f)}</span>
 			</p>
+			{#if devMode && paramMode === 'raw'}
+				<div class="flex flex-col gap-3">
+					{#each allDieParams as p (p.id)}
+						{#if paramVisible(p.visibleWhen)}
+							<div class="flex flex-col gap-1">
+								<p class="flex items-center justify-between gap-2">
+									<span class="flex items-center gap-1 truncate">
+										{m.dice_parameters_name({ id: p.id })}
+										{@render helpIcon(m.dice_parameters_description({ id: p.id }))}
+									</span>
+									<label class="flex shrink-0 items-center gap-1 text-xs">
+										<input
+											type="checkbox"
+											class="checkbox"
+											checked={!dieIsSet(p)}
+											onchange={(e) => setDieUnset(p, (e.target as HTMLInputElement).checked)}
+										/>
+										{m.dice_parameters_raw_unset()}
+									</label>
+								</p>
+								<input
+									type="text"
+									inputmode="decimal"
+									class="input {outOfRange(p, rawDieValue(p)) ? 'border-warning-500' : ''}"
+									value={rawDieValue(p)}
+									disabled={!dieIsSet(p)}
+									oninput={(e) => setRawDie(p, (e.target as HTMLInputElement).value)}
+								/>
+								<span class="text-surface-500 text-xs">
+									{m.dice_parameters_raw_range({ min: p.min, max: p.max, step: p.step })}
+								</span>
+							</div>
+						{/if}
+					{/each}
+					{#each model.stringParameters ?? [] as p (p.id)}
+						{#if paramVisible(p.visibleWhen)}
+							<label class="flex flex-col gap-1">
+								<span>{m.dice_parameters_name({ id: p.id })}</span>
+								<textarea
+									class="textarea font-mono text-xs"
+									rows="2"
+									spellcheck="false"
+									value={sparams?.[p.id] ?? p.defaultValue}
+									oninput={(e) => setStringParam(p.id, (e.target as HTMLTextAreaElement).value)}
+								></textarea>
+							</label>
+						{/if}
+					{/each}
+				</div>
+			{:else}
 			{#each model.parameters as p}
 				{@const currentValue = dparams[p.id] ?? p.defaultValue}
 				{#if paramVisible(p.visibleWhen)}
@@ -273,6 +558,26 @@
 					step={engravingParam.step}
 				></Slider>
 			</label>
+			<label id="parameter-{engravingToleranceParam.id}" class="flex flex-col">
+				<p class="flex items-center justify-between">
+					<span class="flex items-center gap-1">
+						{m.dice_parameters_name({ id: engravingToleranceParam.id })}:
+						{@render helpIcon(m.dice_parameters_description({ id: engravingToleranceParam.id }))}
+					</span>
+					<span>
+						({engravingTolerance})
+					</span>
+				</p>
+				<Slider
+					class="py-1"
+					value={engravingTolerance}
+					onChange={(e) => (dparams[engravingToleranceParam.id] = e)}
+					min={engravingToleranceParam.min}
+					max={engravingToleranceParam.max}
+					step={engravingToleranceParam.step}
+				></Slider>
+			</label>
+			{/if}
 		</Collapsible>
 		<Collapsible value="face" title={m.dice_current_face()} defaultOpen={false}>
 			<label class="mt-4 flex flex-col">
@@ -514,4 +819,5 @@
 			{/if}
 		</Collapsible>
 	</CollapsibleGroup>
+	{/if}
 </div>

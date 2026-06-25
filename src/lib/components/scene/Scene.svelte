@@ -2,6 +2,7 @@
 	import { createBaseSceneAndRenderer, type SceneRenderer } from '$lib/utils/scene';
 	import { onMount, type Snippet } from 'svelte';
 	import { getLightDarkContext } from '../light_switch/light_dark_context';
+	import { getPreferences } from '$lib/interfaces/preferences.svelte';
 	import { Color } from 'three';
 
 	interface Props {
@@ -23,6 +24,7 @@
 	let outerEl: HTMLDivElement;
 
 	const ldCtx = getLightDarkContext();
+	const prefs = getPreferences();
 
 	let bgColor = $derived.by(() => {
 		let c = ldCtx.bgColor;
@@ -47,6 +49,14 @@
 		if (ctx) {
 			// we just set it as a color
 			(ctx.scene.background as Color).setHex(bgColor);
+		}
+	});
+
+	// developer mode shows the FPS/stats panel automatically. Wireframe is a manual
+	// per-view toggle (driven by the scene bar), not forced on here.
+	$effect(() => {
+		if (ctx) {
+			ctx.setStatsVisible(prefs.developerMode);
 		}
 	});
 

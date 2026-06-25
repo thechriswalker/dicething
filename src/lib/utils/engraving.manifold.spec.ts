@@ -12,6 +12,7 @@ import { shapeFromJSON } from './to_json';
 import { engrave } from './engraving';
 import { centerShapes } from './shapes';
 import { removeDuplicateTriangles } from './bad_edges';
+import { toNonIndexed } from './3d';
 
 const H = 20;
 
@@ -36,7 +37,7 @@ function key(v: Vector3): string {
 // Count edges shared by != 2 triangles, ignoring the outer surface perimeter
 // (which is legitimately open here because there is no die body in the test).
 function countNonManifoldEdges(geo: BufferGeometry): number {
-	const pos = geo.toNonIndexed().getAttribute('position').array;
+	const pos = toNonIndexed(geo).getAttribute('position').array;
 	const edges = new Map<string, { a: Vector3; b: Vector3; count: number }>();
 	const a = new Vector3();
 	const b = new Vector3();
@@ -68,7 +69,7 @@ function countNonManifoldEdges(geo: BufferGeometry): number {
 function engraveMerged(symbols: Shape[]): BufferGeometry {
 	const parts = engrave(makeSurface(), symbols, {}, 1, 0.5, 24);
 	const prepared = parts.map((g) => {
-		const ng = g.toNonIndexed();
+		const ng = toNonIndexed(g);
 		ng.computeVertexNormals();
 		delete ng.attributes.uv;
 		delete ng.attributes.normal;

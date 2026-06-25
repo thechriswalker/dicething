@@ -1,11 +1,10 @@
-import { defaultFont } from '$lib/fonts';
 import type { Preset } from '$lib/interfaces/presets';
 import { legendPickerFactory, legendPickerOption } from './_util';
 
 export const classic: Preset = {
 	id: "classic",
 	options() {
-		return [legendPickerOption(defaultFont.id)]
+		return [legendPickerOption()]
 	},
 	async factory(opts) {
 		// the 7 dice classic dnd set

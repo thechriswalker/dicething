@@ -9,9 +9,11 @@ import type { Dice } from '$lib/interfaces/storage.svelte';
 // option generically without knowing what it is.
 type ControlBase = {
 	id: string;
-	label: string;
+	// localized label accessor (a Paraglide message function), resolved at
+	// render time so it tracks the active locale.
+	label: () => string;
 	// optional helper text shown under the control.
-	help?: string;
+	help?: () => string;
 	// only show this control when another control currently has this value.
 	visibleWhen?: { control: string; equals: number | boolean };
 };
@@ -22,7 +24,7 @@ export type NumberControl = ControlBase & {
 	max: number;
 	step: number;
 	default: number;
-	unit?: string;
+	unit?: () => string;
 };
 
 export type BoolControl = ControlBase & {
@@ -50,8 +52,9 @@ export type BuildArtifact = { suffix: string; mesh: Mesh };
 // to the registry in `index.ts` to surface a new kind of exportable artifact.
 export type ExtraBuildOption = {
 	id: string; // stable id, used as a key in the UI
-	label: string;
-	description?: string;
+	// localized accessors (Paraglide message functions), resolved at render time.
+	label: () => string;
+	description?: () => string;
 	defaultEnabled?: boolean;
 	controls: Array<OptionControl>;
 	// produce zero or more extra meshes for one die. an empty array means this

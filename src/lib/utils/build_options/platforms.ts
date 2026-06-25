@@ -1,5 +1,6 @@
 import { BufferGeometry, Float32BufferAttribute, Mesh, MeshNormalMaterial, Shape, Vector2 } from 'three';
 import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { m } from '$lib/paraglide/messages';
 import type { Builder } from '../builder';
 import { getAreaOfShapeAtOrigin } from '../shapes';
 import { controlValue, type ExtraBuildOption } from './types';
@@ -10,42 +11,42 @@ const controls: ExtraBuildOption['controls'] = [
 	{
 		id: 'inset',
 		kind: 'number',
-		label: 'Inset (top)',
+		label: m.export_opt_platforms_inset_label,
 		min: 0,
 		max: 10,
 		step: 0.1,
 		default: 1.5,
-		unit: 'mm',
-		help: 'How much smaller the top surface is than the die face, on every edge. The top is the important surface.'
+		unit: m.export_unit_mm,
+		help: m.export_opt_platforms_inset_help
 	},
 	{
 		id: 'height',
 		kind: 'number',
-		label: 'Height',
+		label: m.export_opt_platforms_height_label,
 		min: 0.5,
 		max: 6,
 		step: 0.1,
 		default: 2,
-		unit: 'mm'
+		unit: m.export_unit_mm
 	},
 	{
 		id: 'angle',
 		kind: 'number',
-		label: 'Draft angle',
+		label: m.export_opt_platforms_angle_label,
 		// steep draft so the base is only slightly wider than the top.
 		min: 45,
 		max: 85,
 		step: 1,
 		default: 65,
-		unit: 'deg',
-		help: 'Wall angle from the base. The base is wider than the top by height / tan(angle) on every edge.'
+		unit: m.export_unit_deg,
+		help: m.export_opt_platforms_angle_help
 	}
 ];
 
 export const platformsOption: ExtraBuildOption = {
 	id: 'platforms',
-	label: 'Platforms',
-	description: 'A short drafted pedestal matching the die face, to print the die on.',
+	label: m.export_opt_platforms_label,
+	description: m.export_opt_platforms_description,
 	defaultEnabled: false,
 	controls,
 	generate(ctx) {

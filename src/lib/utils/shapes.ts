@@ -431,16 +431,26 @@ export function orientCoplanarVertices(vertices: Array<Vector3>): {
 const minAcceptableDistance = 1;
 const maxAcceptableDistance = 2;
 
-export function findBestLegendScalingFactor(shape: Shape, legends: Array<Shape>): number {
+// Find the scaling factor that fits the legend inside `shape` leaving a margin in
+// the acceptable band. `tolerance` is the minimum inset a legend must keep from
+// the edge: when larger than the default band it raises the target so legends
+// auto-shrink to honor the inset. Defaults to 0 (the historical behaviour).
+export function findBestLegendScalingFactor(
+	shape: Shape,
+	legends: Array<Shape>,
+	tolerance: number = 0
+): number {
+	const minDist = Math.max(minAcceptableDistance, tolerance);
+	const maxDist = minDist + (maxAcceptableDistance - minAcceptableDistance);
 	let scale = 1;
 	let minDistanceToEdge = _isContainedAndMinDistanceToEdge(shape, legends);
 	// so we don't have to check for oscillation we move only in one direction, then half our step on
 	// a reversal.
 	let step = 0.4;
 	// we will fake the direction as being the way we want to move first.
-	let isShrinking = minDistanceToEdge < minAcceptableDistance;
+	let isShrinking = minDistanceToEdge < minDist;
 	let i = 0;
-	while (minDistanceToEdge < minAcceptableDistance || minDistanceToEdge > maxAcceptableDistance) {
+	while (minDistanceToEdge < minDist || minDistanceToEdge > maxDist) {
 		i++;
 		// console.log({
 		// 	distanceToEdge: minDistanceToEdge,
@@ -449,7 +459,7 @@ export function findBestLegendScalingFactor(shape: Shape, legends: Array<Shape>)
 		// 	isShrinking,
 		// 	i
 		// });
-		if (minDistanceToEdge < minAcceptableDistance) {
+		if (minDistanceToEdge < minDist) {
 			// current edge distance is too close. we need to get smaller (making the distance bigger)
 			if (!isShrinking) {
 				// we were getting bigger, we should halve our step and
@@ -477,6 +487,71 @@ export function findBestLegendScalingFactor(shape: Shape, legends: Array<Shape>)
 	}
 	//console.log({ final_distance: minDistanceToEdge, scale });
 	return scale;
+}
+
+// Inset a convex polygon inward by `distance`, returning the new vertices. Each
+// edge is offset toward the interior and consecutive offset lines are
+// intersected to find the inset corners. Returns an empty array if the shape
+// collapses (distance too large) and the original points (cloned) when distance
+// <= 0. Used to compute the "available legend area": the convex face fit-shape
+// minus the engraving tolerance.
+export function insetConvexPolygon(shape: Shape, distance: number): Array<Vector2> {
+	let pts = shape.getPoints();
+	if (pts.length > 1 && pts[0].distanceToSquared(pts[pts.length - 1]) < 1e-9) {
+		pts = pts.slice(0, -1);
+	}
+	const n = pts.length;
+	if (n < 3) {
+		return pts.map((p) => p.clone());
+	}
+	if (distance <= 0) {
+		return pts.map((p) => p.clone());
+	}
+	// interior reference point. The polygon is convex, so its vertex average is
+	// inside it (we can't assume the origin: e.g. the coin's inscribed-circle
+	// fit-shape is centered on the pole of inaccessibility, not the origin).
+	const centroid = new Vector2();
+	for (const p of pts) {
+		centroid.add(p);
+	}
+	centroid.multiplyScalar(1 / n);
+
+	type Line = { p: Vector2; d: Vector2 };
+	const lines: Array<Line> = [];
+	for (let i = 0; i < n; i++) {
+		const a = pts[i];
+		const b = pts[(i + 1) % n];
+		const d = new Vector2().subVectors(b, a);
+		if (d.lengthSq() < 1e-12) {
+			continue;
+		}
+		d.normalize();
+		// the perpendicular pointing toward the interior (the centroid).
+		const nrm = new Vector2(-d.y, d.x);
+		if (nrm.dot(new Vector2().subVectors(centroid, a)) < 0) {
+			nrm.negate();
+		}
+		const p = new Vector2().copy(a).addScaledVector(nrm, distance);
+		lines.push({ p, d });
+	}
+	const m = lines.length;
+	if (m < 3) {
+		return [];
+	}
+	const out: Array<Vector2> = [];
+	for (let i = 0; i < m; i++) {
+		const prev = lines[(i - 1 + m) % m];
+		const cur = lines[i];
+		const denom = prev.d.x * cur.d.y - prev.d.y * cur.d.x;
+		if (Math.abs(denom) < 1e-9) {
+			// parallel offset lines -> the polygon has collapsed.
+			return [];
+		}
+		const diff = new Vector2().subVectors(cur.p, prev.p);
+		const t = (diff.x * cur.d.y - diff.y * cur.d.x) / denom;
+		out.push(new Vector2().copy(prev.p).addScaledVector(prev.d, t));
+	}
+	return out;
 }
 
 // find the area of a shape that is centered on the origin (like all our face shapes are)

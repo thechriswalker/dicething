@@ -8,10 +8,11 @@
 	import Modal from '$lib/components/modal/Modal.svelte';
 	import type { MenuItemSubmenu } from '$lib/components/menu/menu';
 	import Menu from '$lib/components/menu/Menu.svelte';
+	import LegendsModal from '$lib/components/legends_modal/LegendsModal.svelte';
 	import Scene from '$lib/components/scene/Scene.svelte';
 	import Tooltip from '$lib/components/tooltip/Tooltip.svelte';
 	import dice from '$lib/dice';
-	import builtins, { isBuiltin, type Builtin } from '$lib/fonts';
+	import { isBuiltin, type Builtin } from '$lib/fonts';
 	import {
 		cloneLegendSet,
 		diceFromJSON,
@@ -26,6 +27,7 @@
 	} from '$lib/interfaces/storage.svelte';
 	import type { LegendSet } from '$lib/utils/legends';
 	import type { FaceParams } from '$lib/interfaces/dice';
+	import { getPreferences } from '$lib/interfaces/preferences.svelte';
 	import { m } from '$lib/paraglide/messages';
 	import { Builder, computeEngravingErrors, type EngravingError } from '$lib/utils/builder';
 	import { debounce } from '$lib/utils/debounce';
@@ -40,23 +42,21 @@
 		DownloadIcon,
 		FileBoxIcon,
 		FileCode2,
-		FileType,
 		Focus,
+		Frame,
 		Grid3X3,
 		LayoutGrid,
-		PencilIcon,
 		PlusIcon,
-		Redo2,
 		SaveIcon,
 		SparklesIcon,
+		SquareDashed,
 		Trash2Icon,
-		Undo2,
 		XIcon
 	} from '@lucide/svelte';
 	import { Button } from 'bits-ui';
 	import { mergeProps } from 'svelte-toolbelt';
 	import { onMount } from 'svelte';
-	import { Vector2, Vector3 } from 'three';
+	import { type Object3D, Vector2, Vector3 } from 'three';
 	import { degToRad } from 'three/src/math/MathUtils.js';
 
 	// merge a parent trigger's props (e.g. a dialog/modal trigger) with our
@@ -133,7 +133,18 @@
 			return;
 		}
 		const id = crypto.randomUUID();
-		setData.dice.push({ id, kind, parameters: {}, string_parameters: {}, face_parameters: [] });
+		// seed the user's preferred engraving defaults on newly added dice.
+		const prefs = getPreferences();
+		setData.dice.push({
+			id,
+			kind,
+			parameters: {
+				engraving_depth: prefs.defaultEngravingDepth,
+				engraving_tolerance: prefs.defaultEngravingTolerance
+			},
+			string_parameters: {},
+			face_parameters: []
+		});
 		// mirror the init effect: dice need a builder before they can be rendered.
 		diceBuilders.set(id, new Builder(dice[kind], setData.legends, id));
 		save(setData);
@@ -171,7 +182,7 @@
 				gotoDie(setData.dice[0].id);
 			}
 		} else {
-			goto('/');
+			goto('/dice');
 		}
 	});
 
@@ -361,6 +372,12 @@
 				(ev) => {
 					// don't hover-highlight faces hidden from the UI (e.g. coin rim).
 					if (isHiddenFace(ev.face)) {
+						ctx?.setSecondarySeletedItems([]);
+						return;
+					}
+					// skip already-selected faces: the primary outline already marks
+					// them, so a hover outline would just double up on top.
+					if (targetFaces.includes(ev.face)) {
 						ctx?.setSecondarySeletedItems([]);
 						return;
 					}
@@ -675,6 +692,39 @@
 	function toggleGridHelper() {
 		gridVisible = !gridVisible;
 	}
+
+	// outline of the available legend area (face fit-shape inset by the engraving
+	// tolerance) on every die. A design aid, always available in the editor.
+	let legendAreaVisible = $state(false);
+	$effect(() => {
+		// re-apply when the active die changes so freshly-built builders pick it up.
+		currentBuilder;
+		renderPass;
+		const glow: Object3D[] = [];
+		const glowError: Object3D[] = [];
+		for (const b of diceBuilders.values()) {
+			b.setLegendAreaVisible(legendAreaVisible);
+			if (legendAreaVisible) {
+				glow.push(...b.getLegendAreaGlowObjects());
+				glowError.push(...b.getLegendAreaGlowErrorObjects());
+			}
+		}
+		// feed the invisible fills into the lime (ok) and red (bad) glow passes.
+		ctx?.setLegendAreaItems(glow);
+		ctx?.setLegendAreaErrorItems(glowError);
+	});
+
+	// developer-mode wireframe toggle for the scene (shown only in developer mode).
+	const prefs = getPreferences();
+	let devMode = $derived(prefs.developerMode);
+	let wireframeOn = $state(false);
+	$effect(() => {
+		// turning developer mode off also clears the wireframe.
+		if (!devMode && wireframeOn) {
+			wireframeOn = false;
+		}
+		ctx?.setWireframe(wireframeOn);
+	});
 	$effect(() => {
 		const show = gridVisible && !explodeMode;
 		if (!show) {
@@ -717,6 +767,37 @@
 	// undo/redo is clamped to the operations made since the mode was entered.
 	let formatPaintMode = $state(false);
 	let formatPaintSource = $state<FaceParams | undefined>(undefined);
+
+	// paintbrush mouse cursor for format-paint mode: the lucide "paintbrush-vertical"
+	// icon as an SVG data-uri, drawn with a white halo behind a dark stroke so it
+	// reads on both light and dark scene backgrounds. hotspot at the brush tip
+	// (bottom-centre). built once at module scope so it isn't re-encoded per render.
+	const paintCursor = (() => {
+		const paths = [
+			'M10 2v2',
+			'M14 2v4',
+			'M17 2a1 1 0 0 1 1 1v9H6V3a1 1 0 0 1 1-1z',
+			'M6 12a1 1 0 0 0-1 1v1a2 2 0 0 0 2 2h2a1 1 0 0 1 1 1v2.9a2 2 0 1 0 4 0V17a1 1 0 0 1 1-1h2a2 2 0 0 0 2-2v-1a1 1 0 0 0-1-1'
+		]
+			.map((d) => `<path d="${d}"/>`)
+			.join('');
+		const svg =
+			`<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" ` +
+			`fill="none" stroke-linecap="round" stroke-linejoin="round">` +
+			`<g stroke="#ffffff" stroke-width="3.5">${paths}</g>` +
+			`<g stroke="#1a1a1a" stroke-width="2">${paths}</g>` +
+			`</svg>`;
+		return `url("data:image/svg+xml,${encodeURIComponent(svg)}") 12 22, crosshair`;
+	})();
+
+	// swap the 3D canvas cursor to the paintbrush while format-painting.
+	$effect(() => {
+		const canvas = ctx?.renderer.domElement;
+		if (!canvas) {
+			return;
+		}
+		canvas.style.cursor = formatPaintMode ? paintCursor : '';
+	});
 
 	// copy a face's params, dropping the legend and cloning the offset vector.
 	function copyFaceParamsExcludingLegend(fp: FaceParams | undefined): FaceParams {
@@ -958,7 +1039,7 @@
 		if (!setData) {
 			return;
 		}
-		const ret = '/d/' + setId + (dieId ? '?die=' + dieId : '');
+		const ret = '/dice/' + setId + (dieId ? '?die=' + dieId : '');
 		let id = setData.legends.id;
 		if (isBuiltin(id)) {
 			const clone = await cloneLegendSet(setData.legends);
@@ -968,54 +1049,6 @@
 		}
 		goto('/legends/' + id + '?return=' + encodeURIComponent(ret));
 	}
-
-	let legendIsBuiltin = $derived.by(() => (setData ? isBuiltin(setData.legends.id) : false));
-	const legendsMenu = $derived<MenuItemSubmenu>({
-		type: 'submenu',
-		title: m.menu_legends(),
-		icon: FileType,
-		children: [
-			{
-				title: legendIsBuiltin ? m.legends_clone_builtin_edit() : m.legends_edit_legends(),
-				type: 'action',
-				icon: PencilIcon,
-				action: editOrCloneLegends
-			},
-			{ type: 'separator', title: '' },
-			{
-				title: m.menu_all_blanks(),
-				type: 'action',
-				icon: FileType,
-				action: fontAction(builtins.blanks)
-			},
-			{
-				title: m.menu_builtin(),
-				type: 'submenu',
-				children: Object.values(builtins)
-					.filter((x) => x.id !== 'blanks')
-					.map((f) => {
-						return {
-							title: f.name,
-							type: 'legend',
-							img: f.preview,
-							action: fontAction(f)
-						};
-					})
-			},
-			{
-				title: m.menu_custom(),
-				type: 'submenu',
-				children: savedLegends.map((f) => {
-					return {
-						title: f.name,
-						type: 'action',
-						icon: FileType,
-						action: setLegends(f)
-					};
-				})
-			}
-		]
-	});
 
 	function exportJson() {
 		if (!setData) {
@@ -1042,7 +1075,7 @@
 				icon: FileBoxIcon,
 				type: 'action',
 				action: () => {
-					goto('/d/' + setId + '/export');
+					goto('/dice/' + setId + '/export');
 				}
 			}
 		]
@@ -1076,10 +1109,18 @@
 				{/snippet}
 			</Tooltip>
 		{/if}
-		<Menu data={legendsMenu} submenuOnLeft></Menu>
+		{#if setData}
+			<LegendsModal
+				current={setData.legends}
+				{savedLegends}
+				onEdit={editOrCloneLegends}
+				onSelectCustom={(set) => setLegends(set)()}
+				onSelectBuiltin={(b) => fontAction(b)()}
+			/>
+		{/if}
 		<Menu data={exportMenu} submenuOnLeft></Menu>
 		{#if setData}
-			<DeleteSetDialog {setId} setName={setData.name} onDeleted={() => goto('/')}>
+			<DeleteSetDialog {setId} setName={setData.name} onDeleted={() => goto('/dice')}>
 				{#snippet trigger(props)}
 					<Tooltip content={m.delete_set_button()} side="bottom">
 						{#snippet children(tipProps)}
@@ -1220,32 +1261,6 @@
 		<Scene class="relative w-full grow" {sceneReady}>
 			<ul class="list-style-type-none absolute top-2 left-2 flex flex-col gap-2">
 				<li>
-					<Tooltip content={m.controls_undo()} side="right">
-						{#snippet children(props)}
-							<Button.Root
-								{...props}
-								class="btn-icon preset-filled-primary-500"
-								aria-label={m.controls_undo()}
-								disabled={!history.canUndo}
-								onclick={doUndo}><Undo2 /></Button.Root
-							>
-						{/snippet}
-					</Tooltip>
-				</li>
-				<li>
-					<Tooltip content={m.controls_redo()} side="right">
-						{#snippet children(props)}
-							<Button.Root
-								{...props}
-								class="btn-icon preset-filled-primary-500"
-								aria-label={m.controls_redo()}
-								disabled={!history.canRedo}
-								onclick={doRedo}><Redo2 /></Button.Root
-							>
-						{/snippet}
-					</Tooltip>
-				</li>
-				<li>
 					<Tooltip content={m.controls_reset_camera()} side="right">
 						{#snippet children(props)}
 							<Button.Root
@@ -1273,6 +1288,40 @@
 						{/snippet}
 					</Tooltip>
 				</li>
+				<li>
+					<Tooltip content={m.controls_toggle_legend_area()} side="right">
+						{#snippet children(props)}
+							<Button.Root
+								{...props}
+								class={'btn-icon ' +
+									(legendAreaVisible
+										? 'preset-filled-secondary-500'
+										: 'preset-filled-primary-500')}
+								aria-label={m.controls_toggle_legend_area()}
+								onclick={() => {
+									legendAreaVisible = !legendAreaVisible;
+								}}><SquareDashed /></Button.Root
+							>
+						{/snippet}
+					</Tooltip>
+				</li>
+				{#if devMode}
+					<li>
+						<Tooltip content={m.controls_toggle_wireframe()} side="right">
+							{#snippet children(props)}
+								<Button.Root
+									{...props}
+									class={'btn-icon ' +
+										(wireframeOn ? 'preset-filled-secondary-500' : 'preset-filled-primary-500')}
+									aria-label={m.controls_toggle_wireframe()}
+									onclick={() => {
+										wireframeOn = !wireframeOn;
+									}}><Frame /></Button.Root
+								>
+							{/snippet}
+						</Tooltip>
+					</li>
+				{/if}
 				<li>
 					<Tooltip content={m.controls_toggle_explode_mode()} side="right">
 						{#snippet children(props)}
@@ -1331,7 +1380,10 @@
 					</button>
 				</div>
 			{/if}
-			<div class="absolute top-2 right-2 flex flex-col" inert={formatPaintMode}>
+			<div
+				class="absolute top-2 right-2 flex flex-col {formatPaintMode ? 'hidden' : ''}"
+				inert={formatPaintMode}
+			>
 				{#if setData && currentBuilder}
 					{@const die = setData.dice!.find((x) => x.id === dieId)}
 					{#if die}
@@ -1351,6 +1403,10 @@
 							onEnterFormatPaint={enterFormatPaint}
 							onSyncFaces={synchroniseSelectedFaces}
 							onEditLegends={editOrCloneLegends}
+							canUndo={history.canUndo}
+							canRedo={history.canRedo}
+							onUndo={doUndo}
+							onRedo={doRedo}
 						/>
 					{/if}
 				{/if}

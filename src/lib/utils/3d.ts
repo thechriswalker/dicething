@@ -131,3 +131,12 @@ function isQuaternion(p: any): p is Quaternion {
 export function previewTilt(up = Math.PI / 7, around = Math.PI / 7): Transform {
 	return new Transform().rotateByAxisAngle(xAxis, -up).rotateByAxisAngle(yAxis, around);
 }
+
+// helper to suppress the warning from threejs
+// it doesn't guarantee a new geometry
+export function toNonIndexed(g: BufferGeometry): BufferGeometry {
+	if (g.index !== null) {
+		return g.toNonIndexed();
+	}
+	return g;
+}

@@ -5,6 +5,7 @@
 	import Scene from '$lib/components/scene/Scene.svelte';
 	import Slider from '$lib/components/slider/Slider.svelte';
 	import { waitForSet, type DiceSet } from '$lib/interfaces/storage.svelte';
+	import { getPreferences } from '$lib/interfaces/preferences.svelte';
 	import { m } from '$lib/paraglide/messages';
 	import { createFancyRender, createGridHelper, type SceneRenderer } from '$lib/utils/scene';
 	import { debounce } from '$lib/utils/debounce';
@@ -26,7 +27,7 @@
 	import { mergeMeshReports, type MeshCheckReport } from '$lib/utils/mesh_check';
 	import { onMount } from 'svelte';
 	import { BufferAttribute, BufferGeometry, DoubleSide, Group, Mesh, MeshBasicMaterial } from 'three';
-	import { AlertTriangle, ArrowLeftIcon, DownloadIcon, SparklesIcon } from '@lucide/svelte';
+	import { AlertTriangle, ArrowLeftIcon, DownloadIcon, Frame, SparklesIcon } from '@lucide/svelte';
 	import { Button } from 'bits-ui';
 
 	const setId = page.params.setId ?? '';
@@ -54,7 +55,7 @@
 	onMount(async () => {
 		setData = await waitForSet(setId);
 		if (!setData) {
-			goto('/');
+			goto('/dice');
 			return;
 		}
 		// flag dice whose engraving is broken so we can warn and leave them
@@ -222,9 +223,18 @@
 	let fancy = $state(true);
 	let previewMeshes: Array<Mesh> = [];
 
-	// TEMP: hidden for now. Flip to true (or wire to a future debug/developer
-	// mode) to expose the render tuning panel.
-	let showTuning = $state(false);
+	// the render tuning panel is exposed in developer mode.
+	const prefs = getPreferences();
+	let devMode = $derived(prefs.developerMode);
+	let showTuning = $derived(prefs.developerMode);
+	// developer-mode wireframe toggle for the export scene.
+	let wireframeOn = $state(false);
+	$effect(() => {
+		if (!devMode && wireframeOn) {
+			wireframeOn = false;
+		}
+		ctx?.setWireframe(wireframeOn);
+	});
 
 	// TEMP tuning panel state. Defaults mirror createFancyRender(). Once good
 	// values are found these (and the panel markup) can be removed.
@@ -384,7 +394,7 @@
 
 <Layout>
 	{#snippet header()}
-		<a class="btn preset-tonal-surface" href={'/d/' + setId}>
+		<a class="btn preset-tonal-surface" href={'/dice/' + setId}>
 			<ArrowLeftIcon class="size-4" />
 		</a>
 		<p class="text-primary-500 h4">{setData?.name}</p>
@@ -422,11 +432,28 @@
 						</Tooltip>
 					</li>
 				{/if}
+				{#if devMode}
+					<li>
+						<Tooltip content={m.controls_toggle_wireframe()} side="right">
+							{#snippet children(props)}
+								<Button.Root
+									{...props}
+									class={'btn-icon ' +
+										(wireframeOn ? 'preset-filled-secondary-500' : 'preset-tonal-primary')}
+									aria-label={m.controls_toggle_wireframe()}
+									aria-pressed={wireframeOn}
+									onclick={() => {
+										wireframeOn = !wireframeOn;
+									}}><Frame /></Button.Root
+								>
+							{/snippet}
+						</Tooltip>
+					</li>
+				{/if}
 			</ul>
 		</Scene>
 
 		<div class="card preset-tonal-surface flex w-80 shrink-0 flex-col gap-3 overflow-y-auto p-4">
-			<!-- TEMP render tuning panel: remove once good values are chosen -->
 			{#snippet tuneRow(
 				label: string,
 				value: number,
@@ -444,23 +471,44 @@
 				</div>
 			{/snippet}
 			{#if showTuning}
-				<Collapsible title="Render tuning (temp)">
+				<Collapsible title={m.export_render_tuning_title()}>
 					<div class="flex flex-col gap-2 pt-2">
-						<p class="text-surface-600-400 text-xs">Only affects the fancy render.</p>
-						<span class="text-sm font-semibold">Base colour</span>
+						<p class="text-surface-600-400 text-xs">{m.export_render_tuning_hint()}</p>
+						<span class="text-sm font-semibold">{m.export_render_tuning_base_colour()}</span>
 						<div
 							class="h-6 w-full rounded"
 							style={`background: rgb(${Math.round(tune.r * 255)}, ${Math.round(tune.g * 255)}, ${Math.round(tune.b * 255)})`}
 						></div>
-						{@render tuneRow('R', tune.r, 0, 1, 0.01, (v) => (tune.r = v))}
-						{@render tuneRow('G', tune.g, 0, 1, 0.01, (v) => (tune.g = v))}
-						{@render tuneRow('B', tune.b, 0, 1, 0.01, (v) => (tune.b = v))}
-						<span class="text-sm font-semibold">Material</span>
-						{@render tuneRow('Roughness', tune.roughness, 0, 1, 0.01, (v) => (tune.roughness = v))}
-						{@render tuneRow('Metalness', tune.metalness, 0, 1, 0.01, (v) => (tune.metalness = v))}
-						{@render tuneRow('Clearcoat', tune.clearcoat, 0, 1, 0.01, (v) => (tune.clearcoat = v))}
+						{@render tuneRow(m.export_render_tuning_r(), tune.r, 0, 1, 0.01, (v) => (tune.r = v))}
+						{@render tuneRow(m.export_render_tuning_g(), tune.g, 0, 1, 0.01, (v) => (tune.g = v))}
+						{@render tuneRow(m.export_render_tuning_b(), tune.b, 0, 1, 0.01, (v) => (tune.b = v))}
+						<span class="text-sm font-semibold">{m.export_render_tuning_material()}</span>
 						{@render tuneRow(
-							'Clearcoat rough',
+							m.export_render_tuning_roughness(),
+							tune.roughness,
+							0,
+							1,
+							0.01,
+							(v) => (tune.roughness = v)
+						)}
+						{@render tuneRow(
+							m.export_render_tuning_metalness(),
+							tune.metalness,
+							0,
+							1,
+							0.01,
+							(v) => (tune.metalness = v)
+						)}
+						{@render tuneRow(
+							m.export_render_tuning_clearcoat(),
+							tune.clearcoat,
+							0,
+							1,
+							0.01,
+							(v) => (tune.clearcoat = v)
+						)}
+						{@render tuneRow(
+							m.export_render_tuning_clearcoat_rough(),
 							tune.clearcoatRoughness,
 							0,
 							1,
@@ -468,17 +516,24 @@
 							(v) => (tune.clearcoatRoughness = v)
 						)}
 						{@render tuneRow(
-							'Env intensity',
+							m.export_render_tuning_env_intensity(),
 							tune.envMapIntensity,
 							0,
 							3,
 							0.05,
 							(v) => (tune.envMapIntensity = v)
 						)}
-						{@render tuneRow('Exposure', tune.exposure, 0, 3, 0.05, (v) => (tune.exposure = v))}
-						<span class="text-sm font-semibold">Lighting</span>
 						{@render tuneRow(
-							'Key light',
+							m.export_render_tuning_exposure(),
+							tune.exposure,
+							0,
+							3,
+							0.05,
+							(v) => (tune.exposure = v)
+						)}
+						<span class="text-sm font-semibold">{m.export_render_tuning_lighting()}</span>
+						{@render tuneRow(
+							m.export_render_tuning_key_light(),
 							tune.lightIntensity,
 							0,
 							12,
@@ -486,7 +541,7 @@
 							(v) => (tune.lightIntensity = v)
 						)}
 						{@render tuneRow(
-							'Key light 2',
+							m.export_render_tuning_key_light_2(),
 							tune.lightIntensity2,
 							0,
 							12,
@@ -494,18 +549,32 @@
 							(v) => (tune.lightIntensity2 = v)
 						)}
 						{@render tuneRow(
-							'Fill (hemi)',
+							m.export_render_tuning_fill(),
 							tune.fillIntensity,
 							0,
 							5,
 							0.05,
 							(v) => (tune.fillIntensity = v)
 						)}
-						<span class="text-sm font-semibold">Ambient occlusion</span>
-						{@render tuneRow('AO radius', tune.aoRadius, 0, 10, 0.1, (v) => (tune.aoRadius = v))}
-						{@render tuneRow('AO scale', tune.aoScale, 0, 3, 0.05, (v) => (tune.aoScale = v))}
+						<span class="text-sm font-semibold">{m.export_render_tuning_ao()}</span>
 						{@render tuneRow(
-							'AO thickness',
+							m.export_render_tuning_ao_radius(),
+							tune.aoRadius,
+							0,
+							10,
+							0.1,
+							(v) => (tune.aoRadius = v)
+						)}
+						{@render tuneRow(
+							m.export_render_tuning_ao_scale(),
+							tune.aoScale,
+							0,
+							3,
+							0.05,
+							(v) => (tune.aoScale = v)
+						)}
+						{@render tuneRow(
+							m.export_render_tuning_ao_thickness(),
 							tune.aoThickness,
 							0,
 							3,
@@ -513,7 +582,7 @@
 							(v) => (tune.aoThickness = v)
 						)}
 						{@render tuneRow(
-							'AO dist exp',
+							m.export_render_tuning_ao_dist_exp(),
 							tune.aoDistanceExponent,
 							0.1,
 							4,
@@ -613,7 +682,7 @@
 					{#each extraBuildOptions as option}
 						<div class="border-surface-300-700 rounded-md border p-2">
 							<label class="flex items-center justify-between gap-2">
-								<span>{option.label}</span>
+								<span>{option.label()}</span>
 								<input
 									type="checkbox"
 									class="checkbox"
@@ -622,7 +691,7 @@
 								/>
 							</label>
 							{#if option.description}
-								<p class="text-surface-600-400 text-xs">{option.description}</p>
+								<p class="text-surface-600-400 text-xs">{option.description()}</p>
 							{/if}
 							{#if optionStates[option.id].enabled}
 								<div class="mt-2 flex flex-col gap-2">
@@ -631,10 +700,10 @@
 											{#if control.kind === 'number'}
 												<div class="flex flex-col">
 													<span class="flex justify-between text-sm">
-														<span>{control.label}</span>
+														<span>{control.label()}</span>
 														<span>
 															{optionStates[option.id].values[control.id]}{control.unit
-																? ' ' + control.unit
+																? ' ' + control.unit()
 																: ''}
 														</span>
 													</span>
@@ -647,14 +716,14 @@
 														onChange={(v) => setOptionValue(option.id, control.id, v)}
 													/>
 													{#if control.help}
-														<p class="text-surface-600-400 text-xs">{control.help}</p>
+														<p class="text-surface-600-400 text-xs">{control.help()}</p>
 													{/if}
 												</div>
 											{/if}
 											{#if control.kind === 'bool'}
 												<div class="flex flex-col">
 													<label class="flex items-center justify-between gap-2 text-sm">
-														<span>{control.label}</span>
+														<span>{control.label()}</span>
 														<input
 															type="checkbox"
 															class="checkbox"
@@ -664,7 +733,7 @@
 														/>
 													</label>
 													{#if control.help}
-														<p class="text-surface-600-400 text-xs">{control.help}</p>
+														<p class="text-surface-600-400 text-xs">{control.help()}</p>
 													{/if}
 												</div>
 											{/if}
