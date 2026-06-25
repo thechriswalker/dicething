@@ -13,17 +13,17 @@
 	let windowWidth = $state(0);
 	let windowHeight = $state(0);
 	if (browser) {
-		let boxSize = $derived(Math.min(windowHeight, windowWidth) / 2);
+		let boxSize = $derived(Math.min(windowHeight, windowWidth) / 3);
 		const scene = new Scene();
 		const renderer = new WebGLRenderer({ antialias: true, alpha: true });
 		renderer.setPixelRatio(window.devicePixelRatio);
+		let camera = new PerspectiveCamera(30, 1, 1, 500);
 		$effect(() => {
 			renderer.setSize(boxSize, boxSize);
+			camera.position.set(0, 0, boxSize/4.5);
+			camera.lookAt(new Vector3(0, 0, 0));
 		});
 		//el.appendChild(renderer.domElement);
-		let camera = new PerspectiveCamera(30, 1, 1, 500);
-		camera.position.set(0, 0, 100);
-		camera.lookAt(new Vector3(0, 0, 0));
 		let stopRender = false;
 
 		// we will pick a selection for the splash page.
@@ -184,9 +184,9 @@
 	}
 </script>
 
-<div class="absolute z-1 h-screen w-screen overflow-hidden" bind:this={wrap}>
+<div class="absolute z-1 h-screen w-screen overflow-hidden pointer-events-none" bind:this={wrap}>
 	<!-- these are both ignored, because this is a purely visual thing, and has no semantic meaning -->
 	<!-- svelte-ignore a11y_click_events_have_key_events -->
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
-	<div class="absolute" onclick={() => changeDice()} bind:this={cvs}></div>
+	<div class="absolute pointer-events-auto" onclick={() => changeDice()} bind:this={cvs}></div>
 </div>
