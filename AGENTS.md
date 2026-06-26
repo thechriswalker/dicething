@@ -77,6 +77,16 @@ Test file naming conventions (the include/exclude globs depend on these):
   is done with a separate `printingTransform` (and `previewTransform` for
   thumbnails). See the `DieModel.build()` return type.
 - Units are millimetres throughout.
+- **Congruent faces must share an identically-oriented 2D `shape`.** The exploded
+  / face-editing view lays each face out using its raw 2D `shape` (only
+  translated, never re-rotated), so two geometrically identical faces look wrong
+  if their shapes differ by a rotation/reflection. Build every face's 2D shape
+  from an explicit, deterministic in-plane frame (e.g. "apex points +y") shared by
+  all faces of that kind - including blank/cap faces. Do NOT derive face shapes
+  from `orientCoplanarVertices` (or any helper that picks an arbitrary in-plane
+  axis): it keeps the geometry watertight but rotates each congruent shape
+  differently. Choosing a different in-plane axis pair only relabels the 2D frame,
+  so the reconstructed 3D face is unchanged - the orientation is free to fix.
 
 ## Geometry & mesh pipeline (read before touching geometry)
 

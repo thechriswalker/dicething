@@ -32,6 +32,7 @@ const CAP_SEGMENTS = 48;
 
 const xAxis = new Vector3(1, 0, 0);
 const yAxis = new Vector3(0, 1, 0);
+const zAxis = new Vector3(0, 0, 1);
 
 const infinityParameters: Array<DiceParameter> = [
 	{ id: 'infinity_width', defaultValue: defaultWidth, min: 6, max: 40, step: 0.5 },
@@ -43,7 +44,7 @@ const infinityParameters: Array<DiceParameter> = [
 // clockwise viewed from +z / outside, matching the other dice's front-face
 // convention. the semicircle is a CAP_SEGMENTS-chord polyline so its points land
 // exactly on the half-cylinder cap facets it shares an edge with.
-function bulletPoints(halfW: number, halfL: number, up: boolean): Array<Vector2> {
+function bulletPoints(halfW: number, halfL: number): Array<Vector2> {
 	const pts: Array<Vector2> = [];
 	// semicircle, left base -> apex -> right base (t: pi -> 0).
 	for (let k = 0; k <= CAP_SEGMENTS; k++) {
@@ -52,11 +53,6 @@ function bulletPoints(halfW: number, halfL: number, up: boolean): Array<Vector2>
 	}
 	// down the far (straight) short end and back along the side.
 	pts.push(new Vector2(halfW, -halfL), new Vector2(-halfW, -halfL));
-	if (!up) {
-		// move the semicircle to the -y end; mirroring flips the winding, so
-		// reverse to restore the clockwise order.
-		return pts.map((p) => new Vector2(p.x, -p.y)).reverse();
-	}
 	return pts;
 }
 
@@ -90,37 +86,47 @@ export const InfinityD4: DieModel = {
 		const hw = width / 2;
 		const hl = length / 2;
 
-		const bulletUp = bulletPoints(hw, hl, true);
-		const bulletDown = bulletPoints(hw, hl, false);
+		const bullet = bulletPoints(hw, hl);
+		const bulletShape = () => new Shape(bullet.map((p) => p.clone()));
 
-		// the four flat number faces wrapped around a square (W x W) tube. opposite
-		// faces share a rounded end; values on opposite faces sum to 5.
+		// every number face is the SAME bullet (rectangle + semicircle on top), so
+		// the exploded/editing view shows four identical curve-up faces. The +x/-x
+		// faces' rounded ends physically sit at the bottom of the bar, so they get a
+		// 180-degree spin about the face normal: that lands the (curve-up) shape with
+		// its curve at the -y end exactly where the previous mirrored shape did, so
+		// the solid is unchanged. opposite faces' values sum to 5.
 		const faces: Array<DieFaceModel> = [
 			{
-				// +z, semicircle at +y
+				// +z
 				isNumberFace: true,
-				shape: new Shape(bulletUp.map((p) => p.clone())),
+				shape: bulletShape(),
 				defaultLegend: pickForNumber(0, 4),
 				transform: new Transform().translateBy(0, 0, hw)
 			},
 			{
-				// +x, semicircle at -y
+				// +x (rounded end at -y)
 				isNumberFace: true,
-				shape: new Shape(bulletDown.map((p) => p.clone())),
+				shape: bulletShape(),
 				defaultLegend: pickForNumber(1, 4),
-				transform: new Transform().rotateByAxisAngle(yAxis, Math.PI / 2).translateBy(hw, 0, 0)
+				transform: new Transform()
+					.rotateByAxisAngle(zAxis, Math.PI)
+					.rotateByAxisAngle(yAxis, Math.PI / 2)
+					.translateBy(hw, 0, 0)
 			},
 			{
-				// -x, semicircle at -y
+				// -x (rounded end at -y)
 				isNumberFace: true,
-				shape: new Shape(bulletDown.map((p) => p.clone())),
+				shape: bulletShape(),
 				defaultLegend: pickForNumber(2, 4),
-				transform: new Transform().rotateByAxisAngle(yAxis, -Math.PI / 2).translateBy(-hw, 0, 0)
+				transform: new Transform()
+					.rotateByAxisAngle(zAxis, Math.PI)
+					.rotateByAxisAngle(yAxis, -Math.PI / 2)
+					.translateBy(-hw, 0, 0)
 			},
 			{
-				// -z, semicircle at +y
+				// -z
 				isNumberFace: true,
-				shape: new Shape(bulletUp.map((p) => p.clone())),
+				shape: bulletShape(),
 				defaultLegend: pickForNumber(3, 4),
 				transform: new Transform().translateBy(0, 0, hw).rotateByAxisAngle(yAxis, Math.PI)
 			}

@@ -27,6 +27,7 @@ import { SkewD6 } from './skew_d6';
 import { TetartoidD12 } from './tetartoid';
 import { OddPrismD3, OddPrismD5, OddPrismD7 } from './odd_prism';
 import { InfinityD4 } from './infinity';
+import { BarrelD4, BarrelD6, BarrelD8, BarrelD10, BarrelD12, BarrelD20, BarrelD00 } from './barrels';
 
 const dice = {
 	d2_coin: CoinD2,
@@ -51,6 +52,13 @@ const dice = {
 	d12_trapezohedron: TrapezohedronD12,
 	d4_shard: ShardD4,
 	d4_infinity: InfinityD4,
+	d4_barrel: BarrelD4,
+	d6_barrel: BarrelD6,
+	d8_barrel: BarrelD8,
+	d10_barrel: BarrelD10,
+	d12_barrel: BarrelD12,
+	d20_barrel: BarrelD20,
+	d00_barrel: BarrelD00,
 	d3_odd_prism: OddPrismD3,
 	d5_odd_prism: OddPrismD5,
 	d7_odd_prism: OddPrismD7,
@@ -91,6 +99,13 @@ const diceTags: Record<keyof typeof dice, DieTags> = {
 	d12_trapezohedron: { kind: 'trapezohedron', sides: '12' },
 	d4_shard: { kind: 'shard', sides: '4' },
 	d4_infinity: { kind: 'infinity', sides: '4' },
+	d4_barrel: { kind: 'barrel', sides: '4' },
+	d6_barrel: { kind: 'barrel', sides: '6' },
+	d8_barrel: { kind: 'barrel', sides: '8' },
+	d10_barrel: { kind: 'barrel', sides: '10' },
+	d12_barrel: { kind: 'barrel', sides: '12' },
+	d20_barrel: { kind: 'barrel', sides: '20' },
+	d00_barrel: { kind: 'barrel', sides: '00' },
 	d3_odd_prism: { kind: 'odd', sides: '3' },
 	d5_odd_prism: { kind: 'odd', sides: '5' },
 	d7_odd_prism: { kind: 'odd', sides: '7' },
