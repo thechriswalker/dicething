@@ -103,6 +103,12 @@ export class Transform {
 		g.applyMatrix4(this.matrix!);
 	}
 
+	// transform a single point in place (and return it) by the full transform.
+	public applyToVector3(v: Vector3): Vector3 {
+		this.build();
+		return v.applyMatrix4(this.matrix!);
+	}
+
 	public applyRotationToCamera(cam: Camera) {
 		this.build();
 		const rotation = this.rotation;

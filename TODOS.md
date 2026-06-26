@@ -2,10 +2,6 @@
 
 - export platform generation needs an "and for blanks" option disabled if blanks not selected. Must read config from the blanks section for sizing.
 
-- On Export page have the approximate total volume (does my volume calc work for non-convex shapes - nope - will need to fix that...) 
-  - add helper text on "approx" to say "without legends"
-  - will need a special case for the coin or anything non-convex.
-
 - Font cache view 
   - manage and delete loaded fonts
   - pick from loaded fonts to change symbols

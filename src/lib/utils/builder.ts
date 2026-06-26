@@ -19,11 +19,9 @@ import {
 	Shape,
 	ShapeGeometry,
 	Vector3,
-	Plane,
 	type Object3D,
 	Vector2,
-	DoubleSide,
-	PlaneGeometry
+	DoubleSide
 } from 'three';
 import { DefaultDivisions, engrave, Part } from './engraving';
 import { debugLegendName, Legend, type LegendSet } from './legends';
@@ -40,7 +38,7 @@ export type EngravingError = {
 };
 import { mergeGeometries, mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { removeDuplicateTriangles, repairDegenerateTriangles } from './bad_edges';
-import { findBestLegendScalingFactor, getAreaOfShapeAtOrigin, insetPolygon } from './shapes';
+import { findBestLegendScalingFactor, insetPolygon } from './shapes';
 import { uuid } from './uuid';
 import { toNonIndexed, Transform } from './3d';
 
@@ -82,6 +80,65 @@ const LEGEND_AREA_GLOW_PART = 'legend-area-glow';
 // pass. note it keeps the 'legend-area-glow' prefix so the scene's per-pass
 // glow-hiding still matches it.
 const LEGEND_AREA_GLOW_ERROR_PART = 'legend-area-glow-error';
+
+const _va = new Vector3();
+const _vb = new Vector3();
+const _vc = new Vector3();
+const _cross = new Vector3();
+
+// Approximate solid volume (mm³) of a die described by its face models, ignoring
+// any engraving ("without legends"). Every die here is built centred on, and
+// star-shaped about, the origin (the centre "sees" every face), so the solid is
+// the union of the pyramids from the origin out to each face. We sum each face's
+// pyramid volume: fan-triangulate the (origin-built) 2D shape, lift it into the
+// assembled (un-exploded) position, and add the absolute tetrahedron volume
+// (origin, a, b, c) of each fan triangle.
+//
+// A signed fan sum is taken per face and only then made positive: within one
+// planar face every fan triangle's tetra volume shares the same sign (the origin
+// is on one side of the face's plane), so the signed sum equals ±(pyramid
+// volume) and stays correct for a concave face (e.g. a custom coin outline),
+// where the signed triangle areas cancel to the true polygon area. Summing the
+// signed values across faces instead would be wrong: the raw 2D shapes are not
+// wound consistently outward, so opposite-facing faces (e.g. the coin's caps vs
+// its rim facets) would cancel.
+export function approximateDieVolume(faces: Array<DieFaceModel>): number {
+	let v6 = 0;
+	for (const face of faces) {
+		const pts = face.shape.getPoints();
+		if (pts.length < 3) {
+			continue;
+		}
+		const world = pts.map((p) => face.transform.applyToVector3(new Vector3(p.x, p.y, 0)));
+		let faceV6 = 0;
+		for (let i = 1; i < world.length - 1; i++) {
+			_va.copy(world[0]);
+			_vb.copy(world[i]);
+			_vc.copy(world[i + 1]);
+			faceV6 += _va.dot(_cross.crossVectors(_vb, _vc));
+		}
+		v6 += Math.abs(faceV6);
+	}
+	return v6 / 6;
+}
+
+// Enclosed volume (mm³) of a closed mesh, computed from its triangle soup as the
+// sum of signed tetrahedron volumes (origin, a, b, c). For a closed surface this
+// is translation-invariant (divergence theorem), so it is valid even on meshes
+// that have been laid out (translated) for preview/export. Unlike
+// approximateDieVolume this measures whatever the mesh actually contains (e.g. a
+// platform pedestal, or a blank that includes the die's true non-convex shape).
+export function meshVolume(mesh: Mesh): number {
+	const pos = toNonIndexed(mesh.geometry).getAttribute('position');
+	let v6 = 0;
+	for (let i = 0; i < pos.count; i += 3) {
+		_va.set(pos.getX(i), pos.getY(i), pos.getZ(i));
+		_vb.set(pos.getX(i + 1), pos.getY(i + 1), pos.getZ(i + 1));
+		_vc.set(pos.getX(i + 2), pos.getY(i + 2), pos.getZ(i + 2));
+		v6 += _va.dot(_cross.crossVectors(_vb, _vc));
+	}
+	return Math.abs(v6) / 6;
+}
 
 export class Builder {
 	private renderCount = 0;
@@ -304,33 +361,11 @@ export class Builder {
 		return objs;
 	}
 
+	// Approximate solid volume (mm³) of the die, ignoring any engraving ("without
+	// legends"). Only depends on the die parameters (the face geometry), not the
+	// per-face legends.
 	public getApproximateVolume(): number {
-		// we should cache this value as it only depends on
-		// the die parameters, not the face ones (we ignore engraved material)
-		// so the volume is the sum of the volumes of the pryamids from the faces
-		// to the origin.
-		// the volume of a pryamid is the base area x 1/3 x perpendicular height.
-		// so we can find the perpendicular height of the face to the origin
-		// by constructing a taking one normal from the face, constructing a plane
-		// and then finding the distance from the origin to the plane.
-		// but that requires the object to not be exploded,
-		// so we need to use the faces transform to get the position of the center
-		// of the face.
-		const volume = this.faces.reduce((sum, f, i) => {
-			const area = getAreaOfShapeAtOrigin(f.shape);
-			const obj = new PlaneGeometry(1, 1);
-			f.transform.applyToGeometry(obj);
-			const position = obj.getAttribute('position');
-			const plane = new Plane().setFromCoplanarPoints(
-				new Vector3(position.getX(0), position.getY(0), position.getZ(0)),
-				new Vector3(position.getX(1), position.getY(1), position.getZ(1)),
-				new Vector3(position.getX(2), position.getY(2), position.getZ(2))
-			);
-			const height = plane.distanceToPoint(new Vector3(0, 0, 0));
-			return sum + (area * height) / 3;
-		}, 0);
-
-		return volume;
+		return approximateDieVolume(this.faces);
 	}
 
 	getFace2FaceDistance(): number {

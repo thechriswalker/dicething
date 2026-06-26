@@ -169,8 +169,8 @@
 	--color-error-800: oklch(49.28% 0.2 25.7deg);
 	--color-error-900: oklch(45.5% 0.18 24.52deg);
 	--color-error-950: oklch(41.43% 0.17 23.09deg);
-	--color-error-contrast-dark: var(--color-error-950);
-	--color-error-contrast-light: var(--color-error-50);
+	--color-error-contrast-dark: #fff; /* var(--color-error-950); */
+	--color-error-contrast-light: #fff; /* var(--color-error-50); */
 	--color-error-contrast-50: var(--color-error-contrast-dark);
 	--color-error-contrast-100: var(--color-error-contrast-dark);
 	--color-error-contrast-200: var(--color-error-contrast-dark);

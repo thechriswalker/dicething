@@ -22,7 +22,12 @@
 	import Collapsible from '$lib/components/collapsible/Collapsible.svelte';
 	import Tooltip from '$lib/components/tooltip/Tooltip.svelte';
 	import dice from '$lib/dice';
-	import { computeEngravingErrors, type EngravingError } from '$lib/utils/builder';
+	import {
+		approximateDieVolume,
+		computeEngravingErrors,
+		meshVolume,
+		type EngravingError
+	} from '$lib/utils/builder';
 	import { checkMeshInWorker } from '$lib/utils/mesh_check_client';
 	import { mergeMeshReports, type MeshCheckReport } from '$lib/utils/mesh_check';
 	import { toNonIndexed } from '$lib/utils/3d';
@@ -326,6 +331,16 @@
 			includeDice,
 			optionStates: $state.snapshot(optionStates)
 		});
+		// measure each build-option group's volume from its actual generated meshes
+		// (the dice group is measured analytically, "without legends", elsewhere).
+		const vols: Record<string, number> = {};
+		for (const n of named) {
+			if (n.group === 'dice') {
+				continue;
+			}
+			vols[n.group] = (vols[n.group] ?? 0) + meshVolume(n.mesh) / 1000;
+		}
+		artifactVolumesMl = vols;
 		const meshes = named.map((n) => n.mesh);
 		layoutGrid(meshes);
 		const group = new Group();
@@ -380,6 +395,60 @@
 
 	let anyOptionEnabled = $derived(extraBuildOptions.some((o) => optionStates[o.id]?.enabled));
 	let nothingToExport = $derived(selectedIds.length === 0 || (!includeDice && !anyOptionEnabled));
+
+	// 1 ml = 1 cm³ = 1000 mm³ and the three.js unit is a mm.
+	const volumeFormat = new Intl.NumberFormat(undefined, {
+		maximumFractionDigits: 2,
+		trailingZeroDisplay: 'stripIfInteger'
+	});
+
+	// approximate volume (ml) of the included dice, ignoring engraving. uses the
+	// model's face geometry only (no engraving build), so it's cheap enough to
+	// recompute instantly as the selection changes.
+	let diceVolumeMl = $derived.by(() => {
+		if (!setData || !includeDice) {
+			return 0;
+		}
+		let mm3 = 0;
+		for (const die of setData.dice) {
+			if (!selectedIds.includes(die.id)) {
+				continue;
+			}
+			const model = dice[die.kind];
+			if (!model) {
+				continue;
+			}
+			try {
+				const faces = model.build(die.parameters, die.string_parameters ?? {}).faces;
+				mm3 += approximateDieVolume(faces);
+			} catch {
+				// skip dice that fail to build; they can't be measured.
+			}
+		}
+		return mm3 / 1000;
+	});
+
+	// per-build-option artifact volumes (ml), measured from the meshes that will
+	// actually be exported. populated by rebuildPreview (which already builds them)
+	// so we never build the artifact meshes twice. keyed by build-option id.
+	let artifactVolumesMl = $state<Record<string, number>>({});
+
+	// one row per non-empty export group (the dice, plus any enabled build option
+	// that produced geometry), in registry order with dice first.
+	let volumeGroups = $derived.by(() => {
+		const rows: Array<{ id: string; label: string; volume: number }> = [];
+		if (includeDice && diceVolumeMl > 0) {
+			rows.push({ id: 'dice', label: m.export_include_dice(), volume: diceVolumeMl });
+		}
+		for (const option of extraBuildOptions) {
+			const v = artifactVolumesMl[option.id];
+			if (v && v > 0) {
+				rows.push({ id: option.id, label: option.label(), volume: v });
+			}
+		}
+		return rows;
+	});
+	let totalVolumeMl = $derived(volumeGroups.reduce((sum, row) => sum + row.volume, 0));
 
 	function exportModel() {
 		if (!setData || nothingToExport) {
@@ -779,6 +848,27 @@
 					</label>
 				</div>
 			</Collapsible>
+
+			{#if volumeGroups.length > 0}
+				<div class="border-surface-300-700 flex flex-col gap-0.5 rounded-md border p-2">
+					<p class="text-sm font-semibold">{m.export_approx_volume()}</p>
+					{#each volumeGroups as row (row.id)}
+						<p class="flex justify-between text-sm">
+							<span>{row.label}:</span>
+							<span>{volumeFormat.format(row.volume)} ml</span>
+						</p>
+					{/each}
+					{#if volumeGroups.length > 1}
+						<p
+							class="border-surface-300-700 mt-1 flex justify-between border-t pt-1 text-sm font-semibold"
+						>
+							<span>{m.export_volume_total()}:</span>
+							<span>{volumeFormat.format(totalVolumeMl)} ml</span>
+						</p>
+					{/if}
+					<p class="text-surface-600-400 mt-1 text-xs">{m.export_approx_volume_hint()}</p>
+				</div>
+			{/if}
 
 			{#if nothingToExport}
 				<p class="text-warning-600-400 text-sm">{m.export_nothing_selected()}</p>

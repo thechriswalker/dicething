@@ -14,8 +14,11 @@ export type ExportFormat = 'stl' | '3mf';
 
 // `dieId` ties an exported mesh back to the die it came from (the main numbered
 // die and any of its build-option artifacts all share the die's id), so callers
-// like the mesh-health check can aggregate results per die.
-export type NamedMesh = { name: string; mesh: Mesh; dieId?: string };
+// like the mesh-health check can aggregate results per die. `group` identifies
+// which export group the mesh belongs to ('dice' for the numbered die, otherwise
+// the build option's id, e.g. 'blanks' / 'platforms') so callers can aggregate
+// per group (e.g. volume totals).
+export type NamedMesh = { name: string; mesh: Mesh; dieId?: string; group: string };
 
 // per-option UI state: whether it's enabled and the current values for its controls.
 export type OptionState = { enabled: boolean; values: OptionValues };
@@ -56,7 +59,7 @@ export function buildExportMeshes(
 				die.face_parameters,
 				die.string_parameters ?? {}
 			);
-			out.push({ name: baseName, mesh: mainMesh, dieId: die.id });
+			out.push({ name: baseName, mesh: mainMesh, dieId: die.id, group: 'dice' });
 		}
 
 		// extra artifacts. each option gets its own fully-built builder so that
@@ -82,7 +85,12 @@ export function buildExportMeshes(
 				values: state.values
 			});
 			for (const artifact of artifacts) {
-				out.push({ name: `${baseName}_${artifact.suffix}`, mesh: artifact.mesh, dieId: die.id });
+				out.push({
+					name: `${baseName}_${artifact.suffix}`,
+					mesh: artifact.mesh,
+					dieId: die.id,
+					group: option.id
+				});
 			}
 		}
 	});
