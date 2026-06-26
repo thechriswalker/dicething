@@ -72,7 +72,7 @@ export function createBaseSceneAndRenderer(
 		camera
 	);
 	composer.addPass(primaryOutlinePass);
-	primaryOutlinePass.edgeStrength = 4;
+	primaryOutlinePass.edgeStrength = 1.5;
 	primaryOutlinePass.edgeGlow = 0.5;
 	primaryOutlinePass.edgeThickness = 1;
 	primaryOutlinePass.visibleEdgeColor = new Color(0xffffff);
