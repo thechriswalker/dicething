@@ -24,12 +24,23 @@ function expectPrintable(geo: import('three').BufferGeometry, what: string) {
 
 const legends = loadImmutableLegends(germania as unknown as SerialisedLegendSet);
 
-function buildCoin(params: Record<string, number>, blank: boolean) {
+function buildCoin(
+	params: Record<string, number>,
+	blank: boolean,
+	stringParams: Record<string, string> = {}
+) {
 	const builder = new Builder(dice.d2_coin, legends);
-	builder.build(params, [], { explode: false }, {});
+	builder.build(params, [], { explode: false }, stringParams);
 	const faceParams = blank ? builder.getFaces().map(() => ({ legend: Legend.BLANK })) : [];
-	return builder.export(params, faceParams, {}).geometry;
+	return builder.export(params, faceParams, stringParams).geometry;
 }
+
+// a deeply concave 4-pointed star (alternating outer/inner radius) as a custom
+// outline, to exercise the general concave containment + engraving path beyond
+// the gentler logo outline.
+const starPath =
+	'M 0 -100 L 28.28 -28.28 L 100 0 L 28.28 28.28 L 0 100 ' +
+	'L -28.28 28.28 L -100 0 L -28.28 -28.28 Z';
 
 describe('coin D2 exports a printable solid', () => {
 	// custom mode = the default concave logo path.
@@ -44,6 +55,16 @@ describe('coin D2 exports a printable solid', () => {
 			expectPrintable(
 				buildCoin({ coin_diameter: diameter }, true),
 				`coin custom blank d=${diameter}`
+			);
+		});
+	}
+
+	// a strongly concave custom outline (4-pointed star).
+	for (const blank of [true, false]) {
+		it(`concave star path (${blank ? 'blank' : 'engraved'})`, () => {
+			expectPrintable(
+				buildCoin({ coin_shape_mode: 1 }, blank, { coin_path: starPath }),
+				`coin star ${blank ? 'blank' : 'engraved'}`
 			);
 		});
 	}

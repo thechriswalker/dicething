@@ -176,23 +176,13 @@ export const CoinD2: DieModel = {
 
 		let innerRing: Array<Vector2>;
 		let outerRing: Array<Vector2>;
-		// a concave outline needs a convex region for legend fitting/containment
-		// (scaled to match the inner face ring). a convex outline fits against
-		// itself. the back face is mirrored (see backFaceShape) so its fit region
-		// must be mirrored to match.
-		let frontFit: Shape | undefined;
-		let backFit: Shape | undefined;
+		// whether the face outline is convex. a regular polygon always is; a custom
+		// outline may be concave, which switches the legend containment maths to the
+		// general (concave-safe) path so legends can use the whole outline.
+		const convex = custom ? custom.convex : true;
 		if (custom) {
 			innerRing = custom.outline.map((p) => new Vector2(p.x * 2 * rInner, p.y * 2 * rInner));
 			outerRing = custom.outline.map((p) => new Vector2(p.x * 2 * R, p.y * 2 * R));
-			if (!custom.convex) {
-				frontFit = new Shape(
-					custom.fitOutline.map((p) => new Vector2(p.x * 2 * rInner, p.y * 2 * rInner))
-				);
-				backFit = new Shape(
-					custom.fitOutline.map((p) => new Vector2(-p.x * 2 * rInner, p.y * 2 * rInner)).reverse()
-				);
-			}
 		} else {
 			// the flat faces sit on the (possibly inset) inner ring; the bevel/rim use
 			// the full-radius outer ring. built from shared rings so the walls always
@@ -214,14 +204,14 @@ export const CoinD2: DieModel = {
 			{
 				isNumberFace: true,
 				shape: faceShape,
-				fitShape: frontFit,
+				convex,
 				defaultLegend: Legend.MAKER_LOGO,
 				transform: new Transform().translateBy(0, 0, ht)
 			},
 			{
 				isNumberFace: false,
 				shape: backFaceShape,
-				fitShape: backFit,
+				convex,
 				defaultLegend: Legend.BLANK,
 				transform: new Transform().translateBy(0, 0, ht).rotateByAxisAngle(yAxis, Math.PI)
 			}

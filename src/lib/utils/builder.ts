@@ -40,7 +40,7 @@ export type EngravingError = {
 };
 import { mergeGeometries, mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { removeDuplicateTriangles, repairDegenerateTriangles } from './bad_edges';
-import { findBestLegendScalingFactor, getAreaOfShapeAtOrigin, insetConvexPolygon } from './shapes';
+import { findBestLegendScalingFactor, getAreaOfShapeAtOrigin, insetPolygon } from './shapes';
 import { uuid } from './uuid';
 import { toNonIndexed, Transform } from './3d';
 
@@ -221,9 +221,10 @@ export class Builder {
 		if (!face.isNumberFace && effectiveLegend === Legend.BLANK) {
 			return;
 		}
-		const fitTarget = face.fitShape ?? face.shape;
-		const pts = insetConvexPolygon(fitTarget, this.currentTolerance);
-		if (pts.length < 3) {
+		// the inset of the face shape by the tolerance. a concave face can inset to
+		// more than one loop (or none), so this returns a list of loops.
+		const loops = insetPolygon(face.shape, this.currentTolerance, face.convex !== false);
+		if (loops.length === 0) {
 			return;
 		}
 		// lift slightly off the face surface so it doesn't z-fight with the front.
@@ -233,35 +234,40 @@ export class Builder {
 		// aid doubles as a fit warning.
 		const hasError = !!this.faceEngravingErrors[i];
 
-		// thin outline drawn as a closed loop.
-		const positions = new Float32Array(pts.length * 3);
-		for (let k = 0; k < pts.length; k++) {
-			positions[k * 3] = pts[k].x;
-			positions[k * 3 + 1] = pts[k].y;
-			positions[k * 3 + 2] = z;
-		}
-		const lineGeo = new BufferGeometry();
-		lineGeo.setAttribute('position', new Float32BufferAttribute(positions, 3));
-		const line = new LineLoop(lineGeo, hasError ? _legendAreaErrorMaterial : _legendAreaMaterial);
-		// always draw the outline on top of the die.
-		line.renderOrder = 999;
-		line.userData.diceThingPart = LEGEND_AREA_PART;
-		line.userData.diceThingFace = i;
-		line.userData.diceThingId = this.id;
-		// never pick the outline when hovering/selecting faces.
-		line.raycast = () => {};
-		group.add(line);
+		for (const pts of loops) {
+			if (pts.length < 3) {
+				continue;
+			}
+			// thin outline drawn as a closed loop.
+			const positions = new Float32Array(pts.length * 3);
+			for (let k = 0; k < pts.length; k++) {
+				positions[k * 3] = pts[k].x;
+				positions[k * 3 + 1] = pts[k].y;
+				positions[k * 3 + 2] = z;
+			}
+			const lineGeo = new BufferGeometry();
+			lineGeo.setAttribute('position', new Float32BufferAttribute(positions, 3));
+			const line = new LineLoop(lineGeo, hasError ? _legendAreaErrorMaterial : _legendAreaMaterial);
+			// always draw the outline on top of the die.
+			line.renderOrder = 999;
+			line.userData.diceThingPart = LEGEND_AREA_PART;
+			line.userData.diceThingFace = i;
+			line.userData.diceThingId = this.id;
+			// never pick the outline when hovering/selecting faces.
+			line.raycast = () => {};
+			group.add(line);
 
-		// invisible filled polygon: the silhouette source for the glow pass. tagged
-		// by error state so the matching (lime or red) glow pass picks it up.
-		const glowGeo = new ShapeGeometry(new Shape(pts));
-		glowGeo.translate(0, 0, z);
-		const glow = new Mesh(glowGeo, _legendAreaGlowMaterial);
-		glow.userData.diceThingPart = hasError ? LEGEND_AREA_GLOW_ERROR_PART : LEGEND_AREA_GLOW_PART;
-		glow.userData.diceThingFace = i;
-		glow.userData.diceThingId = this.id;
-		glow.raycast = () => {};
-		group.add(glow);
+			// invisible filled polygon: the silhouette source for the glow pass.
+			// tagged by error state so the matching (lime or red) glow pass picks it up.
+			const glowGeo = new ShapeGeometry(new Shape(pts));
+			glowGeo.translate(0, 0, z);
+			const glow = new Mesh(glowGeo, _legendAreaGlowMaterial);
+			glow.userData.diceThingPart = hasError ? LEGEND_AREA_GLOW_ERROR_PART : LEGEND_AREA_GLOW_PART;
+			glow.userData.diceThingFace = i;
+			glow.userData.diceThingId = this.id;
+			glow.raycast = () => {};
+			group.add(glow);
+		}
 	}
 
 	private collectGlowObjects(part: string): Array<Object3D> {
@@ -693,13 +699,18 @@ export class Builder {
 				)
 			);
 
-			// fit against the (optional) convex fit-shape when present (e.g. a custom
-			// concave coin face), so the legend-fitting maths stays valid.
-			const fitTarget = face.fitShape ?? face.shape;
+			// fit against the face shape; a concave face (custom coin outline) uses
+			// the general containment maths so the whole outline is usable.
+			const convex = face.convex !== false;
 			allLegends.forEach((l) => {
 				const shapes = this.legends.get(l);
 				if (shapes.length > 0) {
-					const scale = findBestLegendScalingFactor(fitTarget, shapes, this.currentTolerance);
+					const scale = findBestLegendScalingFactor(
+						face.shape,
+						shapes,
+						this.currentTolerance,
+						convex
+					);
 					this.currentLegendScaling.set(l, scale); // save for later
 					if (scale < smallest) {
 						smallest = scale;
@@ -809,7 +820,7 @@ export class Builder {
 				engravingDepth + (params.extraDepth ?? 0),
 				this.currentTolerance, // clearance: minimum inset from the face edge
 				opts.forExport ? DefaultDivisions : 2 * DefaultDivisions, // will need to "up" this to make a "high quality" render.
-				face.fitShape // convex containment region for non-convex faces
+				face.convex !== false // concave faces use the general containment maths
 			);
 			// engrave() only emits a Part.Symbol geometry when the (non-blank) symbol
 			// failed the containment test, i.e. it's too big to fit the face. that's

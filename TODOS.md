@@ -1,5 +1,7 @@
 - Fix "Print positioning" for each die model and adjust die/blanks/platforms to all sit on one plane orient correctly and site where they need to (i.e. pointy edges down and floating, except for the coin / platforms.)
 
+- export platform generation needs an "and for blanks" option disabled if blanks not selected. Must read config from the blanks section for sizing.
+
 - On Export page have the approximate total volume (does my volume calc work for non-convex shapes - nope - will need to fix that...) 
   - add helper text on "approx" to say "without legends"
   - will need a special case for the coin or anything non-convex.
@@ -9,6 +11,10 @@
   - pick from loaded fonts to change symbols
   - font cache size and purging
 
+- Bevel interior base of engraving. i.e. shrink "back face" and have a sloping section
+  - bevel depth
+  - bevel inset
+
 - Legend Layout Presets per Die
 
   Have an option on the dice parameters - switch legend layout auto changes to custom if you change one, but otherwise changes the layout under the hood
@@ -17,6 +23,8 @@ layouts attached to the dice models: `Array<{ name: string, mapping: Array<Legen
   - D6 - normal / pips
   - D20 - normal / spindown
   - D12 - normal / Go first (A/B/C/D)
+
+The "normal" will be the one defined in the model as "default", but we can attach different numbering presets.
 
 
 - Dice Box Creation! This might be a separate builder!
@@ -29,4 +37,3 @@ layouts attached to the dice models: `Array<{ name: string, mapping: Array<Legen
   we might have to use CSG for the insets, that could get complicated really quickly... insets should be bottom 1/4 top 1/4.
 
   So dice arrangement automatic or provide rows/cols tweaks, square/hex grid, and dice ordering options. Then box is created around them.
-  

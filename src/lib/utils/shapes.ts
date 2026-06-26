@@ -15,6 +15,7 @@ import {
 	Vector2,
 	Vector3
 } from 'three';
+import { unionBoundaryLoops } from './tessellate';
 
 // check the inner shapes are fully contained in an outer shape.
 // ALL OUTER SHAPES ARE ASSUMED TO BE CONVEX POLYGONS
@@ -23,11 +24,24 @@ import {
 // on the same side of all edges of the outer shape.
 const _edge = new Vector2();
 const _a = new Vector2();
-export function isContained(outer: Shape, inner: Array<Shape>, threshold: number = 0): boolean {
+// Is every inner shape contained in `outer` leaving more than `threshold`
+// clearance from its boundary? `convex` (the default) uses the fast half-plane
+// test that assumes a convex outer; pass `false` for a possibly-concave outer
+// (e.g. a custom coin outline) to use the general point-in-polygon + edge-cross
+// test instead. Only ever set false where `outer` can actually be concave - the
+// general path is slower and the convex path is correct everywhere else.
+export function isContained(
+	outer: Shape,
+	inner: Array<Shape>,
+	threshold: number = 0,
+	convex: boolean = true
+): boolean {
 	if (inner.length === 0) {
 		return true;
 	}
-	const d = _isContainedAndMinDistanceToEdge(outer, inner);
+	const d = convex
+		? _isContainedAndMinDistanceToEdge(outer, inner)
+		: _minClearanceGeneral(outer, inner);
 	return d > threshold;
 }
 
@@ -67,6 +81,106 @@ function _isContainedAndMinDistanceToEdge(outer: Shape, inner: Array<Shape>): nu
 				const d = distanceFromLineToPoint(_edge, _a);
 				if (d < minDistance) {
 					minDistance = d;
+				}
+			}
+		}
+	}
+	return minDistance;
+}
+
+// is the point (x,y) inside the (possibly concave) polygon `poly`? standard
+// even-odd ray cast. `poly` must be an open loop (no duplicated closing point).
+function pointInPolygon(x: number, y: number, poly: Array<Vector2>): boolean {
+	let inside = false;
+	for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+		const vi = poly[i];
+		const vj = poly[j];
+		const crosses =
+			vi.y > y !== vj.y > y && x < ((vj.x - vi.x) * (y - vi.y)) / (vj.y - vi.y) + vi.x;
+		if (crosses) {
+			inside = !inside;
+		}
+	}
+	return inside;
+}
+
+function pointToSegmentDistance(px: number, py: number, a: Vector2, b: Vector2): number {
+	const dx = b.x - a.x;
+	const dy = b.y - a.y;
+	const lenSq = dx * dx + dy * dy;
+	let t = lenSq === 0 ? 0 : ((px - a.x) * dx + (py - a.y) * dy) / lenSq;
+	t = Math.max(0, Math.min(1, t));
+	const cx = a.x + t * dx;
+	const cy = a.y + t * dy;
+	return Math.hypot(px - cx, py - cy);
+}
+
+// shortest distance between two segments: 0 if they touch/cross, else the
+// smallest of the four endpoint-to-opposite-segment distances.
+function segmentDistance(a: Vector2, b: Vector2, c: Vector2, d: Vector2): number {
+	if (intersect(a, b, c, d)) {
+		return 0;
+	}
+	return Math.min(
+		pointToSegmentDistance(a.x, a.y, c, d),
+		pointToSegmentDistance(b.x, b.y, c, d),
+		pointToSegmentDistance(c.x, c.y, a, b),
+		pointToSegmentDistance(d.x, d.y, a, b)
+	);
+}
+
+// General (possibly concave) analogue of `_isContainedAndMinDistanceToEdge`,
+// with the same contract: returns -1 when the inner shapes are not fully inside
+// `outer`, otherwise the minimum distance from any inner edge to the outer
+// boundary. Containment is decided by point-in-polygon (valid for any simple
+// polygon) plus an edge-crossing test - a shape poking out through a concavity
+// has vertices inside but an edge that crosses the boundary. The reported
+// clearance uses segment-to-segment distance, so a reflex corner of the outline
+// (not just an edge) can be the limiting feature.
+function _minClearanceGeneral(outer: Shape, inner: Array<Shape>): number {
+	const outerPoints = outer.getPoints();
+	if (
+		outerPoints.length > 1 &&
+		outerPoints[0].distanceToSquared(outerPoints[outerPoints.length - 1]) < 1e-12
+	) {
+		outerPoints.pop();
+	}
+	const n = outerPoints.length;
+	if (n < 3) {
+		return -1;
+	}
+	let minDistance = Infinity;
+	for (const s of inner) {
+		const innerPoints = s.getPoints(12);
+		if (
+			innerPoints.length > 1 &&
+			innerPoints[0].distanceToSquared(innerPoints[innerPoints.length - 1]) < 1e-12
+		) {
+			innerPoints.pop();
+		}
+		const m = innerPoints.length;
+		if (m < 2) {
+			continue;
+		}
+		// every inner vertex must lie inside the outer polygon.
+		for (const p of innerPoints) {
+			if (!pointInPolygon(p.x, p.y, outerPoints)) {
+				return -1;
+			}
+		}
+		// no inner edge may touch/cross an outer edge; track the closest approach.
+		for (let i = 0; i < m; i++) {
+			const a = innerPoints[i];
+			const b = innerPoints[(i + 1) % m];
+			for (let j = 0; j < n; j++) {
+				const c = outerPoints[j];
+				const d = outerPoints[(j + 1) % n];
+				const dist = segmentDistance(a, b, c, d);
+				if (dist === 0) {
+					return -1;
+				}
+				if (dist < minDistance) {
+					minDistance = dist;
 				}
 			}
 		}
@@ -451,7 +565,8 @@ const maxAcceptableDistance = 2;
 export function findBestLegendScalingFactor(
 	shape: Shape,
 	legends: Array<Shape>,
-	tolerance: number = 0
+	tolerance: number = 0,
+	convex: boolean = true
 ): number {
 	if (!legends || legends.length === 0) {
 		return 1;
@@ -459,9 +574,14 @@ export function findBestLegendScalingFactor(
 	const minDist = Math.max(minAcceptableDistance, tolerance);
 	const maxDist = minDist + (maxAcceptableDistance - minAcceptableDistance);
 
-	// inset of the legend scaled by `scale`; -1 when it overflows the face.
-	const insetAt = (scale: number): number =>
-		_isContainedAndMinDistanceToEdge(shape, scaleShapes(scale, ...legends));
+	// inset of the legend scaled by `scale`; -1 when it overflows the face. uses
+	// the general (concave-safe) clearance when `convex` is false.
+	const insetAt = (scale: number): number => {
+		const scaled = scaleShapes(scale, ...legends);
+		return convex
+			? _isContainedAndMinDistanceToEdge(shape, scaled)
+			: _minClearanceGeneral(shape, scaled);
+	};
 
 	// shrinking toward zero collapses the legend to (around) the origin, so this
 	// is effectively the face's inradius - the most inset any legend can get.
@@ -570,6 +690,78 @@ export function insetConvexPolygon(shape: Shape, distance: number): Array<Vector
 		out.push(new Vector2().copy(prev.p).addScaledVector(prev.d, t));
 	}
 	return out;
+}
+
+// Inset a (possibly concave) polygon inward by `distance`, returning one or more
+// boundary loops (a concave inset can split into several, or vanish). For convex
+// shapes this delegates to `insetConvexPolygon` (a single loop). For concave
+// shapes each edge is offset inward - the inward side decided per-edge by a
+// point-in-polygon probe so winding doesn't matter - and consecutive offset
+// lines are intersected (miter joins). That raw loop self-overlaps near reflex
+// corners, so it is cleaned through `unionBoundaryLoops` (libtess nonzero
+// boundary mode), the same machinery that resolves self-touching glyph soup.
+// Used to draw the "available legend area" aid; the containment maths is
+// separate, so an approximate inset here is acceptable.
+export function insetPolygon(
+	shape: Shape,
+	distance: number,
+	convex: boolean = true
+): Array<Array<Vector2>> {
+	if (convex) {
+		const loop = insetConvexPolygon(shape, distance);
+		return loop.length >= 3 ? [loop] : [];
+	}
+	let pts = shape.getPoints();
+	if (pts.length > 1 && pts[0].distanceToSquared(pts[pts.length - 1]) < 1e-9) {
+		pts = pts.slice(0, -1);
+	}
+	const n = pts.length;
+	if (n < 3) {
+		return [];
+	}
+	if (distance <= 0) {
+		return [pts.map((p) => p.clone())];
+	}
+
+	type Line = { p: Vector2; d: Vector2 };
+	const lines: Array<Line> = [];
+	const probe = new Vector2();
+	for (let i = 0; i < n; i++) {
+		const a = pts[i];
+		const b = pts[(i + 1) % n];
+		const d = new Vector2().subVectors(b, a);
+		if (d.lengthSq() < 1e-12) {
+			continue;
+		}
+		d.normalize();
+		// perpendicular, flipped so it points into the polygon interior.
+		const nrm = new Vector2(-d.y, d.x);
+		probe.addVectors(a, b).multiplyScalar(0.5).addScaledVector(nrm, 1e-3);
+		if (!pointInPolygon(probe.x, probe.y, pts)) {
+			nrm.negate();
+		}
+		const p = new Vector2().copy(a).addScaledVector(nrm, distance);
+		lines.push({ p, d });
+	}
+	const m = lines.length;
+	if (m < 3) {
+		return [];
+	}
+	const offset: Array<Vector2> = [];
+	for (let i = 0; i < m; i++) {
+		const prev = lines[(i - 1 + m) % m];
+		const cur = lines[i];
+		const denom = prev.d.x * cur.d.y - prev.d.y * cur.d.x;
+		if (Math.abs(denom) < 1e-9) {
+			// (near) collinear consecutive edges: the offset start point is fine.
+			offset.push(cur.p.clone());
+			continue;
+		}
+		const diff = new Vector2().subVectors(cur.p, prev.p);
+		const t = (diff.x * cur.d.y - diff.y * cur.d.x) / denom;
+		offset.push(new Vector2().copy(prev.p).addScaledVector(prev.d, t));
+	}
+	return unionBoundaryLoops([offset]).filter((loop) => loop.length >= 3);
 }
 
 // find the area of a shape that is centered on the origin (like all our face shapes are)

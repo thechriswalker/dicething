@@ -85,13 +85,14 @@ export type DieFaceModel = {
 	// list with hundreds of un-editable "faces". always implies a non-number,
 	// blank face. defaults to false/undefined.
 	hidden?: boolean;
-	// the convex outer shape for this face
+	// the outer shape for this face.
 	shape: Shape;
-	// optional convex region used purely for legend scaling/containment. defaults
-	// to `shape`. used when `shape` is non-convex (e.g. a custom coin outline) so
-	// the legend-fitting maths (which assumes a convex outer) stays valid and
-	// legends don't reach into concavities.
-	fitShape?: Shape;
+	// whether `shape` is convex. undefined/true selects the fast convex-only
+	// legend scaling/containment maths (correct for every die except a custom
+	// coin outline). set false for a concave `shape` (only the coin can be) to
+	// switch to the general point-in-polygon containment, so legends can use the
+	// whole concave region rather than a conservative inscribed area.
+	convex?: boolean;
 	// the default Legend for this face (user can change of course)
 	defaultLegend: Legend;
 	transform: Transform; // transform to put the face in position.

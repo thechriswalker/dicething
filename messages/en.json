@@ -164,8 +164,7 @@
 			"selectors": ["key"],
 			"match": {
 				"key=coin_path_empty": "Enter an SVG path",
-				"key=coin_path_invalid": "Not a valid SVG path",
-				"key=coin_path_concave": "Concave shape: the engraving may overflow into the concave areas"
+				"key=coin_path_invalid": "Not a valid SVG path"
 			}
 		}
 	],

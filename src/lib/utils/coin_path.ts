@@ -6,10 +6,9 @@
 // can scale it like the polygon outline. Holes are dropped (a coin face is
 // solid) and only the largest outer contour is used.
 //
-// Legend fitting assumes a convex outer shape, so for concave outlines we also
-// compute a conservative convex `fitShape` (the largest inscribed circle as a
-// polygon). Callers can surface a warning when the shape is concave since
-// engraving may still reach into concavities.
+// Legend fitting works against the real outline: we report whether it is convex
+// so the builder can pick the fast convex-only containment maths for the common
+// case and the general (concave-safe) maths only when needed.
 
 import { Shape, Vector2 } from 'three';
 import { SVGLoader } from 'three/examples/jsm/loaders/SVGLoader.js';
@@ -26,9 +25,6 @@ export type ParsedCoinPath = {
 	outline: Array<Vector2>;
 	// whether the outline is convex.
 	convex: boolean;
-	// the convex fit region as a point loop (unit space). equals `outline` when
-	// convex; otherwise the largest inscribed circle. used for legend fitting.
-	fitOutline: Array<Vector2>;
 };
 
 // Wrap a raw path `d` in a minimal SVG. The y-flip mirrors what
@@ -104,105 +100,6 @@ function isConvex(points: Array<Vector2>): boolean {
 	return true;
 }
 
-function pointInPolygon(x: number, y: number, points: Array<Vector2>): boolean {
-	let inside = false;
-	for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
-		const vi = points[i];
-		const vj = points[j];
-		const intersect =
-			vi.y > y !== vj.y > y && x < ((vj.x - vi.x) * (y - vi.y)) / (vj.y - vi.y) + vi.x;
-		if (intersect) {
-			inside = !inside;
-		}
-	}
-	return inside;
-}
-
-function distanceToSegment(px: number, py: number, a: Vector2, b: Vector2): number {
-	const dx = b.x - a.x;
-	const dy = b.y - a.y;
-	const lenSq = dx * dx + dy * dy;
-	let t = lenSq === 0 ? 0 : ((px - a.x) * dx + (py - a.y) * dy) / lenSq;
-	t = Math.max(0, Math.min(1, t));
-	const cx = a.x + t * dx;
-	const cy = a.y + t * dy;
-	return Math.hypot(px - cx, py - cy);
-}
-
-function distanceToBoundary(x: number, y: number, points: Array<Vector2>): number {
-	let min = Infinity;
-	for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
-		const d = distanceToSegment(x, y, points[i], points[j]);
-		if (d < min) {
-			min = d;
-		}
-	}
-	return min;
-}
-
-// largest inscribed circle ("pole of inaccessibility") via a simple grid search
-// then a local refinement. returns the circle as a 32-gon point loop. used as a
-// safe convex fit region for concave outlines.
-function inscribedCircleLoop(points: Array<Vector2>): Array<Vector2> {
-	let minX = Infinity;
-	let minY = Infinity;
-	let maxX = -Infinity;
-	let maxY = -Infinity;
-	for (const p of points) {
-		minX = Math.min(minX, p.x);
-		minY = Math.min(minY, p.y);
-		maxX = Math.max(maxX, p.x);
-		maxY = Math.max(maxY, p.y);
-	}
-	let best = { x: (minX + maxX) / 2, y: (minY + maxY) / 2, r: 0 };
-	const grid = 40;
-	for (let ix = 0; ix <= grid; ix++) {
-		for (let iy = 0; iy <= grid; iy++) {
-			const x = minX + ((maxX - minX) * ix) / grid;
-			const y = minY + ((maxY - minY) * iy) / grid;
-			if (!pointInPolygon(x, y, points)) {
-				continue;
-			}
-			const r = distanceToBoundary(x, y, points);
-			if (r > best.r) {
-				best = { x, y, r };
-			}
-		}
-	}
-	// local refinement around the best grid cell.
-	let step = Math.max((maxX - minX) / grid, (maxY - minY) / grid);
-	for (let iter = 0; iter < 30; iter++) {
-		let improved = false;
-		for (const [dx, dy] of [
-			[step, 0],
-			[-step, 0],
-			[0, step],
-			[0, -step]
-		]) {
-			const x = best.x + dx;
-			const y = best.y + dy;
-			if (!pointInPolygon(x, y, points)) {
-				continue;
-			}
-			const r = distanceToBoundary(x, y, points);
-			if (r > best.r) {
-				best = { x, y, r };
-				improved = true;
-			}
-		}
-		if (!improved) {
-			step /= 2;
-		}
-	}
-	const segs = 32;
-	const circle: Array<Vector2> = [];
-	for (let k = 0; k < segs; k++) {
-		const a = (k * 2 * Math.PI) / segs;
-		circle.push(new Vector2(best.x + best.r * Math.cos(a), best.y + best.r * Math.sin(a)));
-	}
-	return circle;
-}
-
 // normalize a shape so its larger bounding dimension is 1, centered on origin.
 function normalize(shape: Shape): Shape {
 	const [centered] = centerShapes(shape);
@@ -266,13 +163,13 @@ export function parseCoinPath(d: string): ParsedCoinPath | null {
 		return null;
 	}
 	const convex = isConvex(outline);
-	const fitOutline = convex ? outline : ensureClockwise(inscribedCircleLoop(outline));
-	return { shape, outline, convex, fitOutline };
+	return { shape, outline, convex };
 }
 
 // Validate a raw SVG path `d` for use as a coin face. Returns the structured
-// result the parameter UI expects (invalid until it parses; a non-blocking
-// warning when the resulting shape is concave).
+// result the parameter UI expects (invalid until it parses). Concave outlines
+// are fully supported (the legend containment maths handles them), so they are
+// not flagged.
 export function validateCoinPath(d: string): {
 	valid: boolean;
 	error?: string;
@@ -284,9 +181,6 @@ export function validateCoinPath(d: string): {
 	const parsed = parseCoinPath(d);
 	if (!parsed) {
 		return { valid: false, error: 'coin_path_invalid' };
-	}
-	if (!parsed.convex) {
-		return { valid: true, warning: 'coin_path_concave' };
 	}
 	return { valid: true };
 }
