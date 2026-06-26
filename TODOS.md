@@ -5,3 +5,20 @@
   - will need a special case for the coin or anything non-convex.
 
 - Mononoki as another builtin font? (more builtin fonts?) 
+
+- D4 Infinity (cuboid + semicircle side)
+
+- Font cache view 
+  - manage and delete loaded fonts
+  - pick from loaded fonts to change symbols
+  - font cache size and purging
+
+- Legend Layout Presets per Die
+
+  Have an option on the dice parameters - switch legend layout auto changes to custom if you change one, but otherwise changes the layout under the hood
+layouts attached to the dice models: `Array<{ name: string, mapping: Array<Legend> }>` so the array is "index = face index, value = default legend"
+
+  - D6 - normal / pips
+  - D20 - normal / spindown
+  - D12 - normal / Go first (A/B/C/D)
+

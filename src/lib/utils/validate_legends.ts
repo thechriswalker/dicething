@@ -154,13 +154,16 @@ export function buildCandidateOnDie(
 //
 // `check` performs the structural test (worker on the page, synchronous in
 // tests). `onResult` is invoked after each die so callers can drive progress.
+// `kinds` restricts the audit to a subset of die models (defaults to the whole
+// catalogue); the slow suite uses it to scope a run to a single die.
 export async function checkLegendCandidateAllDice(
 	candidate: LegendCandidate,
 	check: MeshChecker,
-	onResult?: (r: LegendCheckResult) => void
+	onResult?: (r: LegendCheckResult) => void,
+	kinds: ReadonlyArray<string> = auditDiceKinds
 ): Promise<Array<LegendCheckResult>> {
 	const out: Array<LegendCheckResult> = [];
-	for (const dieKind of auditDiceKinds) {
+	for (const dieKind of kinds) {
 		// yield a macrotask between dice so the caller's event loop keeps turning:
 		// the page stays responsive (each die build is heavy synchronous work) and
 		// test runners can deliver their progress heartbeat between builds.

@@ -26,6 +26,7 @@ import { PentagonalHexecontahedronD60 } from './pentagonal_hexecontahedron';
 import { SkewD6 } from './skew_d6';
 import { TetartoidD12 } from './tetartoid';
 import { OddPrismD3, OddPrismD5, OddPrismD7 } from './odd_prism';
+import { InfinityD4 } from './infinity';
 
 const dice = {
 	d2_coin: CoinD2,
@@ -49,6 +50,7 @@ const dice = {
 	d00_trapezohedron: TrapezohedronD00,
 	d12_trapezohedron: TrapezohedronD12,
 	d4_shard: ShardD4,
+	d4_infinity: InfinityD4,
 	d3_odd_prism: OddPrismD3,
 	d5_odd_prism: OddPrismD5,
 	d7_odd_prism: OddPrismD7,
@@ -88,6 +90,7 @@ const diceTags: Record<keyof typeof dice, DieTags> = {
 	d00_trapezohedron: { kind: 'trapezohedron', sides: '00' },
 	d12_trapezohedron: { kind: 'trapezohedron', sides: '12' },
 	d4_shard: { kind: 'shard', sides: '4' },
+	d4_infinity: { kind: 'infinity', sides: '4' },
 	d3_odd_prism: { kind: 'odd', sides: '3' },
 	d5_odd_prism: { kind: 'odd', sides: '5' },
 	d7_odd_prism: { kind: 'odd', sides: '7' },

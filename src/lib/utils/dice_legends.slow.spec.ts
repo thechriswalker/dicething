@@ -50,7 +50,21 @@ const fontSets: Array<[string, SerialisedLegendSet]> = [
 	['voltaire', voltaire as unknown as SerialisedLegendSet]
 ];
 
-const dieKinds = Object.keys(dice) as Array<keyof typeof dice>;
+// Optionally scope the whole audit to a single die so a new/changed shape can be
+// exhaustively checked on its own without rebuilding the entire catalogue:
+//
+//   DIE=d4_infinity bun run test:slow
+//
+// Unset (the CI default) runs every die. An unknown id fails loudly rather than
+// silently checking nothing.
+const dieFilter = process.env.DIE?.trim();
+const allKinds = Object.keys(dice) as Array<keyof typeof dice>;
+if (dieFilter && !allKinds.includes(dieFilter as keyof typeof dice)) {
+	throw new Error(
+		`DIE=${dieFilter} is not a known die kind. Known: ${allKinds.join(', ')}`
+	);
+}
+const dieKinds = dieFilter ? allKinds.filter((k) => k === dieFilter) : allKinds;
 
 // d60s + the coin (SVGLoader) are the slow builds; 30s leaves comfortable room.
 const SLOW_TIMEOUT = 30_000;
@@ -108,8 +122,11 @@ describe('shared all-dice audit prints every glyph on every die', () => {
 			it(
 				`${fontName} "${label}"`,
 				async () => {
-					const results = await checkLegendCandidateAllDice(candidate, async (positions) =>
-						checkMesh(positions)
+					const results = await checkLegendCandidateAllDice(
+						candidate,
+						async (positions) => checkMesh(positions),
+						undefined,
+						dieKinds
 					);
 					for (const r of results) {
 						const where = `${fontName} "${label}" on ${r.dieKind}`;
