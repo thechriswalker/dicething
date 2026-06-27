@@ -232,15 +232,19 @@ function build(sides: number, tens: boolean, previewTransform?: Transform): DieM
 
 			const bottomTransform = topTransform.clone().rotateByAxisAngle(zAxis, Math.PI);
 
+			// the caps are blank: a die that comes to rest on one reads no number, so
+			// flag them for the stability check (a too-tall cap makes this possible).
 			faces.push(
 				{
 					isNumberFace: false,
+					noRest: true,
 					shape: capFaceInfo.shape,
 					defaultLegend: Legend.BLANK,
 					transform: topTransform
 				},
 				{
 					isNumberFace: false,
+					noRest: true,
 					shape: capFaceInfo.shape,
 					defaultLegend: Legend.BLANK,
 					transform: bottomTransform

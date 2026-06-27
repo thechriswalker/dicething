@@ -13,8 +13,8 @@ import type { DiceParameter, DieFaceModel, DieModel } from '$lib/interfaces/dice
 import { Transform } from '$lib/utils/3d';
 import { stackedExplode } from '$lib/utils/explode';
 import { Legend, pickForNumber } from '$lib/utils/legends';
-import { orientCoplanarVertices } from '$lib/utils/shapes';
-import { Plane, Ray, Shape, Vector2, Vector3 } from 'three';
+import { orientCoplanarVertices, rotateShapes } from '$lib/utils/shapes';
+import { Plane, Quaternion, Ray, Shape, Vector2, Vector3 } from 'three';
 
 const defaultLength = 18;
 const defaultWidth = 10;
@@ -101,7 +101,21 @@ function build(sides: number): DieModel['build'] {
 			new Vector2(-x2, -cornerHeight)
 		);
 
-		const cap = orientedFace(capFaceVertices3);
+		// orientCoplanarVertices lays the facet out with the cap peak (the +y apex)
+		// at the top of the 2D frame, so the engraved number reads upside-down for
+		// someone looking at the die at rest. Turn the engraving frame a half turn -
+		// rotating the 2D shape 180° and compensating with an equal turn about the
+		// face normal - so the number's top points away from the cap peak while the
+		// 3D facet geometry is unchanged.
+		const oriented = orientedFace(capFaceVertices3);
+		const cap = {
+			shape: rotateShapes(Math.PI, oriented.shape)[0],
+			transform: new Transform()
+				.rotate(
+					oriented.transform.rotation.multiply(new Quaternion().setFromAxisAngle(zAxis, Math.PI))
+				)
+				.translate(oriented.transform.translation)
+		};
 		const bodyShape = new Shape(bodyFaceVertices);
 
 		// build the cap placements: top facets around the +y apex (one per side)
@@ -151,17 +165,22 @@ function build(sides: number): DieModel['build'] {
 		const faces: Array<DieFaceModel> = [];
 
 		// the numbered cap facets: each value 1..n appears once on a top facet and
-		// once on its paired bottom facet, so both ends read the same.
+		// once on its paired bottom facet, so both ends read the same. The prism is
+		// only fair if it can't settle on an end (you read the facets pointing up
+		// while it rests on a blank body face), so the facets are flagged `noRest`:
+		// if the caps grow tall enough to rest on, the stability check warns.
 		for (let i = 0; i < sides; i++) {
 			faces.push(
 				{
 					isNumberFace: true,
+					noRest: true,
 					shape: cap.shape,
 					defaultLegend: topLegends[i],
 					transform: topTransforms[i]
 				},
 				{
 					isNumberFace: true,
+					noRest: true,
 					shape: cap.shape,
 					defaultLegend: bottomLegends[i],
 					transform: bottomTransforms[i]

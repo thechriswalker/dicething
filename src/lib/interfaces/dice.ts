@@ -6,6 +6,7 @@ export type DieTags = {
 	kind: string; // broad shape family, e.g. "polyhedron", "trapezohedron"
 	variant?: string; // optional sub-shape, e.g. "rhombic", "cube"
 	sides: string; // "2".."20", and "00" for d%
+	rarity: 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary';
 };
 
 export type DieModel = {
@@ -51,6 +52,15 @@ export type DieModel = {
 		// faces and read as a 3D object. omitted = look straight at the face.
 		previewTransform?: Transform;
 	};
+	// optional override for how this die should lie in a box cavity (the box
+	// builder, see $lib/box). Mirrors `printingTransform`, but for *resting* the
+	// die flat rather than orienting it for printing. Only the rotation is used;
+	// the box builder re-centres the die and drops it onto the cavity floor
+	// itself. When omitted, the box builder auto-picks a stable flat orientation
+	// from the geometry (see $lib/box/orient.ts). Set this for dice whose
+	// auto-chosen lie reads wrong (e.g. a die that should rest on a specific
+	// face).
+	boxTransform?: Transform;
 	// create parameters for building a blank using the "build" function that is
 	// offset from the given parameters by `offset`.
 	// note that offset could be positive or negative - as people might want "inverse"
@@ -95,6 +105,14 @@ export type DieFaceModel = {
 	convex?: boolean;
 	// the default Legend for this face (user can change of course)
 	defaultLegend: Legend;
+	// faces a die should NOT come to rest on, because doing so gives an
+	// inconclusive read (e.g. a crystal's blank cap, or a truncated d4's number
+	// triangle whose opposite face is blank). The stability check (see
+	// $lib/utils/stability.ts) tests every flagged face: if the line from the
+	// die's centre of mass to the face plane lands inside the face, the die can
+	// physically rest there and a "may land wrong" warning is raised. Most dice
+	// leave this undefined; only the handful that can settle ambiguously set it.
+	noRest?: boolean;
 	transform: Transform; // transform to put the face in position.
 	explodeTransform?: Transform; // transfor to put the face in the exploded position
 };

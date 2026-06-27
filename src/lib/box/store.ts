@@ -1,0 +1,87 @@
+// Persistence for box configs. Each box belongs to a dice set and is stored
+// under its own localStorage key (prefix `dt:boxes:<setId>`), mirroring how
+// storage.svelte.ts keeps dice sets and legend sets. A box is always derived
+// from a set, so the set id is the natural key.
+
+import { browser } from '$app/environment';
+import type { Dice } from '$lib/interfaces/storage.svelte';
+import { defaultBoxParams, type BoxConfig, type BoxDiePlacement } from './types';
+
+const BOXES_PREFIX = 'dt:boxes:';
+
+// A fresh box config for a set: every die included, in set order.
+export function defaultBoxConfig(setId: string, dice: Array<Dice>): BoxConfig {
+	const placements: Array<BoxDiePlacement> = dice.map((d, i) => ({
+		dieId: d.id,
+		order: i,
+		rotation: 0,
+		include: true
+	}));
+	return {
+		setId,
+		updated: Date.now(),
+		params: defaultBoxParams(),
+		placements
+	};
+}
+
+// Load a saved box config for a set, or undefined if none exists / it's invalid.
+export function loadBoxConfig(setId: string): BoxConfig | undefined {
+	if (!browser) {
+		return undefined;
+	}
+	const raw = localStorage.getItem(BOXES_PREFIX + setId);
+	if (!raw) {
+		return undefined;
+	}
+	try {
+		const parsed = JSON.parse(raw) as BoxConfig;
+		if (!parsed || parsed.setId !== setId || !Array.isArray(parsed.placements)) {
+			return undefined;
+		}
+		// merge over defaults so configs saved before a param was added still load.
+		parsed.params = { ...defaultBoxParams(), ...parsed.params };
+		parsed.params.magnets = { ...defaultBoxParams().magnets, ...parsed.params.magnets };
+		parsed.params.hinge = { ...defaultBoxParams().hinge, ...parsed.params.hinge };
+		return parsed;
+	} catch {
+		return undefined;
+	}
+}
+
+// Reconcile a config with the set's current dice: keep placements for dice that
+// still exist (in their saved order) and append fresh placements for any newly
+// added dice. Returns a new config; does not persist.
+export function reconcileBoxConfig(config: BoxConfig, dice: Array<Dice>): BoxConfig {
+	const byId = new Map(config.placements.map((p) => [p.dieId, p]));
+	const ids = new Set(dice.map((d) => d.id));
+	const kept = config.placements.filter((p) => ids.has(p.dieId));
+	let maxOrder = kept.reduce((m, p) => Math.max(m, p.order), -1);
+	const placements: Array<BoxDiePlacement> = [...kept];
+	for (const d of dice) {
+		if (!byId.has(d.id)) {
+			placements.push({
+				dieId: d.id,
+				order: ++maxOrder,
+				rotation: 0,
+				include: true
+			});
+		}
+	}
+	return { ...config, placements };
+}
+
+export function saveBoxConfig(config: BoxConfig): void {
+	if (!browser) {
+		return;
+	}
+	config.updated = Date.now();
+	localStorage.setItem(BOXES_PREFIX + config.setId, JSON.stringify(config));
+}
+
+export function deleteBoxConfig(setId: string): void {
+	if (!browser) {
+		return;
+	}
+	localStorage.removeItem(BOXES_PREFIX + setId);
+}

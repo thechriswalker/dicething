@@ -2,7 +2,7 @@
 
 - export platform generation needs an "and for blanks" option disabled if blanks not selected. Must read config from the blanks section for sizing.
 
-- Font cache view 
+- Font cache view
   - manage and delete loaded fonts
   - pick from loaded fonts to change symbols
   - font cache size and purging
@@ -14,14 +14,12 @@
 - Legend Layout Presets per Die
 
   Have an option on the dice parameters - switch legend layout auto changes to custom if you change one, but otherwise changes the layout under the hood
-layouts attached to the dice models: `Array<{ name: string, mapping: Array<Legend> }>` so the array is "index = face index, value = default legend"
-
+  layouts attached to the dice models: `Array<{ name: string, mapping: Array<Legend> }>` so the array is "index = face index, value = default legend"
   - D6 - normal / pips
   - D20 - normal / spindown
   - D12 - normal / Go first (A/B/C/D)
 
 The "normal" will be the one defined in the model as "default", but we can attach different numbering presets.
-
 
 - Dice Box Creation! This might be a separate builder!
   there is an awesome dice box called EDDC.

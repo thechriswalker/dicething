@@ -456,6 +456,11 @@ export class Builder {
 			this.faces = x.faces;
 			this.individualLegendScaling = !!x.sizeLegendsIndividually;
 			this.previewTransform = x.previewTransform;
+			// keep the print orientation in sync with the current die params here
+			// too: a build option (e.g. blanks) builds a builder then re-exports it
+			// with the SAME params, so export()'s dieChanged guard would otherwise
+			// skip recomputing this and the artifact would export un-oriented.
+			this.printingTransform = x.printingTransform ?? new Transform();
 			this.recalculateLegendScaling();
 			this.computeFaceTransforms();
 			this.lastDieParams = dieParams;

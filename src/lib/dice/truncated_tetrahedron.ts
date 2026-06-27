@@ -100,6 +100,12 @@ export const TruncatedTetrahedronD4: DieModel = {
 		const triangles = placedToFaces(orbitFace(triSeed, rotations), true);
 		const hexagons = placedToFaces(orbitFace(hexSeed, rotations), false);
 
+		// resting on a numbered triangle puts the opposite (blank) hexagon up, an
+		// inconclusive read. The truncated d4 can always settle this way - it's the
+		// deliberate trade-off for rolling better - so flag the triangles and let
+		// the (reassuring) land-warning explain it.
+		triangles.forEach((f) => (f.noRest = true));
+
 		const key = (face: DieFaceModel) => {
 			const p = face.transform.translation;
 			return [-r3(p.y), -r3(p.x), -r3(p.z)];

@@ -119,6 +119,11 @@ export const TruncatedOctahedronD8: DieModel = {
 
 			const hexagons = placedToFaces(orbitFace(hexSeed, rotations), true);
 			const squares = placedToFaces(orbitFace(squareSeed, rotations), false);
+			// resting on a blank square reads no number; the truncated d8 can settle
+			// on one (rarely, growing with truncation) - the trade-off for rolling
+			// better - so flag the squares for the (reassuring) land-warning. A plain
+			// octahedron (no truncation) has no squares, so it never warns.
+			squares.forEach((f) => (f.noRest = true));
 			faces = [...hexagons, ...squares];
 		}
 

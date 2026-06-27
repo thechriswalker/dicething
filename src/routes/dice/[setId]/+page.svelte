@@ -26,10 +26,11 @@
 		type DiceSet
 	} from '$lib/interfaces/storage.svelte';
 	import type { LegendSet } from '$lib/utils/legends';
-	import type { FaceParams } from '$lib/interfaces/dice';
+	import type { DieTags, FaceParams } from '$lib/interfaces/dice';
 	import { getPreferences } from '$lib/interfaces/preferences.svelte';
 	import { m } from '$lib/paraglide/messages';
 	import { Builder, computeEngravingErrors, type EngravingError } from '$lib/utils/builder';
+	import { computeLandWarning } from '$lib/utils/stability';
 	import { debounce } from '$lib/utils/debounce';
 	import { createHistory } from '$lib/utils/history.svelte';
 	import { hoverAndClickEvents } from '$lib/utils/events';
@@ -48,9 +49,12 @@
 		LayoutGrid,
 		PlusIcon,
 		SaveIcon,
+		Shapes,
 		SparklesIcon,
 		SquareDashed,
+		Squircle,
 		Trash2Icon,
+		WandSparkles,
 		XIcon
 	} from '@lucide/svelte';
 	import { Button } from 'bits-ui';
@@ -92,26 +96,42 @@
 	}));
 
 	// how the "add die" picker groups its options.
-	let dieGroupBy = $state<'shape' | 'number'>('shape');
+	let dieGroupBy = $state<'shape' | 'number' | 'rarity'>('rarity');
 
 	// preferred display order for shape groups; anything else sorts after these.
 	const shapeOrder = ['polyhedron', 'trapezohedron', 'crystal', 'shard', 'caltrop', 'coin'];
 
+	// rarity tiers, least to most rare. anything else sorts after these.
+	const rarityOrder = ['common', 'uncommon', 'rare', 'epic', 'legendary'];
+
 	const shapeLabel = (kind: string) => kind.charAt(0).toUpperCase() + kind.slice(1);
 	const sidesLabel = (sides: string) => (sides === '00' ? 'D%' : 'D' + sides);
+	const rarityLabel = (rarity: string) => rarity.charAt(0).toUpperCase() + rarity.slice(1);
 	// "00" represents d% (100), so it sorts after d20.
 	const sidesValue = (sides: string) => (sides === '00' ? 100 : Number(sides));
+
+	const groupKey = (tags: DieTags | undefined) => {
+		if (dieGroupBy === 'shape') return tags?.kind ?? 'other';
+		if (dieGroupBy === 'rarity') return tags?.rarity ?? 'other';
+		return tags?.sides ?? '';
+	};
+
+	const groupLabel = (key: string) => {
+		if (dieGroupBy === 'shape') return shapeLabel(key);
+		if (dieGroupBy === 'rarity') return rarityLabel(key);
+		return sidesLabel(key);
+	};
 
 	const dieGroups = $derived.by(() => {
 		const groups = new Map<string, { key: string; label: string; dice: Array<Dice> }>();
 		for (const preview of previewDice) {
 			const tags = dice[preview.kind].tags;
-			const key = dieGroupBy === 'shape' ? (tags?.kind ?? 'other') : (tags?.sides ?? '');
+			const key = groupKey(tags);
 			let group = groups.get(key);
 			if (!group) {
 				group = {
 					key,
-					label: dieGroupBy === 'shape' ? shapeLabel(key) : sidesLabel(key),
+					label: groupLabel(key),
 					dice: []
 				};
 				groups.set(key, group);
@@ -123,6 +143,11 @@
 				const ai = shapeOrder.indexOf(a.key);
 				const bi = shapeOrder.indexOf(b.key);
 				return (ai === -1 ? shapeOrder.length : ai) - (bi === -1 ? shapeOrder.length : bi);
+			}
+			if (dieGroupBy === 'rarity') {
+				const ai = rarityOrder.indexOf(a.key);
+				const bi = rarityOrder.indexOf(b.key);
+				return (ai === -1 ? rarityOrder.length : ai) - (bi === -1 ? rarityOrder.length : bi);
 			}
 			return sidesValue(a.key) - sidesValue(b.key);
 		});
@@ -403,6 +428,11 @@
 						selectedFaces = [];
 						selectedFace = ev.face;
 						lookAtFace(selectedFace);
+					} else {
+						// re-clicking the already-selected face: the selection didn't
+						// change, but the user is asking to see its controls, so nudge
+						// the parameters panel to (re)open the face section.
+						focusFaceRequest++;
 					}
 				}
 			);
@@ -456,20 +486,27 @@
 	// so dragging a slider doesn't rebuild every die every frame. keyed by die id
 	// and surfaced in the preview-row tooltip + a warning badge.
 	let dieEngravingErrors = $state<Record<string, Array<EngravingError>>>({});
+	// per-die "may land on an inconclusive face" warning (see stability.ts).
+	// depends only on the die geometry, but is recomputed in the same debounced
+	// pass as the engraving errors and surfaced in the same tooltip/badge.
+	let dieLandWarnings = $state<Record<string, boolean>>({});
 	const recomputeEngravingErrors = () => {
 		if (!setData) {
 			return;
 		}
 		const legends = setData.legends;
 		const next: Record<string, Array<EngravingError>> = {};
+		const nextLand: Record<string, boolean> = {};
 		for (const d of setData.dice) {
 			const model = dice[d.kind];
 			if (!model) {
 				continue;
 			}
 			next[d.id] = computeEngravingErrors(model, legends, d);
+			nextLand[d.id] = computeLandWarning(model, d.parameters, d.string_parameters ?? {});
 		}
 		dieEngravingErrors = next;
+		dieLandWarnings = nextLand;
 	};
 	const debouncedRecomputeErrors = debounce<void>(300, recomputeEngravingErrors);
 	// signature of everything the engraving check depends on, so the effect
@@ -743,6 +780,9 @@
 	let selectMode = $state<SelectMode>('single');
 	let selectedFace = $state(0);
 	let selectedFaces = $state<number[]>([]);
+	// bumped whenever the user re-clicks the already-selected face, signalling the
+	// parameters panel to (re)open the face section even though nothing changed.
+	let focusFaceRequest = $state(0);
 
 	// the set of faces edits currently apply to / are highlighted.
 	let targetFaces = $derived.by(() => {
@@ -1143,6 +1183,7 @@
 		>
 			{#each setData?.dice as die}
 				{@const dieErrors = dieEngravingErrors[die.id] ?? []}
+				{@const landWarning = dieLandWarnings[die.id] ?? false}
 				{#snippet dieTip()}
 					<div class="flex flex-col gap-0.5">
 						<span class="font-semibold">{m.dice_name({ kind: die.kind })}</span>
@@ -1151,6 +1192,11 @@
 								{m.engraving_broken_for({ legend: err.legendName })}
 							</span>
 						{/each}
+						{#if landWarning}
+							<span class="max-w-60 text-amber-500">
+								{m.dice_land_warning({ kind: die.kind })}
+							</span>
+						{/if}
 					</div>
 				{/snippet}
 				<Tooltip content={dieTip} side="bottom">
@@ -1164,7 +1210,9 @@
 									? 'border-primary-500 shadow-primary-500 hover:border-primary-500 group hover:shadow-primary-500 shadow-md'
 									: dieErrors.length > 0
 										? 'border-error-500'
-										: '')}
+										: landWarning
+											? 'border-amber-500'
+											: '')}
 							onclick={() => gotoDie(die.id)}
 						>
 							<!-- kill button -->
@@ -1185,6 +1233,17 @@
 							{#if dieErrors.length > 0}
 								<div
 									class="text-error-500 absolute bottom-[-6px] left-[-6px] rounded-full bg-white"
+									aria-hidden="true"
+								>
+									<AlertTriangle size={16} />
+								</div>
+							{/if}
+							<!-- land warning badge: this die can come to rest on an
+							     inconclusive face. details (and whether it's a defect or an
+							     expected trade-off) are in the tooltip. -->
+							{#if landWarning}
+								<div
+									class="absolute right-[-6px] bottom-[-6px] rounded-full bg-white text-amber-500"
 									aria-hidden="true"
 								>
 									<AlertTriangle size={16} />
@@ -1217,20 +1276,34 @@
 					<div class="flex max-h-[70vh] flex-col gap-3 overflow-y-auto">
 						<div class="bg-surface-100-900 sticky top-0 z-10 flex gap-2 pb-1">
 							<button
-								class="rounded-md border px-3 py-1 text-sm hover:shadow-md {dieGroupBy === 'shape'
+								class="flex items-center gap-1.5 rounded-md border px-3 py-1 text-sm hover:shadow-md {dieGroupBy ===
+								'shape'
 									? 'border-primary-500 text-primary-500'
 									: ''}"
 								onclick={() => (dieGroupBy = 'shape')}
 							>
+								<Shapes size={16} />
 								{m.controls_group_by_shape()}
 							</button>
 							<button
-								class="rounded-md border px-3 py-1 text-sm hover:shadow-md {dieGroupBy === 'number'
+								class="flex items-center gap-1.5 rounded-md border px-3 py-1 text-sm hover:shadow-md {dieGroupBy ===
+								'number'
 									? 'border-primary-500 text-primary-500'
 									: ''}"
 								onclick={() => (dieGroupBy = 'number')}
 							>
+								<Squircle size={16} />
 								{m.controls_group_by_number()}
+							</button>
+							<button
+								class="flex items-center gap-1.5 rounded-md border px-3 py-1 text-sm hover:shadow-md {dieGroupBy ===
+								'rarity'
+									? 'border-primary-500 text-primary-500'
+									: ''}"
+								onclick={() => (dieGroupBy = 'rarity')}
+							>
+								<WandSparkles size={16} />
+								{m.controls_group_by_rarity()}
 							</button>
 						</div>
 						{#each dieGroups as group (group.key)}
@@ -1393,9 +1466,12 @@
 							kind={die.kind}
 							builder={currentBuilder}
 							legends={setData.legends}
+							landWarning={dieLandWarnings[die.id] ?? false}
+							engravingErrors={dieEngravingErrors[die.id] ?? []}
 							bind:selectMode
 							bind:selectedFace
 							bind:selectedFaces
+							{focusFaceRequest}
 							onChangeSelectedFace={(f) => lookAtFace(f)}
 							onApplyToAll={applyCurrentToAllFaces}
 							onEnterFormatPaint={enterFormatPaint}

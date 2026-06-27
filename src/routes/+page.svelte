@@ -2,7 +2,7 @@
 	import Layout from '$lib/components/layout/Layout.svelte';
 	import Logo from '$lib/components/icons/Logo.svelte';
 	import { m } from '$lib/paraglide/messages';
-	import { BoxIcon, TypeOutlineIcon, GithubIcon, GitBranchIcon } from '@lucide/svelte';
+	import { BoxIcon, TypeOutlineIcon, GithubIcon, GitBranchIcon, PackageIcon } from '@lucide/svelte';
 	import BouncyDice from '$lib/components/bouncy_dice/BouncyDice.svelte';
 	import { PUBLIC_APP_REPO_URL, PUBLIC_APP_VERSION } from '$env/static/public';
 </script>
@@ -32,6 +32,10 @@
 				>
 					<TypeOutlineIcon class="inline-block size-[1em]" />
 					{m.home_create_legends()}
+				</a>
+				<a href="/boxes" class="btn btn-lg preset-filled-tertiary-500 flex-1 rounded-xl text-2xl">
+					<PackageIcon class="inline-block size-[1em]" />
+					{m.home_create_boxes()}
 				</a>
 			</div>
 			<div class="text-surface-700 flex w-full flex-row items-center justify-center gap-4 text-sm">

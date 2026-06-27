@@ -60,9 +60,7 @@ const fontSets: Array<[string, SerialisedLegendSet]> = [
 const dieFilter = process.env.DIE?.trim();
 const allKinds = Object.keys(dice) as Array<keyof typeof dice>;
 if (dieFilter && !allKinds.includes(dieFilter as keyof typeof dice)) {
-	throw new Error(
-		`DIE=${dieFilter} is not a known die kind. Known: ${allKinds.join(', ')}`
-	);
+	throw new Error(`DIE=${dieFilter} is not a known die kind. Known: ${allKinds.join(', ')}`);
 }
 const dieKinds = dieFilter ? allKinds.filter((k) => k === dieFilter) : allKinds;
 

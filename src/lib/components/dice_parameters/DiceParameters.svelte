@@ -5,11 +5,24 @@
 	import { isBuiltin } from '$lib/fonts';
 	import { getPreferences } from '$lib/interfaces/preferences.svelte';
 	import { m } from '$lib/paraglide/messages';
-	import { engravingParam, engravingToleranceParam, type Builder } from '$lib/utils/builder';
+	import {
+		engravingParam,
+		engravingToleranceParam,
+		type Builder,
+		type EngravingError
+	} from '$lib/utils/builder';
 	import { type LegendSet } from '$lib/utils/legends';
 	import { Vector2 } from 'three';
 	import { degToRad, radToDeg } from 'three/src/math/MathUtils.js';
-	import { CopyIcon, InfoIcon, PencilIcon, Redo2, Undo2 } from '@lucide/svelte';
+	import {
+		AlertTriangle,
+		ChevronDown,
+		CopyIcon,
+		InfoIcon,
+		PencilIcon,
+		Redo2,
+		Undo2
+	} from '@lucide/svelte';
 	import { SegmentedControl } from '@skeletonlabs/skeleton-svelte';
 	import Slider from '$lib/components/slider/Slider.svelte';
 	import Tooltip from '$lib/components/tooltip/Tooltip.svelte';
@@ -32,6 +45,18 @@
 		selectedFaces: number[];
 		builder: Builder;
 		renderPass: number;
+		// true when this die can come to rest on an inconclusive face (see
+		// stability.ts). surfaced as a card at the top of the panel; the message is
+		// localised per die kind via m.dice_land_warning.
+		landWarning?: boolean;
+		// faces whose legend won't engrave cleanly (too large / build failure), so
+		// the die would export with broken faces. surfaced as a card at the top of
+		// the panel, mirroring the preview-row badge/tooltip.
+		engravingErrors?: Array<EngravingError>;
+		// bumped by the parent whenever the user re-clicks the already-selected
+		// face (which doesn't change the selection key). that's the user asking to
+		// see the face controls, so we pop the face section open even if collapsed.
+		focusFaceRequest?: number;
 		onChangeSelectedFace?: (n: number) => void;
 		onApplyToAll?: () => void;
 		onEnterFormatPaint?: () => void;
@@ -54,6 +79,9 @@
 		selectedFaces = $bindable(),
 		builder,
 		renderPass,
+		landWarning = false,
+		engravingErrors = [],
+		focusFaceRequest = 0,
 		onChangeSelectedFace,
 		onApplyToAll,
 		onEnterFormatPaint,
@@ -66,6 +94,12 @@
 	}: Props = $props();
 
 	let model = $derived(dice[kind]);
+
+	// the distinct legend names that won't engrave, joined for the consolidated
+	// "broken for faces: ..." line (several faces often share one legend).
+	let engravingErrorLegends = $derived(
+		[...new Set(engravingErrors.map((e) => e.legendName))].join(', ')
+	);
 
 	// a parameter (numeric or string) may be gated on another numeric parameter's
 	// current value (e.g. show "Rim Segments" only in polygon mode).
@@ -140,6 +174,19 @@
 		const key = selectMode === 'single' ? `single:${selectedFace}` : selectMode;
 		if (key !== lastSelectionKey) {
 			lastSelectionKey = key;
+			if (selectMode !== 'none') {
+				openSection = 'face';
+			}
+		}
+	});
+	// re-clicking the already-selected face leaves the selection key unchanged, so
+	// the effect above won't fire. honour the parent's explicit focus request by
+	// opening the face section. seeded with the initial value so we don't force it
+	// open on mount.
+	let lastFocusRequest = focusFaceRequest;
+	$effect(() => {
+		if (focusFaceRequest !== lastFocusRequest) {
+			lastFocusRequest = focusFaceRequest;
 			if (selectMode !== 'none') {
 				openSection = 'face';
 			}
@@ -324,6 +371,34 @@
 			{m.controls_redo()}
 		</button>
 	</div>
+	{#if engravingErrors.length > 0}
+		<details class="border-error-500 bg-error-500/10 group rounded-md border text-sm" open>
+			<summary
+				class="text-error-500 flex cursor-pointer list-none items-center justify-between gap-2 p-3 font-semibold [&::-webkit-details-marker]:hidden"
+			>
+				<span class="flex items-center gap-2">
+					<AlertTriangle class="size-4 shrink-0" />
+					{m.engraving_errors_title()}
+				</span>
+				<ChevronDown class="size-4 shrink-0 transition-transform group-open:rotate-180" />
+			</summary>
+			<p class="px-3 pb-3">{m.engraving_broken_for_faces({ legends: engravingErrorLegends })}</p>
+		</details>
+	{/if}
+	{#if landWarning}
+		<details class="group rounded-md border border-amber-500 bg-amber-500/10 text-sm" open>
+			<summary
+				class="flex cursor-pointer list-none items-center justify-between gap-2 p-3 font-semibold text-amber-500 [&::-webkit-details-marker]:hidden"
+			>
+				<span class="flex items-center gap-2">
+					<AlertTriangle class="size-4 shrink-0" />
+					{m.dice_land_warning_title()}
+				</span>
+				<ChevronDown class="size-4 shrink-0 transition-transform group-open:rotate-180" />
+			</summary>
+			<p class="px-3 pb-3">{m.dice_land_warning({ kind })}</p>
+		</details>
+	{/if}
 	{#if devMode}
 		<SegmentedControl
 			value={paramMode}

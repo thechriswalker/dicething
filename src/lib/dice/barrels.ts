@@ -54,7 +54,7 @@ function barrelParameters(sides: number): Array<DiceParameter> {
 
 // the high-count barrels (d20, d%) have tall, narrow triangles and wide two-digit
 // legends, which read/fit far better turned 90 degrees (apex pointing "right").
-export const BarrelD4 = barrel('d4_barrel', 'D4 Barrel', 4);
+export const BarrelD4 = barrel('d4_barrel', 'D4 Wedge', 4);
 export const BarrelD6 = barrel('d6_barrel', 'D6 Barrel', 6);
 export const BarrelD8 = barrel('d8_barrel', 'D8 Barrel', 8);
 export const BarrelD10 = barrel('d10_barrel', 'D10 Barrel', 10);
