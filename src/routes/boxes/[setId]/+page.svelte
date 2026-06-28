@@ -21,13 +21,24 @@
 	import type { BoxConfig } from '$lib/box/types';
 	import { download, exportStlSingle, exportStlZip, type NamedMesh } from '$lib/utils/export';
 	import { onMount } from 'svelte';
-	import { Group, Mesh, MeshBasicMaterial, MeshNormalMaterial, MeshPhysicalMaterial } from 'three';
+	import {
+		BufferGeometry,
+		Group,
+		LineBasicMaterial,
+		LineLoop,
+		Mesh,
+		MeshBasicMaterial,
+		MeshNormalMaterial,
+		MeshPhysicalMaterial,
+		Vector3
+	} from 'three';
 	import {
 		ArrowLeftIcon,
 		DownloadIcon,
 		ChevronUp,
 		ChevronDown,
 		Frame,
+		BoxSelect,
 		SparklesIcon,
 		CopyIcon
 	} from '@lucide/svelte';
@@ -69,6 +80,13 @@
 	let boxMeshes: Array<Mesh> = [];
 	let dieMeshes: Array<Mesh> = [];
 
+	// developer boundary overlay: per-die footprint, the combined hull, and the
+	// box interior outline. Drawn as flat line loops above the seam plane.
+	let boundsGroup: Group | undefined;
+	const boundMatDie = new LineBasicMaterial({ color: 0x22d3ee, depthTest: false });
+	const boundMatCombined = new LineBasicMaterial({ color: 0xfacc15, depthTest: false });
+	const boundMatInner = new LineBasicMaterial({ color: 0xf472b6, depthTest: false });
+
 	// --- developer render controls (mirrors the dice export view) ----------
 	const prefs = getPreferences();
 	let devMode = $derived(prefs.developerMode);
@@ -76,12 +94,24 @@
 	let fancyRender = $state<ReturnType<typeof createFancyRender>>();
 	let fancy = $state(true);
 	let wireframeOn = $state(false);
+	let showBounds = $state(false);
 
 	$effect(() => {
 		if (!devMode && wireframeOn) {
 			wireframeOn = false;
 		}
 		ctx?.setWireframe(wireframeOn);
+	});
+	$effect(() => {
+		if (!devMode && showBounds) {
+			showBounds = false;
+		}
+	});
+	// (re)draw the boundary overlay whenever it's toggled or the box rebuilds.
+	$effect(() => {
+		void showBounds;
+		void built;
+		renderBounds();
 	});
 	// the FPS counter is always shown in developer mode.
 	$effect(() => {
@@ -309,6 +339,57 @@
 		previewGroup = root;
 	}
 
+	function clearBounds() {
+		if (!boundsGroup) {
+			return;
+		}
+		boundsGroup.traverse((o) => {
+			const l = o as LineLoop;
+			if (l.isLineLoop) {
+				l.geometry?.dispose();
+			}
+		});
+		ctx?.scene.remove(boundsGroup);
+		boundsGroup = undefined;
+	}
+
+	function boundLoop(poly: Array<{ x: number; y: number }>, ySign: number, z: number, mat: LineBasicMaterial) {
+		const pts = poly.map((p) => new Vector3(p.x, ySign * p.y, z));
+		const loop = new LineLoop(new BufferGeometry().setFromPoints(pts), mat);
+		loop.renderOrder = 999;
+		return loop;
+	}
+
+	// Draw the boundary overlay. The outlines come from buildBox in the box xy
+	// frame (centred); they're placed on each half exactly like the dice - the
+	// lid half is Y-mirrored - and sit just above the seam so they read on top.
+	function renderBounds() {
+		clearBounds();
+		if (!ctx || !built || !showBounds) {
+			return;
+		}
+		const root = new Group();
+		root.rotation.x = -Math.PI / 2;
+		const gap = 8;
+		const offset = (built.outer.y + gap) / 2;
+		const z = built.baseHeight + 0.5;
+		for (const { yoff, ySign } of [
+			{ yoff: -offset, ySign: 1 },
+			{ yoff: offset, ySign: -1 }
+		]) {
+			const g = new Group();
+			g.position.set(0, yoff, 0);
+			for (const poly of built.boundaries.dice) {
+				g.add(boundLoop(poly, ySign, z, boundMatDie));
+			}
+			g.add(boundLoop(built.boundaries.combined, ySign, z, boundMatCombined));
+			g.add(boundLoop(built.boundaries.inner, ySign, z, boundMatInner));
+			root.add(g);
+		}
+		ctx.scene.add(root);
+		boundsGroup = root;
+	}
+
 	const scheduleRebuild = debounce<void>(200, () => rebuild());
 
 	// persist + rebuild whenever the config changes.
@@ -449,6 +530,20 @@
 								>
 							{/snippet}
 						</Tooltip>
+						<Tooltip content={m.boxes_toggle_bounds()} side="right">
+							{#snippet children(props)}
+								<Button.Root
+									{...props}
+									class={'btn-icon ' +
+										(showBounds ? 'preset-filled-secondary-500' : 'preset-tonal-primary')}
+									aria-label={m.boxes_toggle_bounds()}
+									aria-pressed={showBounds}
+									onclick={() => {
+										showBounds = !showBounds;
+									}}><BoxSelect /></Button.Root
+								>
+							{/snippet}
+						</Tooltip>
 					{/if}
 				</li>
 				{#if building}
@@ -515,8 +610,11 @@
 							setParam('bevel', v)
 						)}
 						<p class="text-surface-600-400 text-xs">{m.boxes_bevel_hint()}</p>
-						{@render sliderRow(m.boxes_margin(), config.params.margin, 0, 12, 0.5, (v) =>
-							setParam('margin', v)
+						{@render sliderRow(m.boxes_margin_x(), config.params.marginX, 0, 12, 0.5, (v) =>
+							setParam('marginX', v)
+						)}
+						{@render sliderRow(m.boxes_margin_y(), config.params.marginY, 0, 12, 0.5, (v) =>
+							setParam('marginY', v)
 						)}
 						{@render sliderRow(m.boxes_tray_depth(), config.params.trayDepth, 0, 6, 0.25, (v) =>
 							setParam('trayDepth', v)

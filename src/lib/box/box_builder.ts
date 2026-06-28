@@ -40,6 +40,16 @@ export type PlacedDie = {
 	geometry: BufferGeometry;
 };
 
+// Closed 2D outlines (box xy frame, centred) for the developer boundary overlay.
+export type BoxBoundaries = {
+	// each placed die's maximal 2D footprint (projected convex hull).
+	dice: Array<Array<Vector2>>;
+	// the convex hull around every die's footprint combined.
+	combined: Array<Vector2>;
+	// the box interior outline (the recess octagon the dice must fit within).
+	inner: Array<Vector2>;
+};
+
 export type BuiltBox = {
 	base: BufferGeometry;
 	lid: BufferGeometry;
@@ -48,16 +58,63 @@ export type BuiltBox = {
 	outer: Vector2;
 	baseHeight: number;
 	lidHeight: number;
+	boundaries: BoxBoundaries;
 };
 
 // A die prepared for the box: its cavity (oversized) and true solids laid flat,
-// plus the layout footprint/height.
+// plus the layout footprint/height and the cavity's projected 2D outline.
 type PreparedDie = {
 	dieId: string;
 	cavity: BufferGeometry; // oversized solid, centred xy, bottom at z=0
 	solid: BufferGeometry; // true die solid, centred xy, bottom at z=0
 	size: Vector3; // cavity size (x,y footprint, z height)
+	// convex hull of the cavity projected onto the xy plane, centred on the die.
+	// This is the die's true maximal footprint shape (not just its bounding box),
+	// used to fit the interior octagon tightly around the dice.
+	hull: Array<Vector2>;
 };
+
+// Convex hull (CCW) of 2D points via Andrew's monotone chain. Returns the input
+// (deduped) when there are fewer than 3 points.
+function convexHull2D(points: Array<[number, number]>): Array<[number, number]> {
+	const pts = points
+		.slice()
+		.sort((a, b) => a[0] - b[0] || a[1] - b[1])
+		.filter((p, i, a) => i === 0 || p[0] !== a[i - 1][0] || p[1] !== a[i - 1][1]);
+	if (pts.length < 3) {
+		return pts;
+	}
+	const cross = (o: [number, number], a: [number, number], b: [number, number]) =>
+		(a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+	const lower: Array<[number, number]> = [];
+	for (const p of pts) {
+		while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], p) <= 0) {
+			lower.pop();
+		}
+		lower.push(p);
+	}
+	const upper: Array<[number, number]> = [];
+	for (let i = pts.length - 1; i >= 0; i--) {
+		const p = pts[i];
+		while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], p) <= 0) {
+			upper.pop();
+		}
+		upper.push(p);
+	}
+	lower.pop();
+	upper.pop();
+	return lower.concat(upper);
+}
+
+// The convex hull of a geometry's vertices projected onto the xy plane.
+function projectedHull(geo: BufferGeometry): Array<Vector2> {
+	const pos = geo.getAttribute('position');
+	const pts: Array<[number, number]> = [];
+	for (let i = 0; i < pos.count; i++) {
+		pts.push([pos.getX(i), pos.getY(i)]);
+	}
+	return convexHull2D(pts).map(([x, y]) => new Vector2(x, y));
+}
 
 // Build the cavity ("bigger") and true faces for a die, then lay both flat.
 function prepareDie(
@@ -104,7 +161,8 @@ function prepareDie(
 		dieId,
 		cavity,
 		solid: trueOriented.geometry,
-		size: cavitySize
+		size: cavitySize,
+		hull: projectedHull(cavity)
 	};
 }
 
@@ -119,22 +177,21 @@ function octagonCS(hx: number, hy: number, c: number): CrossSection {
 // the (+,+) corner, then (-,+), (-,-), (+,-) going CCW. Clamping every corner to
 // the shorter half-extent keeps adjacent truncations on one edge from
 // overlapping (their sum stays within the edge length).
-function octagonCSPerCorner(
+function octagonPointsPerCorner(
 	hx: number,
 	hy: number,
 	cpp: number,
 	cmp: number,
 	cmm: number,
 	cpm: number
-): CrossSection {
-	const wasm = manifold();
+): Array<[number, number]> {
 	const lim = Math.min(hx, hy) - 0.01;
 	const clamp = (c: number) => Math.max(0, Math.min(c, lim));
 	const app = clamp(cpp);
 	const amp = clamp(cmp);
 	const amm = clamp(cmm);
 	const apm = clamp(cpm);
-	const pts: Array<[number, number]> = [
+	return [
 		[hx, -hy + apm],
 		[hx, hy - app],
 		[hx - app, hy],
@@ -144,7 +201,18 @@ function octagonCSPerCorner(
 		[-hx + amm, -hy],
 		[hx - apm, -hy]
 	];
-	return new wasm.CrossSection(pts, 'Positive');
+}
+
+function octagonCSPerCorner(
+	hx: number,
+	hy: number,
+	cpp: number,
+	cmp: number,
+	cmm: number,
+	cpm: number
+): CrossSection {
+	const wasm = manifold();
+	return new wasm.CrossSection(octagonPointsPerCorner(hx, hy, cpp, cmp, cmm, cpm), 'Positive');
 }
 
 // Uniform scale relating the body octagon to one shrunk in by ~`bevel` on its
@@ -276,17 +344,18 @@ export function magnetCorners(
 // diagonal edge is the line x + y = innerX + innerY - c; tangency to the boss at
 // (|cx|,|cy|) gives c = innerX + innerY - (|cx| + |cy|) + bossRadius * SQRT2.
 // This value is invariant under growing outerHalf (both terms grow together), so
-// the footprint sizing can rely on it.
+// the footprint sizing can rely on it. `base` is the recess chamfer floor before
+// any magnet widening (the dice-derived truncation, see buildBox).
 export function recessChamfer(
 	outerHalf: Vector2,
-	chamfer: number,
 	wall: number,
+	base: number,
 	corners: Array<Vector2>,
 	bossRadius: number
 ): number {
 	const innerX = Math.max(1, outerHalf.x - wall);
 	const innerY = Math.max(1, outerHalf.y - wall);
-	let c = Math.max(0, chamfer - wall);
+	let c = Math.max(0, base);
 	if (corners.length > 0) {
 		const c0 = corners[0];
 		c = Math.max(c, innerX + innerY - (Math.abs(c0.x) + Math.abs(c0.y)) + bossRadius * Math.SQRT2);
@@ -299,10 +368,42 @@ export function recessChamfer(
 // and solid magnet corners. Only corners that actually hold a magnet are pulled
 // in to clear its boss; the rest keep the tight (wall-thick) chamfer, so a
 // 2-magnet box doesn't leave needlessly thick walls on its magnet-free corners.
+// Per-corner chamfers for the recess octagon: the tight (dice/user) floor on
+// every corner, widened to the magnet-tangent value on the corners that hold a
+// magnet. Order is (+,+), (-,+), (-,-), (+,-) - matching octagon*PerCorner.
+function recessCornerChamfers(
+	outerHalf: Vector2,
+	wall: number,
+	base: number,
+	corners: Array<Vector2>,
+	bossRadius: number
+): [number, number, number, number] {
+	const cTight = Math.max(0, base);
+	const cMag = recessChamfer(outerHalf, wall, base, corners, bossRadius);
+	const corner = (sx: number, sy: number) =>
+		corners.some((c) => Math.sign(c.x) === sx && Math.sign(c.y) === sy) ? cMag : cTight;
+	return [corner(1, 1), corner(-1, 1), corner(-1, -1), corner(1, -1)];
+}
+
+// The recess octagon outline (the interior boundary the dice must fit within),
+// as a closed polygon in the box xy frame.
+function recessOctagonPoints(
+	outerHalf: Vector2,
+	wall: number,
+	base: number,
+	corners: Array<Vector2>,
+	bossRadius: number
+): Array<Vector2> {
+	const innerX = Math.max(1, outerHalf.x - wall);
+	const innerY = Math.max(1, outerHalf.y - wall);
+	const c = recessCornerChamfers(outerHalf, wall, base, corners, bossRadius);
+	return octagonPointsPerCorner(innerX, innerY, ...c).map(([x, y]) => new Vector2(x, y));
+}
+
 function trayCutter(
 	outerHalf: Vector2,
-	chamfer: number,
 	wall: number,
+	base: number,
 	depth: number,
 	seam: number,
 	corners: Array<Vector2>,
@@ -310,18 +411,8 @@ function trayCutter(
 ): Manifold {
 	const innerX = Math.max(1, outerHalf.x - wall);
 	const innerY = Math.max(1, outerHalf.y - wall);
-	const cTight = Math.max(0, chamfer - wall);
-	const cMag = recessChamfer(outerHalf, chamfer, wall, corners, bossRadius);
-	const corner = (sx: number, sy: number) =>
-		corners.some((c) => Math.sign(c.x) === sx && Math.sign(c.y) === sy) ? cMag : cTight;
-	const cs = octagonCSPerCorner(
-		innerX,
-		innerY,
-		corner(1, 1),
-		corner(-1, 1),
-		corner(-1, -1),
-		corner(1, -1)
-	);
+	const c = recessCornerChamfers(outerHalf, wall, base, corners, bossRadius);
+	const cs = octagonCSPerCorner(innerX, innerY, ...c);
 	const tray = cs.extrude(depth).translate([0, 0, seam - depth]);
 	cs.delete();
 	return tray;
@@ -426,36 +517,90 @@ export async function buildBox(set: DiceSet, config: BoxConfig): Promise<BuiltBo
 	}));
 	const layout = layoutDice(items, p.gap, p.rows);
 
-	// keep a sensible minimum footprint even with no/included dice. The straight
-	// edges sit `margin + wall` out from the (half) field rectangle.
-	const fieldX = Math.max(layout.field.x, 20);
-	const fieldY = Math.max(layout.field.y, 20);
-	const outerHalf = new Vector2(fieldX / 2 + p.margin + p.wall, fieldY / 2 + p.margin + p.wall);
+	// --- fit the box to the dice -------------------------------------------
+	// Build the combined footprint from each die's projected convex hull (its
+	// true maximal outline), placed at its layout position; the interior recess
+	// octagon is then fitted tightly to that hull with independent x/y margins,
+	// and the body is the recess grown outward by the wall.
+	const placedHull: Array<Vector2> = [];
+	for (const prep of prepared) {
+		const pos = layout.positions.get(prep.dieId) ?? new Vector2(0, 0);
+		for (const h of prep.hull) {
+			placedHull.push(new Vector2(h.x + pos.x, h.y + pos.y));
+		}
+	}
+	// centre the field on the origin so the box stays symmetric (lid mirroring,
+	// magnet corners). Shift every die position by the same offset.
+	let cxField = 0;
+	let cyField = 0;
+	if (placedHull.length > 0) {
+		let minX = Infinity;
+		let maxX = -Infinity;
+		let minY = Infinity;
+		let maxY = -Infinity;
+		for (const pt of placedHull) {
+			minX = Math.min(minX, pt.x);
+			maxX = Math.max(maxX, pt.x);
+			minY = Math.min(minY, pt.y);
+			maxY = Math.max(maxY, pt.y);
+		}
+		cxField = (minX + maxX) / 2;
+		cyField = (minY + maxY) / 2;
+	}
+	const positions = new Map<string, Vector2>();
+	for (const prep of prepared) {
+		const pos = layout.positions.get(prep.dieId) ?? new Vector2(0, 0);
+		positions.set(prep.dieId, new Vector2(pos.x - cxField, pos.y - cyField));
+	}
+
+	// octagon support of the centred hull: half-extents and the diagonal reach.
+	let sx = 0;
+	let sy = 0;
+	let sd = 0;
+	for (const pt of placedHull) {
+		const x = pt.x - cxField;
+		const y = pt.y - cyField;
+		sx = Math.max(sx, Math.abs(x));
+		sy = Math.max(sy, Math.abs(y));
+		sd = Math.max(sd, Math.abs(x + y), Math.abs(x - y));
+	}
+	// the dice-derived corner truncation: how much the hull's bounding-box corner
+	// overhangs its diagonal reach. ~0 for a square hull, large for a diamond one.
+	const cDice = Math.max(0, sx + sy - sd);
 
 	const magRadius = p.magnets.diameter / 2 + p.magnets.tolerance;
 	// keep the magnet corners full-height under the shallow interior tray.
 	const trayBossR = magRadius + 1.0;
+	// body exterior chamfer: honour the user's corner truncation, but at least
+	// hug the dice diagonally (the recess chamfer offset out by the wall).
+	const bodyChamfer = Math.max(p.chamfer, cDice + p.wall * (2 - Math.SQRT2));
+	// recess chamfer floor (before any magnet widening): the dice-derived
+	// truncation, but at least the body chamfer inset by the wall.
+	const recessBase = Math.max(cDice, bodyChamfer - p.wall);
 	const cornersFor = (oh: Vector2): Array<Vector2> =>
-		p.magnets.enabled ? magnetCorners(oh, p.chamfer, magRadius, p.wall, p.magnets.count) : [];
+		p.magnets.enabled ? magnetCorners(oh, bodyChamfer, magRadius, p.wall, p.magnets.count) : [];
 
-	// Grow the footprint so the dice field stays inside the chamfered octagon -
-	// otherwise dice near the corners overlap the corner truncations. The binding
-	// octagon is the interior recess when there is one (its diagonals are pulled
-	// well in to clear the magnets), else the body octagon itself. Each diagonal
-	// edge x + y = (octHalf.x) + (octHalf.y) - cham must stay `margin` (measured
-	// perpendicular, hence * SQRT2 here) clear of the field rectangle's corner;
-	// the shortfall in (x + y) is shared equally between the axes, so the box
-	// resizes symmetrically. `cham`/`wallInset` are invariant under this growth.
-	const wallInset = p.trayDepth > 0 ? p.wall : 0;
-	const cham =
-		p.trayDepth > 0
-			? recessChamfer(outerHalf, p.chamfer, p.wall, cornersFor(outerHalf), trayBossR)
-			: p.chamfer;
-	const needSum = fieldX / 2 + fieldY / 2 + 2 * wallInset + cham + p.margin * Math.SQRT2;
-	const haveSum = outerHalf.x + outerHalf.y;
-	const grow = Math.max(0, needSum - haveSum) / 2;
-	outerHalf.x += grow;
-	outerHalf.y += grow;
+	// recess (interior) half-extents = hull support + per-axis margin (with a
+	// sane minimum); the body is the recess plus the wall.
+	const rx = Math.max(sx + p.marginX, 8);
+	const ry = Math.max(sy + p.marginY, 8);
+	const outerHalf = new Vector2(rx + p.wall, ry + p.wall);
+
+	// If the effective truncation (after magnet widening, or a large user chamfer)
+	// cuts the binding octagon's diagonal in past where the dice reach, grow the
+	// footprint equally on both axes so the dice still clear it. The magnet-tangent
+	// chamfer is invariant under this growth, so a single pass suffices.
+	if (p.trayDepth > 0) {
+		const cEff = recessChamfer(outerHalf, p.wall, recessBase, cornersFor(outerHalf), trayBossR);
+		const g = Math.max(0, (cEff - cDice) / 2);
+		outerHalf.x += g;
+		outerHalf.y += g;
+	} else {
+		// no recess: the dice cut straight into the body octagon.
+		const g = Math.max(0, (bodyChamfer - cDice - 2 * p.wall) / 2);
+		outerHalf.x += g;
+		outerHalf.y += g;
+	}
 
 	// the bevel only truncates the bottom edge inward, so the body octagon is the
 	// widest footprint.
@@ -477,17 +622,17 @@ export async function buildBox(set: DiceSet, config: BoxConfig): Promise<BuiltBo
 	const placedDice: Array<PlacedDie> = [];
 
 	// --- base: lower half of every die, milled from the seam face ----------
-	const baseBody = octagonSlab(outerHalf, p.chamfer, half, p.bevel);
+	const baseBody = octagonSlab(outerHalf, bodyChamfer, half, p.bevel);
 	const baseCutters: Array<Manifold> = [];
 	for (const prep of prepared) {
-		const pos = layout.positions.get(prep.dieId) ?? new Vector2(0, 0);
+		const pos = positions.get(prep.dieId) ?? new Vector2(0, 0);
 		baseCutters.push(sweptCavity(prep.cavity, false, pos.x, pos.y, seam));
 		const die = prep.solid.clone();
 		placeCentredAtZ(die, pos.x, pos.y, seam);
 		placedDice.push({ dieId: prep.dieId, half: 'base', geometry: die });
 	}
 	if (p.trayDepth > 0) {
-		baseCutters.push(trayCutter(outerHalf, p.chamfer, p.wall, p.trayDepth, seam, corners, trayBossR));
+		baseCutters.push(trayCutter(outerHalf, p.wall, recessBase, p.trayDepth, seam, corners, trayBossR));
 	}
 	baseCutters.push(...magnetBores(p, corners, seam));
 	const base = cutToGeometry(baseBody, baseCutters);
@@ -495,10 +640,10 @@ export async function buildBox(set: DiceSet, config: BoxConfig): Promise<BuiltBo
 	// --- lid: upper half of every die. The die is rotated 180deg about X so the
 	// half that lands in the lid (printed seam-up) is its top; when the lid is
 	// flipped closed it mates exactly with the base. ----------------------
-	const lidBody = octagonSlab(outerHalf, p.chamfer, half, p.bevel);
+	const lidBody = octagonSlab(outerHalf, bodyChamfer, half, p.bevel);
 	const lidCutters: Array<Manifold> = [];
 	for (const prep of prepared) {
-		const pos = layout.positions.get(prep.dieId) ?? new Vector2(0, 0);
+		const pos = positions.get(prep.dieId) ?? new Vector2(0, 0);
 		lidCutters.push(sweptCavity(prep.cavity, true, pos.x, -pos.y, seam));
 		const die = prep.solid.clone();
 		die.rotateX(Math.PI);
@@ -507,11 +652,28 @@ export async function buildBox(set: DiceSet, config: BoxConfig): Promise<BuiltBo
 	}
 	if (p.trayDepth > 0) {
 		lidCutters.push(
-			trayCutter(outerHalf, p.chamfer, p.wall, p.trayDepth, seam, lidCorners, trayBossR)
+			trayCutter(outerHalf, p.wall, recessBase, p.trayDepth, seam, lidCorners, trayBossR)
 		);
 	}
 	lidCutters.push(...magnetBores(p, lidCorners, seam));
 	const lid = cutToGeometry(lidBody, lidCutters);
+
+	// developer boundary overlay outlines (box xy frame, centred on the origin).
+	const diceBounds = prepared.map((prep) => {
+		const pos = positions.get(prep.dieId) ?? new Vector2(0, 0);
+		return prep.hull.map((h) => new Vector2(h.x + pos.x, h.y + pos.y));
+	});
+	const combinedPts: Array<[number, number]> = [];
+	for (const poly of diceBounds) {
+		for (const v of poly) {
+			combinedPts.push([v.x, v.y]);
+		}
+	}
+	const boundaries: BoxBoundaries = {
+		dice: diceBounds,
+		combined: convexHull2D(combinedPts).map(([x, y]) => new Vector2(x, y)),
+		inner: recessOctagonPoints(outerHalf, p.wall, recessBase, corners, trayBossR)
+	};
 
 	prepared.forEach((d) => {
 		d.cavity.dispose();
@@ -524,6 +686,7 @@ export async function buildBox(set: DiceSet, config: BoxConfig): Promise<BuiltBo
 		placedDice,
 		outer,
 		baseHeight: half,
-		lidHeight: half
+		lidHeight: half,
+		boundaries
 	};
 }

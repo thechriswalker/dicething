@@ -68,8 +68,10 @@ export type BoxParams = {
 	bevel: number;
 	// spacing between adjacent die cavities.
 	gap: number;
-	// margin from the dice field to the inner wall.
-	margin: number;
+	// clearance from the dice field to the inner wall, set independently for the
+	// horizontal (x) and vertical (y) directions.
+	marginX: number;
+	marginY: number;
 	// clearance added around every die to form its cavity (so the real die drops
 	// in/out easily).
 	cavityTolerance: number;
@@ -99,7 +101,8 @@ export const defaultBoxParams = (): BoxParams => ({
 	chamfer: 12,
 	bevel: 3,
 	gap: 2,
-	margin: 3,
+	marginX: 3,
+	marginY: 3,
 	cavityTolerance: 0.4,
 	trayDepth: 1.5,
 	rows: 2,

@@ -39,6 +39,14 @@ export function loadBoxConfig(setId: string): BoxConfig | undefined {
 		if (!parsed || parsed.setId !== setId || !Array.isArray(parsed.placements)) {
 			return undefined;
 		}
+		// migrate a legacy single `margin` to the split x/y margins before merging
+		// defaults (so an old config keeps its chosen margin on both axes).
+		const legacy = parsed.params as Partial<{ margin: number }> | undefined;
+		if (legacy && typeof legacy.margin === 'number') {
+			parsed.params.marginX ??= legacy.margin;
+			parsed.params.marginY ??= legacy.margin;
+			delete legacy.margin;
+		}
 		// merge over defaults so configs saved before a param was added still load.
 		parsed.params = { ...defaultBoxParams(), ...parsed.params };
 		parsed.params.magnets = { ...defaultBoxParams().magnets, ...parsed.params.magnets };

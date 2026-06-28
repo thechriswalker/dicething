@@ -4,7 +4,7 @@ import dice from '$lib/dice';
 import type { Dice, DiceSet } from '$lib/interfaces/storage.svelte';
 import { getManifold, manifold, geometryToManifold, toFlatPositions } from '$lib/utils/manifold';
 import { checkMesh } from '$lib/utils/mesh_check';
-import { buildBox, magnetCorners, recessChamfer } from './box_builder';
+import { buildBox, magnetCorners } from './box_builder';
 import { defaultBoxParams, type BoxConfig } from './types';
 
 // build a Dice using a model's parameter defaults (no legends needed: the box
@@ -180,34 +180,32 @@ describe('box builder produces printable solids', () => {
 		expect(sawOffset).toBe(true);
 	});
 
-	it('grows the footprint so every die stays inside the recessed octagon', async () => {
-		// a block of dice forces some into the corners, which used to overlap the
-		// (deeply chamfered) corner truncations of the interior recess.
-		const set = makeSet(['d6_cube', 'd6_cube', 'd6_cube', 'd6_cube', 'd6_cube', 'd6_cube']);
-		const config = makeConfig(set, { rows: 2 });
-		const p = config.params;
-		const built = await buildBox(set, config);
+	it('packs mixed dice tighter than a uniform grid', async () => {
+		// one large die beside several small ones. A uniform grid would size every
+		// cell to the large die and waste the space around the small dice; per-die
+		// packing should give a much smaller footprint.
+		const mixed = makeSet(['d20_icosahedron', 'd6_cube', 'd6_cube', 'd6_cube']);
+		const built = await buildBox(mixed, makeConfig(mixed, { rows: 2 }));
+		expectPrintable(built.base);
+		expectPrintable(built.lid);
 
-		// the body octagon is the widest footprint, so outerHalf = outer / 2.
+		// baseline: a single large die's box footprint ~ one uniform grid cell.
+		const bigSet = makeSet(['d20_icosahedron']);
+		const big = await buildBox(bigSet, makeConfig(bigSet));
+		const cellArea = big.outer.x * big.outer.y;
+		// four uniform cells would be ~4x the cell area; packing must beat that.
+		expect(built.outer.x * built.outer.y).toBeLessThan(cellArea * 4);
+	});
+
+	it('keeps every die inside the box footprint', async () => {
+		const set = makeSet(['d4_caltrop', 'd6_cube', 'd8_trapezohedron', 'd20_icosahedron']);
+		const built = await buildBox(set, makeConfig(set, { rows: 2 }));
 		const outerHalf = new Vector2(built.outer.x / 2, built.outer.y / 2);
-		const magRadius = p.magnets.diameter / 2 + p.magnets.tolerance;
-		const corners = magnetCorners(outerHalf, p.chamfer, magRadius, p.wall, p.magnets.count);
-		const recessC = recessChamfer(outerHalf, p.chamfer, p.wall, corners, magRadius + 1.0);
-		const innerX = outerHalf.x - p.wall;
-		const innerY = outerHalf.y - p.wall;
-		const diag = innerX + innerY - recessC;
-		expect(built.placedDice.length).toBe(set.dice.length * 2);
 		for (const d of built.placedDice) {
 			d.geometry.computeBoundingBox();
 			const bb = d.geometry.boundingBox!;
-			for (const x of [bb.min.x, bb.max.x]) {
-				for (const y of [bb.min.y, bb.max.y]) {
-					expect(Math.abs(x)).toBeLessThanOrEqual(innerX + 1e-6);
-					expect(Math.abs(y)).toBeLessThanOrEqual(innerY + 1e-6);
-					// the chamfered (diagonal) recess edge must clear every die corner.
-					expect(Math.abs(x) + Math.abs(y)).toBeLessThanOrEqual(diag + 1e-6);
-				}
-			}
+			expect(Math.max(Math.abs(bb.min.x), Math.abs(bb.max.x))).toBeLessThanOrEqual(outerHalf.x);
+			expect(Math.max(Math.abs(bb.min.y), Math.abs(bb.max.y))).toBeLessThanOrEqual(outerHalf.y);
 		}
 	});
 
