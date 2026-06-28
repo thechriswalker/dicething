@@ -120,6 +120,37 @@ describe('box builder produces printable solids', () => {
 		expectPrintable(built.lid);
 	});
 
+	it('builds the coin support as a positive, outward-wound solid', async () => {
+		// regression: a clockwise boundary makes slantPrism emit inside-out
+		// triangles, which Manifold reads as a negative-volume solid that won't
+		// union into the base. The support must be a genuine positive solid.
+		const model = dice['d2_coin'];
+		expect(model.boxSupport).toBeTruthy();
+		const params: Record<string, number> = {};
+		for (const p of model.parameters) {
+			params[p.id] = p.defaultValue;
+		}
+		const geo = model.boxSupport!(params, { seam: 8, floor: 1.2, clearance: 0.2 });
+		expect(geo).toBeTruthy();
+		const man = geometryToManifold(geo!);
+		const volume = man.volume();
+		man.delete();
+		expect(volume).toBeGreaterThan(0);
+	});
+
+	it('props the tilted coin with a ramp wedge and still closes', async () => {
+		// the coin rests tilted (boxTransform) and gets a support wedge
+		// (boxSupport) whose top follows its underside. The wedge rises above the
+		// seam, so the builder also folds a clearance pocket into the lid; both
+		// halves must stay closed/manifold. Use a tray recess so the coin sits over
+		// a depression (the case the prop is for).
+		const set = makeSet(['d2_coin']);
+		const config = makeConfig(set, { trayDepth: 1 });
+		const built = await buildBox(set, config);
+		expectPrintable(built.base);
+		expectPrintable(built.lid);
+	});
+
 	// The cavities must be "press-in" shaped: a die pushed into the half must be
 	// removable straight up, so the cavity may never lean back inward over its
 	// opening. We verify it by slicing the finished half: as you go UP through the

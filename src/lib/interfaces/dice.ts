@@ -1,6 +1,6 @@
 import type { Transform } from '$lib/utils/3d';
 import type { Legend } from '$lib/utils/legends';
-import type { Shape, Vector2 } from 'three';
+import type { BufferGeometry, Shape, Vector2 } from 'three';
 
 export type DieTags = {
 	kind: string; // broad shape family, e.g. "polyhedron", "trapezohedron"
@@ -61,6 +61,19 @@ export type DieModel = {
 	// auto-chosen lie reads wrong (e.g. a die that should rest on a specific
 	// face).
 	boxTransform?: Transform;
+	// optional positive support geometry to prop a die that rests at a steep
+	// `boxTransform` angle so it can't tip when seated (e.g. a tilted coin). It is
+	// unioned into the BASE only; it may rise above the seam, and the lid needs no
+	// matching pocket because the lid's own cavity (swept toward the base when
+	// closed) already clears the space under each die. Returned in the die's
+	// rotation-0 laid-flat XY frame (origin-centred in x/y, as the cavity is) but in
+	// GLOBAL box Z (z = 0 is the base floor, z = `ctx.seam` is the parting plane).
+	// `ctx.clearance` is the gap to leave against the die so the support never binds
+	// it or blocks straight-up insertion.
+	boxSupport?(
+		params: Record<string, number>,
+		ctx: { seam: number; floor: number; clearance: number }
+	): BufferGeometry | undefined;
 	// create parameters for building a blank using the "build" function that is
 	// offset from the given parameters by `offset`.
 	// note that offset could be positive or negative - as people might want "inverse"

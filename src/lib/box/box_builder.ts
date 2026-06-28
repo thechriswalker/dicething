@@ -225,29 +225,53 @@ function bevelScale(outerHalf: Vector2, bevel: number): number {
 // `outerHalf` is the body / seam footprint. `bevel` truncates the exterior
 // bottom edge (the z = 0 face, which prints on the bed): the slab is narrowest
 // there and grows outward over `bevel` up to the body octagon, then runs
-// straight to the seam. This is the EDDC case's chamfered outer profile - a
-// 45-degree corner truncation of the bottom edge (a printable overhang). The
-// seam face stays the body octagon so the two halves mate flat.
-function octagonSlab(outerHalf: Vector2, chamfer: number, height: number, bevel = 0): Manifold {
+// straight up. This is the EDDC case's chamfered outer profile - a 45-degree
+// corner truncation of the bottom edge (a printable overhang).
+// `topChamfer` breaks the sharp outer edge at the seam (where the two halves
+// touch): the body octagon shrinks back in by `topChamfer` over the last
+// `topChamfer` of height. The inner part of the seam face stays the body
+// octagon so the halves still mate flat - only the outer lip is relieved, which
+// makes the closed box easier to prise open. Kept self-similar so the
+// truncation reads cleanly at the corners.
+function octagonSlab(
+	outerHalf: Vector2,
+	chamfer: number,
+	height: number,
+	bevel = 0,
+	topChamfer = 0
+): Manifold {
 	const wasm = manifold();
 	const full = octagonCS(outerHalf.x, outerHalf.y, chamfer);
 	const b = Math.max(0, Math.min(bevel, height - 0.5));
-	if (b <= 0) {
+	const tc = Math.max(0, Math.min(topChamfer, height - b - 0.5));
+	if (b <= 0 && tc <= 0) {
 		const slab = full.extrude(height);
 		full.delete();
 		return slab;
 	}
-	// exterior octagon (z = 0) = body shrunk in by the bevel, growing back out to
-	// the body octagon at z = b (kept self-similar so the chamfer reads cleanly).
-	const s = bevelScale(outerHalf, b);
-	const exteriorCS = octagonCS(outerHalf.x / s, outerHalf.y / s, chamfer / s);
-	// extrude(height, nDivisions, twistDegrees, scaleTop): exterior -> body.
-	const frustum = exteriorCS.extrude(b, 0, 0, [s, s]);
-	const prism = full.extrude(height - b).translate([0, 0, b]);
-	const slab = wasm.Manifold.union(frustum, prism);
+	const parts: Array<Manifold> = [];
+	if (b > 0) {
+		// exterior octagon (z = 0) = body shrunk in by the bevel, growing back out
+		// to the body octagon at z = b (self-similar). exterior -> body.
+		const s = bevelScale(outerHalf, b);
+		const exteriorCS = octagonCS(outerHalf.x / s, outerHalf.y / s, chamfer / s);
+		parts.push(exteriorCS.extrude(b, 0, 0, [s, s]));
+		exteriorCS.delete();
+	}
+	// straight body prism between the two chamfers.
+	parts.push(full.extrude(height - b - tc).translate([0, 0, b]));
+	if (tc > 0) {
+		// body shrinking inward to a smaller octagon at the seam (self-similar).
+		const st = 1 / bevelScale(outerHalf, tc);
+		parts.push(full.extrude(tc, 0, 0, [st, st]).translate([0, 0, height - tc]));
+	}
 	full.delete();
-	exteriorCS.delete();
-	deleteAll(frustum, prism);
+	let slab = parts[0];
+	for (let i = 1; i < parts.length; i++) {
+		const u = wasm.Manifold.union(slab, parts[i]);
+		deleteAll(slab, parts[i]);
+		slab = u;
+	}
 	return slab;
 }
 
@@ -262,6 +286,11 @@ function placeCentredAtZ(geo: BufferGeometry, x: number, y: number, z: number): 
 
 // Lateral footprint of the vertical sweep tool (a hair of extra clearance).
 const DRAFT_SWEEP_FOOTPRINT = 0.02;
+
+// Small 45-degree relief on the outer edge of each half's seam face. Both halves
+// carry it, so the closed box has a shallow V-groove around the parting line:
+// breaks the sharp edge and gives a fingernail purchase for opening.
+const SEAM_CHAMFER = 1;
 
 // Sweep a die solid straight UP (the removal direction) so the cavity it cuts
 // has no inward-leaning walls - the imprint you'd get by pressing the die into a
@@ -455,19 +484,28 @@ const CLEAN_TOLERANCE = 3e-4;
 // contribute no surface (their two real edges cancel), so the standard
 // repairDegenerateTriangles pass drops them while keeping the mesh closed -
 // exactly what the engraving export pipeline does for the same class of sliver.
-function cutToGeometry(base: Manifold, cutters: Array<Manifold>): BufferGeometry {
+function cutToGeometry(
+	base: Manifold,
+	cutters: Array<Manifold>,
+	adds: Array<Manifold> = []
+): BufferGeometry {
 	const wasm = manifold();
-	if (cutters.length === 0) {
-		const cleaned = base.simplify(CLEAN_TOLERANCE);
-		const geo = manifoldToGeometry(cleaned);
-		deleteAll(base, cleaned);
-		return repairDegenerateTriangles(geo);
+	let solid = base;
+	if (cutters.length > 0) {
+		const union = wasm.Manifold.union(cutters);
+		const diff = wasm.Manifold.difference(solid, union);
+		deleteAll(solid, union, ...cutters);
+		solid = diff;
 	}
-	const union = wasm.Manifold.union(cutters);
-	const result = wasm.Manifold.difference(base, union);
-	const cleaned = result.simplify(CLEAN_TOLERANCE);
+	if (adds.length > 0) {
+		const union = wasm.Manifold.union(adds);
+		const merged = wasm.Manifold.union(solid, union);
+		deleteAll(solid, union, ...adds);
+		solid = merged;
+	}
+	const cleaned = solid.simplify(CLEAN_TOLERANCE);
 	const geo = manifoldToGeometry(cleaned);
-	deleteAll(base, union, result, cleaned, ...cutters);
+	deleteAll(solid, cleaned);
 	return repairDegenerateTriangles(geo);
 }
 
@@ -562,7 +600,10 @@ export function deriveAutoLayout(
 	const magRadius = p.magnets.diameter / 2 + p.magnets.tolerance;
 	const trayBossR = magRadius + 1.0;
 	const bodyChamfer = Math.max(p.chamfer, cDice + p.wall * (2 - Math.SQRT2));
-	const recessBase = Math.max(cDice, bodyChamfer - p.wall);
+	// the diagonal corner face is 45deg, so to keep a full perpendicular `wall` of
+	// material there (not the thinner wall/SQRT2 a plain `- wall` leaves) the
+	// recess chamfer must be inset by wall*(2 - SQRT2) from the body chamfer.
+	const recessBase = Math.max(cDice, bodyChamfer - p.wall * (2 - Math.SQRT2));
 	const cornersFor = (oh: Vector2): Array<Vector2> =>
 		p.magnets.enabled ? magnetCorners(oh, bodyChamfer, magRadius, p.wall, p.magnets.count) : [];
 
@@ -617,7 +658,7 @@ export function boxOutline(
 	const magRadius = p.magnets.diameter / 2 + p.magnets.tolerance;
 	const trayBossR = magRadius + 1.0;
 	const bodyChamfer = Math.max(p.chamfer, cDice + p.wall * (2 - Math.SQRT2));
-	const recessBase = Math.max(cDice, bodyChamfer - p.wall);
+	const recessBase = Math.max(cDice, bodyChamfer - p.wall * (2 - Math.SQRT2));
 	const corners = p.magnets.enabled
 		? magnetCorners(outerHalf, bodyChamfer, magRadius, p.wall, p.magnets.count)
 		: [];
@@ -814,7 +855,7 @@ export async function buildBox(set: DiceSet, config: BoxConfig): Promise<BuiltBo
 	const placedDice: Array<PlacedDie> = [];
 
 	// --- base: lower half of every die, milled from the seam face ----------
-	const baseBody = octagonSlab(outerHalf, bodyChamfer, half, p.bevel);
+	const baseBody = octagonSlab(outerHalf, bodyChamfer, half, p.bevel, SEAM_CHAMFER);
 	const baseCutters: Array<Manifold> = [];
 	for (const prep of prepared) {
 		const pos = positions.get(prep.dieId) ?? new Vector2(0, 0);
@@ -829,12 +870,48 @@ export async function buildBox(set: DiceSet, config: BoxConfig): Promise<BuiltBo
 		);
 	}
 	baseCutters.push(...magnetBores(p, corners, seam));
-	const base = cutToGeometry(baseBody, baseCutters);
+
+	// positive supports for steeply tilted dice (e.g. the coin). The model returns
+	// geometry in its rotation-0 laid-flat XY frame / global box Z; spin it to the
+	// die's box rotation and move it onto the die's (x, y), then union it into the
+	// base. The support may rise above the seam; no matching lid pocket is needed
+	// because the lid's own cavity (swept toward the base when closed) already
+	// clears the space under each die.
+	const placeById = new Map(placements.map((pl) => [pl.dieId, pl]));
+	const baseSupports: Array<Manifold> = [];
+	// keep the support flush with the die's underside so its top is coplanar with
+	// the cavity (indent) floor - which sits essentially at the true underside, the
+	// die cavity's growth barely shifts it - giving one continuous slope with no
+	// step where the wedge meets the indent.
+	const SUPPORT_CLEARANCE = 0;
+	for (const prep of prepared) {
+		const die = dieById.get(prep.dieId);
+		const model = die ? dice[die.kind] : undefined;
+		if (!die || !model?.boxSupport) {
+			continue;
+		}
+		const pos = positions.get(prep.dieId) ?? new Vector2(0, 0);
+		const rot = placeById.get(prep.dieId)?.rotation ?? 0;
+		const g = model.boxSupport(die.parameters, {
+			seam,
+			floor: p.floor,
+			clearance: SUPPORT_CLEARANCE
+		});
+		if (g) {
+			if (rot) {
+				g.rotateZ(rot);
+			}
+			g.translate(pos.x, pos.y, 0);
+			baseSupports.push(geometryToManifold(g));
+			g.dispose();
+		}
+	}
+	const base = cutToGeometry(baseBody, baseCutters, baseSupports);
 
 	// --- lid: upper half of every die. The die is rotated 180deg about X so the
 	// half that lands in the lid (printed seam-up) is its top; when the lid is
 	// flipped closed it mates exactly with the base. ----------------------
-	const lidBody = octagonSlab(outerHalf, bodyChamfer, half, p.bevel);
+	const lidBody = octagonSlab(outerHalf, bodyChamfer, half, p.bevel, SEAM_CHAMFER);
 	const lidCutters: Array<Manifold> = [];
 	for (const prep of prepared) {
 		const pos = positions.get(prep.dieId) ?? new Vector2(0, 0);

@@ -13,7 +13,7 @@ import { parseCoinPath, validateCoinPath } from '$lib/utils/coin_path';
 import { stackedExplode } from '$lib/utils/explode';
 import { Legend } from '$lib/utils/legends';
 import { orientCoplanarVertices } from '$lib/utils/shapes';
-import { Shape, Vector2, Vector3 } from 'three';
+import { BufferGeometry, Float32BufferAttribute, Shape, Vector2, Vector3 } from 'three';
 
 const defaultDiameter = 24;
 const defaultThickness = 3;
@@ -29,6 +29,21 @@ const defaultBevelAmount = 50;
 
 const xAxis = new Vector3(1, 0, 0);
 const yAxis = new Vector3(0, 1, 0);
+
+// In a box, rest the coin tilted rather than flat so its face is on show; the
+// printed insert cradles it at this angle. The disc is built in the XY plane
+// (axis = +Z), so this is a tilt off the flat lie about the X axis.
+const boxTiltAngle = (30 * Math.PI) / 180;
+
+// Inset the support wedge's high rim back toward the seam (its flat base edge) by
+// this fraction, so the propping "fin" is shorter than the coin's full radius
+// rather than tapering all the way to the rim's thin edge.
+const wedgeHighInset = 0.33;
+
+// Round off the wedge's top edges (back + sides) by this radius (mm) so it isn't
+// sharp where the slope meets the vertical walls.
+const wedgeRound = 1.4;
+const wedgeRoundSegments = 12;
 
 const coinParameters: Array<DiceParameter> = [
 	{
@@ -138,11 +153,187 @@ function hiddenFacet(corners: Array<Vector3>): DieFaceModel {
 	};
 }
 
+// build a solid prism from a convex 2D boundary (in the XY plane): a flat floor
+// at z = 0 and a planar slanted top at z = topZ(y), joined by vertical walls. The
+// boundary must be convex so the caps fan-triangulate cleanly; it is normalised
+// to CCW here so the emitted triangles always wind outward (Manifold reads the
+// winding directly - a CW boundary yields an inside-out, negative-volume solid).
+//
+// `chamfer` rounds the top perimeter (where the slanted top meets the walls):
+// instead of a sharp edge, the profile follows a quarter-arc of radius `chamfer`
+// that insets the top cap inward (horizontally) and drops the wall top down,
+// approximated by `roundSegments` facets. The bottom edge is left sharp (it is
+// buried/merged into the base).
+function slantPrism(
+	input: Array<Vector2>,
+	topZ: (y: number) => number,
+	chamfer = 0,
+	roundSegments = 1
+): BufferGeometry {
+	let area = 0;
+	for (let i = 0; i < input.length; i++) {
+		const a = input[i];
+		const b = input[(i + 1) % input.length];
+		area += a.x * b.y - b.x * a.y;
+	}
+	const boundary = area < 0 ? [...input].reverse() : input;
+	const n = boundary.length;
+	const pos: Array<number> = [];
+	const idx: Array<number> = [];
+
+	const addRing = (pt: (i: number) => [number, number, number]) => {
+		const base = pos.length / 3;
+		for (let i = 0; i < n; i++) {
+			const [x, y, z] = pt(i);
+			pos.push(x, y, z);
+		}
+		return base;
+	};
+	// outward band between a lower ring (offset a) and a higher ring (offset b),
+	// for a CCW boundary with z increasing from a to b.
+	const band = (a: number, b: number) => {
+		for (let i = 0; i < n; i++) {
+			const j = (i + 1) % n;
+			idx.push(a + i, a + j, b + j);
+			idx.push(a + i, b + j, b + i);
+		}
+	};
+
+	const floor = addRing((i) => [boundary[i].x, boundary[i].y, 0]);
+
+	if (chamfer <= 1e-6) {
+		const top = addRing((i) => [boundary[i].x, boundary[i].y, topZ(boundary[i].y)]);
+		band(floor, top);
+		for (let i = 1; i < n - 1; i++) {
+			idx.push(floor, floor + i + 1, floor + i); // floor cap, facing -z
+			idx.push(top, top + i, top + i + 1); // top cap, facing +z
+		}
+		const geo = new BufferGeometry();
+		geo.setAttribute('position', new Float32BufferAttribute(pos, 3));
+		geo.setIndex(idx);
+		geo.computeVertexNormals();
+		return geo;
+	}
+
+	// per-vertex inward (horizontal) unit normals, averaged from the two adjacent
+	// CCW edges (inward normal of edge dir (dx,dy) is (-dy, dx)).
+	const inward: Array<Vector2> = [];
+	for (let i = 0; i < n; i++) {
+		const prev = boundary[(i - 1 + n) % n];
+		const cur = boundary[i];
+		const next = boundary[(i + 1) % n];
+		const n1 = new Vector2(-(cur.y - prev.y), cur.x - prev.x).normalize();
+		const n2 = new Vector2(-(next.y - cur.y), next.x - cur.x).normalize();
+		const sum = new Vector2(n1.x + n2.x, n1.y + n2.y);
+		inward.push(sum.lengthSq() < 1e-9 ? n2 : sum.normalize());
+	}
+	// profile ring at arc parameter t in [0,1] (0 = wall top, 1 = inset top cap).
+	// A convex round-over: the quarter-arc is centred inside the solid (inset by
+	// `chamfer` and dropped by `chamfer`) so it bulges OUT toward the sharp edge,
+	// rather than scooping a concave groove that leaves the edge sharper.
+	const ringAt = (t: number) =>
+		addRing((i) => {
+			const phi = (Math.PI / 2) * t;
+			const ins = chamfer * (1 - Math.cos(phi));
+			const drop = chamfer * (1 - Math.sin(phi));
+			const x = boundary[i].x + inward[i].x * ins;
+			const y = boundary[i].y + inward[i].y * ins;
+			return [x, y, Math.max(0.02, topZ(y) - drop)];
+		});
+
+	let prev = floor;
+	let topOffset = floor;
+	for (let s = 0; s <= roundSegments; s++) {
+		const ring = ringAt(s / roundSegments);
+		band(prev, ring);
+		prev = ring;
+		topOffset = ring;
+	}
+	for (let i = 1; i < n - 1; i++) {
+		idx.push(floor, floor + i + 1, floor + i); // floor cap, facing -z
+		idx.push(topOffset, topOffset + i, topOffset + i + 1); // top cap, facing +z
+	}
+	const geo = new BufferGeometry();
+	geo.setAttribute('position', new Float32BufferAttribute(pos, 3));
+	geo.setIndex(idx);
+	geo.computeVertexNormals();
+	return geo;
+}
+
 export const CoinD2: DieModel = {
 	id: 'd2_coin',
 	name: 'D2 Coin',
 	parameters: coinParameters,
 	stringParameters: coinStringParameters,
+	boxTransform: new Transform().rotateByAxisAngle(xAxis, boxTiltAngle),
+	// Tilted in the box, the coin balances near its centre of gravity and its high
+	// (+y) half rises out of the base, above the seam. Prop it with a solid whose
+	// TOP face IS the coin's underside disc (the slope continues the plane of the
+	// indent) - i.e. the cradle made solid. Its footprint is a band of that
+	// underside disc (an ellipse, foreshortened in y by the tilt): it fills the dish
+	// from the low side up past the seam to prop the high edge, but the high rim is
+	// pulled back toward the seam by `wedgeHighInset` so the fin is shorter than the
+	// coin's full radius. The side walls follow the rim and drop straight to the
+	// floor; it only ever narrows going up => draft-free / printable. Only needs this
+	// on the BASE: when the lid folds shut its own coin cavity (swept toward the
+	// base) already clears everything under the coin, so no matching lid pocket is
+	// required. `clearance` keeps the top a hair below the coin so it never binds.
+	boxSupport(params, { seam, clearance }) {
+		const diameter = params.coin_diameter ?? defaultDiameter;
+		const th = params.coin_thickness ?? defaultThickness;
+		const c = Math.cos(boxTiltAngle);
+		const tan = Math.tan(boxTiltAngle);
+		const R = diameter / 2 - clearance;
+		if (R <= 1) {
+			return undefined;
+		}
+		const ay = R * c; // y semi-axis of the projected rim
+		// the coin underside plane in box Z: z = base0 + y*tan (rises toward +y).
+		const base0 = seam - th / (2 * c) - clearance;
+		const topZ = (y: number) => base0 + y * tan;
+		// the footprint is a horizontal band of the underside disc, y in [yLo, yHigh]:
+		//  - low side: clip where the plane would dive below the floor (usually -ay,
+		//    i.e. the full disc, so the cradle still fills the indent).
+		//  - high side: pull the rim in toward the seam (the fin's flat base edge) by
+		//    `wedgeHighInset`, so the propping fin is shorter than the coin's radius.
+		const ySeam = (seam - base0) / tan; // where the plane crosses the seam
+		const yLo = Math.max(-ay, (0.05 - base0) / tan);
+		const yHigh = ay - wedgeHighInset * Math.max(0, ay - ySeam);
+		if (yHigh <= yLo) {
+			return undefined;
+		}
+		const aLo = Math.acos(Math.max(-1, Math.min(1, yLo / ay)));
+		const aHigh = Math.acos(Math.max(-1, Math.min(1, yHigh / ay)));
+		// sample the right rim arc (yLo -> yHigh) then the left (yHigh -> yLo); the
+		// connecting top/bottom edges are the straight chords. slantPrism normalises
+		// the winding, so perimeter order is all that matters.
+		const segments = 32;
+		const raw: Array<Vector2> = [];
+		for (let k = 0; k <= segments; k++) {
+			const a = aLo + ((aHigh - aLo) * k) / segments;
+			raw.push(new Vector2(R * Math.sin(a), ay * Math.cos(a)));
+		}
+		for (let k = 0; k <= segments; k++) {
+			const a = -aHigh + ((aHigh - aLo) * k) / segments;
+			raw.push(new Vector2(R * Math.sin(a), ay * Math.cos(a)));
+		}
+		// drop consecutive (and wrap-around) duplicates the un-clipped apex/nadir or
+		// the chord ends can produce, so the prism gets a clean simple polygon.
+		const boundary: Array<Vector2> = [];
+		for (const p of raw) {
+			const last = boundary[boundary.length - 1];
+			if (!last || last.distanceTo(p) > 1e-4) {
+				boundary.push(p);
+			}
+		}
+		if (boundary.length > 1 && boundary[0].distanceTo(boundary[boundary.length - 1]) < 1e-4) {
+			boundary.pop();
+		}
+		if (boundary.length < 3) {
+			return undefined;
+		}
+		return slantPrism(boundary, topZ, wedgeRound, wedgeRoundSegments);
+	},
 	build(params, stringParams = {}) {
 		const diameter = params.coin_diameter ?? defaultDiameter;
 		const thickness = params.coin_thickness ?? defaultThickness;

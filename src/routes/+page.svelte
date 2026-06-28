@@ -33,10 +33,13 @@
 					<TypeOutlineIcon class="inline-block size-[1em]" />
 					{m.home_create_legends()}
 				</a>
+				{:if false}
+				<!-- until I am happy, let's not make it obvious this exists-->
 				<a href="/boxes" class="btn btn-lg preset-filled-tertiary-500 flex-1 rounded-xl text-2xl">
 					<PackageIcon class="inline-block size-[1em]" />
 					{m.home_create_boxes()}
 				</a>
+				{/if}
 			</div>
 			<div class="text-surface-700 flex w-full flex-row items-center justify-center gap-4 text-sm">
 				<span>{PUBLIC_APP_VERSION}</span>

@@ -146,7 +146,7 @@
 		lightIntensity2: 1,
 		fillIntensity: 0,
 		aoRadius: 2.5,
-		aoScale: 1,
+		aoScale: 0,
 		aoThickness: 1,
 		aoDistanceExponent: 1
 	});
