@@ -63,16 +63,17 @@ export type DieModel = {
 	boxTransform?: Transform;
 	// optional positive support geometry to prop a die that rests at a steep
 	// `boxTransform` angle so it can't tip when seated (e.g. a tilted coin). It is
-	// unioned into the BASE only; it may rise above the seam, and the lid needs no
-	// matching pocket because the lid's own cavity (swept toward the base when
-	// closed) already clears the space under each die. Returned in the die's
-	// rotation-0 laid-flat XY frame (origin-centred in x/y, as the cavity is) but in
-	// GLOBAL box Z (z = 0 is the base floor, z = `ctx.seam` is the parting plane).
-	// `ctx.clearance` is the gap to leave against the die so the support never binds
-	// it or blocks straight-up insertion.
+	// unioned into the BASE only. Returned in the die's rotation-0 laid-flat XY frame
+	// (origin-centred in x/y, as the cavity is) but in GLOBAL box Z (z = 0 is the base
+	// floor, z = `ctx.seam` is the parting plane). Where the support rises above the
+	// seam it sits inside the lid's coin cavity; the builder grows that cavity by extra
+	// tolerance (for dice that supply a support) so the fin fits without clashing.
+	// `ctx.cavityTolerance` is the clearance the box grows the cavity by; matching it
+	// lets the support sit flush with (and within) the cavity rather than binding it.
 	boxSupport?(
 		params: Record<string, number>,
-		ctx: { seam: number; floor: number; clearance: number }
+		stringParams: Record<string, string>,
+		ctx: { seam: number; floor: number; cavityTolerance: number }
 	): BufferGeometry | undefined;
 	// create parameters for building a blank using the "build" function that is
 	// offset from the given parameters by `offset`.

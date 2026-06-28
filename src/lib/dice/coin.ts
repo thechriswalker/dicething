@@ -13,6 +13,7 @@ import { parseCoinPath, validateCoinPath } from '$lib/utils/coin_path';
 import { stackedExplode } from '$lib/utils/explode';
 import { Legend } from '$lib/utils/legends';
 import { orientCoplanarVertices } from '$lib/utils/shapes';
+import { shapeGeometry } from '$lib/utils/tessellate';
 import { BufferGeometry, Float32BufferAttribute, Shape, Vector2, Vector3 } from 'three';
 
 const defaultDiameter = 24;
@@ -33,12 +34,7 @@ const yAxis = new Vector3(0, 1, 0);
 // In a box, rest the coin tilted rather than flat so its face is on show; the
 // printed insert cradles it at this angle. The disc is built in the XY plane
 // (axis = +Z), so this is a tilt off the flat lie about the X axis.
-const boxTiltAngle = (30 * Math.PI) / 180;
-
-// Inset the support wedge's high rim back toward the seam (its flat base edge) by
-// this fraction, so the propping "fin" is shorter than the coin's full radius
-// rather than tapering all the way to the rim's thin edge.
-const wedgeHighInset = 0.33;
+const boxTiltAngle = (15 * Math.PI) / 180;
 
 // Round off the wedge's top edges (back + sides) by this radius (mm) so it isn't
 // sharp where the slope meets the vertical walls.
@@ -153,111 +149,191 @@ function hiddenFacet(corners: Array<Vector3>): DieFaceModel {
 	};
 }
 
-// build a solid prism from a convex 2D boundary (in the XY plane): a flat floor
-// at z = 0 and a planar slanted top at z = topZ(y), joined by vertical walls. The
-// boundary must be convex so the caps fan-triangulate cleanly; it is normalised
-// to CCW here so the emitted triangles always wind outward (Manifold reads the
-// winding directly - a CW boundary yields an inside-out, negative-volume solid).
+// The radius of the coin's flat face ring (the full radius minus the bevel's
+// radial cut). Mirrors the maths in build() so the box support can rebuild the
+// real face shape without depending on a built solid.
+function coinInnerRadius(params: Record<string, number>): number {
+	const R = (params.coin_diameter ?? defaultDiameter) / 2;
+	const ht = (params.coin_thickness ?? defaultThickness) / 2;
+	const bevelAngle = ((params.coin_bevel_angle ?? defaultBevelAngle) * Math.PI) / 180;
+	const bevelAmount = Math.min(1, Math.max(0, (params.coin_bevel_amount ?? defaultBevelAmount) / 100));
+	const inset = Math.min(R * 0.9, bevelAmount * ht * Math.tan(bevelAngle));
+	return R - inset;
+}
+
+// Resize the coin for a blank / box cavity: a positive offset shrinks it (each
+// surface moves in by `offset`, so the diameter and thickness each lose 2*offset),
+// a negative offset grows it. The box cavity uses offset = -tolerance so the real
+// coin drops in; sharing this (rather than the generic uniform mesh scale) keeps
+// the cavity a true offset coin, which the box support relies on to land its top
+// exactly on the cavity's underside.
+function coinBlankParameters(
+	params: Record<string, number>,
+	offset: number
+): Record<string, number> {
+	const diameter = params.coin_diameter ?? defaultDiameter;
+	const thickness = params.coin_thickness ?? defaultThickness;
+	return {
+		...params,
+		coin_diameter: Math.max(1, diameter - 2 * offset),
+		coin_thickness: Math.max(0.5, thickness - 2 * offset)
+	};
+}
+
+// The coin's face outline at a given radius: a regular n-gon, or the resolved
+// custom-path outline scaled so its bounding box spans 2*radius (matching the way
+// build() scales it). Shared by build() and the box support so the support wedge
+// is shaped by the real face outline. May be concave (a custom path).
+function coinShapeOutline(
+	params: Record<string, number>,
+	stringParams: Record<string, string>,
+	radius: number
+): Array<Vector2> {
+	const mode = Math.round(params.coin_shape_mode ?? defaultMode);
+	if (mode === MODE_CUSTOM) {
+		const custom = parseCoinPath(stringParams.coin_path ?? defaultPath);
+		if (custom) {
+			return custom.outline.map((p) => new Vector2(p.x * 2 * radius, p.y * 2 * radius));
+		}
+	}
+	const segments = Math.max(3, Math.round(params.coin_segments ?? defaultSegments));
+	return ngonPoints(radius, segments);
+}
+
+// Sutherland-Hodgman clip of a (possibly concave) polygon against one half-plane.
+// `inside` decides which side to keep; `crossing` gives the point where edge a->b
+// meets the clip line. Returns the clipped loop (may be empty).
+function clipHalfPlane(
+	poly: Array<Vector2>,
+	inside: (p: Vector2) => boolean,
+	crossing: (a: Vector2, b: Vector2) => Vector2
+): Array<Vector2> {
+	const out: Array<Vector2> = [];
+	const n = poly.length;
+	for (let i = 0; i < n; i++) {
+		const a = poly[(i - 1 + n) % n];
+		const b = poly[i];
+		const ina = inside(a);
+		const inb = inside(b);
+		if (inb) {
+			if (!ina) out.push(crossing(a, b));
+			out.push(b);
+		} else if (ina) {
+			out.push(crossing(a, b));
+		}
+	}
+	return out;
+}
+
+const yCrossing = (a: Vector2, b: Vector2, y: number) => {
+	const t = (y - a.y) / (b.y - a.y);
+	return new Vector2(a.x + t * (b.x - a.x), y);
+};
+
+type V3 = [number, number, number];
+
+// build a solid "wedge" prism from a 2D loop (in the XY plane), which may be
+// CONCAVE (e.g. a custom coin outline): a flat floor at z = 0 and a planar slanted
+// top at z = topZ(y), joined by vertical walls. The loop is normalised to CCW so
+// the hand-built walls wind outward, and the caps are tessellated (libtess, via
+// shapeGeometry) so a concave outline triangulates cleanly. Manifold reads the
+// winding directly, so the soup is emitted outward.
 //
-// `chamfer` rounds the top perimeter (where the slanted top meets the walls):
-// instead of a sharp edge, the profile follows a quarter-arc of radius `chamfer`
-// that insets the top cap inward (horizontally) and drops the wall top down,
-// approximated by `roundSegments` facets. The bottom edge is left sharp (it is
-// buried/merged into the base).
-function slantPrism(
-	input: Array<Vector2>,
+// `chamfer` rounds the top perimeter (where the slanted top meets the walls): the
+// profile follows a convex quarter-arc of radius `chamfer`, faceted by
+// `roundSegments`, that insets the top inward and drops the wall top down. The
+// inset is done by scaling the loop toward its centroid (never self-intersects,
+// unlike a per-edge offset on a concave loop), so the rounding is robust on the
+// gear-like custom outlines. The bottom edge is left sharp (it merges into base).
+function wedgeFromLoop(
+	loop: Array<Vector2>,
 	topZ: (y: number) => number,
-	chamfer = 0,
-	roundSegments = 1
+	chamfer: number,
+	roundSegments: number
 ): BufferGeometry {
 	let area = 0;
-	for (let i = 0; i < input.length; i++) {
-		const a = input[i];
-		const b = input[(i + 1) % input.length];
+	for (let i = 0; i < loop.length; i++) {
+		const a = loop[i];
+		const b = loop[(i + 1) % loop.length];
 		area += a.x * b.y - b.x * a.y;
 	}
-	const boundary = area < 0 ? [...input].reverse() : input;
-	const n = boundary.length;
-	const pos: Array<number> = [];
-	const idx: Array<number> = [];
+	const poly = area < 0 ? [...loop].reverse() : loop;
+	const n = poly.length;
 
-	const addRing = (pt: (i: number) => [number, number, number]) => {
-		const base = pos.length / 3;
-		for (let i = 0; i < n; i++) {
-			const [x, y, z] = pt(i);
-			pos.push(x, y, z);
-		}
-		return base;
-	};
-	// outward band between a lower ring (offset a) and a higher ring (offset b),
-	// for a CCW boundary with z increasing from a to b.
-	const band = (a: number, b: number) => {
+	const cx = poly.reduce((s, p) => s + p.x, 0) / n;
+	const cy = poly.reduce((s, p) => s + p.y, 0) / n;
+	const centre = new Vector2(cx, cy);
+	const rref = Math.max(
+		1e-3,
+		poly.reduce((m, p) => Math.max(m, p.distanceTo(centre)), 0)
+	);
+
+	const tris: Array<number> = [];
+	const pushTri = (a: V3, b: V3, c: V3) =>
+		tris.push(a[0], a[1], a[2], b[0], b[1], b[2], c[0], c[1], c[2]);
+	// outward band of quads from a lower ring to a higher one (both CCW).
+	const band = (lo: Array<V3>, hi: Array<V3>) => {
 		for (let i = 0; i < n; i++) {
 			const j = (i + 1) % n;
-			idx.push(a + i, a + j, b + j);
-			idx.push(a + i, b + j, b + i);
+			pushTri(lo[i], lo[j], hi[j]);
+			pushTri(lo[i], hi[j], hi[i]);
 		}
 	};
 
-	const floor = addRing((i) => [boundary[i].x, boundary[i].y, 0]);
-
-	if (chamfer <= 1e-6) {
-		const top = addRing((i) => [boundary[i].x, boundary[i].y, topZ(boundary[i].y)]);
-		band(floor, top);
-		for (let i = 1; i < n - 1; i++) {
-			idx.push(floor, floor + i + 1, floor + i); // floor cap, facing -z
-			idx.push(top, top + i, top + i + 1); // top cap, facing +z
-		}
-		const geo = new BufferGeometry();
-		geo.setAttribute('position', new Float32BufferAttribute(pos, 3));
-		geo.setIndex(idx);
-		geo.computeVertexNormals();
-		return geo;
-	}
-
-	// per-vertex inward (horizontal) unit normals, averaged from the two adjacent
-	// CCW edges (inward normal of edge dir (dx,dy) is (-dy, dx)).
-	const inward: Array<Vector2> = [];
-	for (let i = 0; i < n; i++) {
-		const prev = boundary[(i - 1 + n) % n];
-		const cur = boundary[i];
-		const next = boundary[(i + 1) % n];
-		const n1 = new Vector2(-(cur.y - prev.y), cur.x - prev.x).normalize();
-		const n2 = new Vector2(-(next.y - cur.y), next.x - cur.x).normalize();
-		const sum = new Vector2(n1.x + n2.x, n1.y + n2.y);
-		inward.push(sum.lengthSq() < 1e-9 ? n2 : sum.normalize());
-	}
+	const rounding = chamfer > 1e-6 ? Math.max(1, Math.round(roundSegments)) : 0;
+	// the loop scaled toward the centroid by `scale` (0..1), used both for the
+	// rounding rings and for the inset top cap. scaling can't self-intersect.
+	const scaledLoop = (scale: number): Array<Vector2> =>
+		poly.map((p) => new Vector2(cx + (p.x - cx) * scale, cy + (p.y - cy) * scale));
 	// profile ring at arc parameter t in [0,1] (0 = wall top, 1 = inset top cap).
-	// A convex round-over: the quarter-arc is centred inside the solid (inset by
-	// `chamfer` and dropped by `chamfer`) so it bulges OUT toward the sharp edge,
-	// rather than scooping a concave groove that leaves the edge sharper.
-	const ringAt = (t: number) =>
-		addRing((i) => {
-			const phi = (Math.PI / 2) * t;
-			const ins = chamfer * (1 - Math.cos(phi));
-			const drop = chamfer * (1 - Math.sin(phi));
-			const x = boundary[i].x + inward[i].x * ins;
-			const y = boundary[i].y + inward[i].y * ins;
-			return [x, y, Math.max(0.02, topZ(y) - drop)];
-		});
+	const ringAt = (t: number): Array<V3> => {
+		const phi = (Math.PI / 2) * t;
+		const inset = chamfer * (1 - Math.cos(phi)); // 0 -> chamfer
+		const drop = chamfer * (1 - Math.sin(phi)); // chamfer -> 0
+		const scale = Math.max(0, 1 - inset / rref);
+		return scaledLoop(scale).map((p) => [p.x, p.y, Math.max(0.02, topZ(p.y) - drop)] as V3);
+	};
 
-	let prev = floor;
-	let topOffset = floor;
-	for (let s = 0; s <= roundSegments; s++) {
-		const ring = ringAt(s / roundSegments);
-		band(prev, ring);
-		prev = ring;
-		topOffset = ring;
+	const floor: Array<V3> = poly.map((p) => [p.x, p.y, 0]);
+	let topScale = 1;
+	if (rounding === 0) {
+		const top: Array<V3> = poly.map((p) => [p.x, p.y, topZ(p.y)]);
+		band(floor, top);
+	} else {
+		let prev = floor;
+		for (let s = 0; s <= rounding; s++) {
+			const ring = ringAt(s / rounding);
+			band(prev, ring);
+			prev = ring;
+		}
+		topScale = Math.max(0, 1 - chamfer / rref);
 	}
-	for (let i = 1; i < n - 1; i++) {
-		idx.push(floor, floor + i + 1, floor + i); // floor cap, facing -z
-		idx.push(topOffset, topOffset + i, topOffset + i + 1); // top cap, facing +z
-	}
-	const geo = new BufferGeometry();
-	geo.setAttribute('position', new Float32BufferAttribute(pos, 3));
-	geo.setIndex(idx);
-	geo.computeVertexNormals();
-	return geo;
+
+	// caps: tessellate the floor (original loop, facing -z) and the top (inset loop
+	// lifted onto the slant plane, facing +z). divisions = 1 keeps line segments at
+	// their endpoints, so the cap boundary vertices coincide with the ring vertices.
+	const cap = (loop2D: Array<Vector2>, zAt: (y: number) => number, faceUp: boolean) => {
+		const geo = shapeGeometry(new Shape(loop2D), 1);
+		const p = geo.getAttribute('position');
+		for (let t = 0; t < p.count; t += 3) {
+			const v: Array<V3> = [];
+			for (let k = 0; k < 3; k++) {
+				const x = p.getX(t + k);
+				const y = p.getY(t + k);
+				v.push([x, y, zAt(y)]);
+			}
+			if (faceUp) pushTri(v[0], v[1], v[2]);
+			else pushTri(v[0], v[2], v[1]);
+		}
+		geo.dispose();
+	};
+	cap(poly, () => 0, false);
+	cap(scaledLoop(topScale), (y) => topZ(y), true);
+
+	const out = new BufferGeometry();
+	out.setAttribute('position', new Float32BufferAttribute(tris, 3));
+	out.computeVertexNormals();
+	return out;
 }
 
 export const CoinD2: DieModel = {
@@ -265,79 +341,66 @@ export const CoinD2: DieModel = {
 	name: 'D2 Coin',
 	parameters: coinParameters,
 	stringParameters: coinStringParameters,
+	blankParameters: coinBlankParameters,
 	boxTransform: new Transform().rotateByAxisAngle(xAxis, boxTiltAngle),
 	// Tilted in the box, the coin balances near its centre of gravity and its high
 	// (+y) half rises out of the base, above the seam. Prop it with a solid whose
-	// TOP face IS the coin's underside disc (the slope continues the plane of the
-	// indent) - i.e. the cradle made solid. Its footprint is a band of that
-	// underside disc (an ellipse, foreshortened in y by the tilt): it fills the dish
-	// from the low side up past the seam to prop the high edge, but the high rim is
-	// pulled back toward the seam by `wedgeHighInset` so the fin is shorter than the
-	// coin's full radius. The side walls follow the rim and drop straight to the
-	// floor; it only ever narrows going up => draft-free / printable. Only needs this
-	// on the BASE: when the lid folds shut its own coin cavity (swept toward the
-	// base) already clears everything under the coin, so no matching lid pocket is
-	// required. `clearance` keeps the top a hair below the coin so it never binds.
-	boxSupport(params, { seam, clearance }) {
-		const diameter = params.coin_diameter ?? defaultDiameter;
-		const th = params.coin_thickness ?? defaultThickness;
+	// TOP face IS the coin's underside (the slope continues the plane of the indent)
+	// - i.e. the cradle made solid - and whose footprint is the coin's FULL real FACE
+	// SHAPE (the flat-face outline, polygon or custom path), projected: the underside
+	// outline (at z = -thickness/2) is tilted about X and dropped onto the box XY
+	// plane. Spanning the whole face (not a pulled-back band) keeps the wedge's edge
+	// on the same outline as the indent right up to the high tips, so the floor is one
+	// continuous face shape with no chord/step across it. Only the low side is clipped
+	// (where the slope would dive below the floor). The walls drop straight to the
+	// floor, so it only ever narrows going up => draft-free / printable. The fin rises
+	// above the seam, into the lid's coin cavity; the builder grows that lid cavity
+	// extra (double tolerance) so the fin fits without clashing. Built from the SAME
+	// grown ("blank") params the box cavity uses, so the wedge's top lands on the
+	// cavity's underside plane and its footprint on the cavity's face outline - the
+	// two surfaces coincide (seamless indent).
+	boxSupport(params, stringParams, { seam, cavityTolerance }) {
 		const c = Math.cos(boxTiltAngle);
+		const s = Math.sin(boxTiltAngle);
 		const tan = Math.tan(boxTiltAngle);
-		const R = diameter / 2 - clearance;
-		if (R <= 1) {
+		const grown = coinBlankParameters(params, -cavityTolerance);
+		const th = grown.coin_thickness;
+		const radius = coinInnerRadius(grown);
+		if (radius <= 1) {
 			return undefined;
 		}
-		const ay = R * c; // y semi-axis of the projected rim
 		// the coin underside plane in box Z: z = base0 + y*tan (rises toward +y).
-		const base0 = seam - th / (2 * c) - clearance;
+		const base0 = seam - th / (2 * c);
 		const topZ = (y: number) => base0 + y * tan;
-		// the footprint is a horizontal band of the underside disc, y in [yLo, yHigh]:
-		//  - low side: clip where the plane would dive below the floor (usually -ay,
-		//    i.e. the full disc, so the cradle still fills the indent).
-		//  - high side: pull the rim in toward the seam (the fin's flat base edge) by
-		//    `wedgeHighInset`, so the propping fin is shorter than the coin's radius.
-		const ySeam = (seam - base0) / tan; // where the plane crosses the seam
-		const yLo = Math.max(-ay, (0.05 - base0) / tan);
-		const yHigh = ay - wedgeHighInset * Math.max(0, ay - ySeam);
-		if (yHigh <= yLo) {
+		// the face outline, projected from the underside (local z = -th/2) onto box
+		// XY: tilt about X drops z=-th/2 to add (th/2)*sin to y and foreshortens y by
+		// cos; x is unchanged. topZ then lifts each point back onto the slant plane.
+		const ht = th / 2;
+		const footprint = coinShapeOutline(grown, stringParams, radius).map(
+			(p) => new Vector2(p.x, p.y * c + ht * s)
+		);
+		let minY = Infinity;
+		for (const p of footprint) {
+			minY = Math.min(minY, p.y);
+		}
+		// clip only the low side, where the underside plane would dip below the floor.
+		const yLo = Math.max(minY, (0.05 - base0) / tan);
+		const clipped =
+			yLo > minY + 1e-6
+				? clipHalfPlane(
+						footprint,
+						(p) => p.y >= yLo - 1e-9,
+						(a, b) => yCrossing(a, b, yLo)
+					)
+				: footprint;
+		if (clipped.length < 3) {
 			return undefined;
 		}
-		const aLo = Math.acos(Math.max(-1, Math.min(1, yLo / ay)));
-		const aHigh = Math.acos(Math.max(-1, Math.min(1, yHigh / ay)));
-		// sample the right rim arc (yLo -> yHigh) then the left (yHigh -> yLo); the
-		// connecting top/bottom edges are the straight chords. slantPrism normalises
-		// the winding, so perimeter order is all that matters.
-		const segments = 32;
-		const raw: Array<Vector2> = [];
-		for (let k = 0; k <= segments; k++) {
-			const a = aLo + ((aHigh - aLo) * k) / segments;
-			raw.push(new Vector2(R * Math.sin(a), ay * Math.cos(a)));
-		}
-		for (let k = 0; k <= segments; k++) {
-			const a = -aHigh + ((aHigh - aLo) * k) / segments;
-			raw.push(new Vector2(R * Math.sin(a), ay * Math.cos(a)));
-		}
-		// drop consecutive (and wrap-around) duplicates the un-clipped apex/nadir or
-		// the chord ends can produce, so the prism gets a clean simple polygon.
-		const boundary: Array<Vector2> = [];
-		for (const p of raw) {
-			const last = boundary[boundary.length - 1];
-			if (!last || last.distanceTo(p) > 1e-4) {
-				boundary.push(p);
-			}
-		}
-		if (boundary.length > 1 && boundary[0].distanceTo(boundary[boundary.length - 1]) < 1e-4) {
-			boundary.pop();
-		}
-		if (boundary.length < 3) {
-			return undefined;
-		}
-		return slantPrism(boundary, topZ, wedgeRound, wedgeRoundSegments);
+		return wedgeFromLoop(clipped, topZ, wedgeRound, wedgeRoundSegments);
 	},
 	build(params, stringParams = {}) {
 		const diameter = params.coin_diameter ?? defaultDiameter;
 		const thickness = params.coin_thickness ?? defaultThickness;
-		const segments = Math.max(3, Math.round(params.coin_segments ?? defaultSegments));
 		const bevelAngle = ((params.coin_bevel_angle ?? defaultBevelAngle) * Math.PI) / 180;
 		const bevelAmount = Math.min(
 			1,
@@ -365,22 +428,15 @@ export const CoinD2: DieModel = {
 		const custom =
 			mode === MODE_CUSTOM ? parseCoinPath(stringParams.coin_path ?? defaultPath) : null;
 
-		let innerRing: Array<Vector2>;
-		let outerRing: Array<Vector2>;
 		// whether the face outline is convex. a regular polygon always is; a custom
 		// outline may be concave, which switches the legend containment maths to the
 		// general (concave-safe) path so legends can use the whole outline.
 		const convex = custom ? custom.convex : true;
-		if (custom) {
-			innerRing = custom.outline.map((p) => new Vector2(p.x * 2 * rInner, p.y * 2 * rInner));
-			outerRing = custom.outline.map((p) => new Vector2(p.x * 2 * R, p.y * 2 * R));
-		} else {
-			// the flat faces sit on the (possibly inset) inner ring; the bevel/rim use
-			// the full-radius outer ring. built from shared rings so the walls always
-			// meet the face edges exactly.
-			innerRing = ngonPoints(rInner, segments);
-			outerRing = ngonPoints(R, segments);
-		}
+		// the flat faces sit on the (possibly inset) inner ring; the bevel/rim use the
+		// full-radius outer ring. built from the shared outline helper so the walls
+		// always meet the face edges exactly (and the box support can rebuild it).
+		const innerRing = coinShapeOutline(params, stringParams, rInner);
+		const outerRing = coinShapeOutline(params, stringParams, R);
 		const n = innerRing.length;
 		const faceShape = new Shape(innerRing.map((p) => p.clone()));
 		// the back face is flipped 180° about the y-axis, so its outline must be

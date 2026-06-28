@@ -121,7 +121,7 @@ describe('box builder produces printable solids', () => {
 	});
 
 	it('builds the coin support as a positive, outward-wound solid', async () => {
-		// regression: a clockwise boundary makes slantPrism emit inside-out
+		// regression: a clockwise boundary makes the wedge emit inside-out
 		// triangles, which Manifold reads as a negative-volume solid that won't
 		// union into the base. The support must be a genuine positive solid.
 		const model = dice['d2_coin'];
@@ -130,12 +130,36 @@ describe('box builder produces printable solids', () => {
 		for (const p of model.parameters) {
 			params[p.id] = p.defaultValue;
 		}
-		const geo = model.boxSupport!(params, { seam: 8, floor: 1.2, clearance: 0.2 });
+		const geo = model.boxSupport!(params, {}, { seam: 8, floor: 1.2, cavityTolerance: 0.4 });
 		expect(geo).toBeTruthy();
 		const man = geometryToManifold(geo!);
 		const volume = man.volume();
 		man.delete();
 		expect(volume).toBeGreaterThan(0);
+		expectPrintable(geo!);
+	});
+
+	it('builds the coin support for a concave custom outline', async () => {
+		// the support footprint is the coin's real face outline, which for a custom
+		// path may be CONCAVE. The wedge must still tessellate to a positive,
+		// watertight, degenerate-free solid (libtess caps + centroid-scaled
+		// rounding), not a fan-triangulated mess.
+		const model = dice['d2_coin'];
+		const params: Record<string, number> = {};
+		for (const p of model.parameters) {
+			params[p.id] = p.defaultValue;
+		}
+		params.coin_shape_mode = 1; // custom path
+		// a concave star-ish outline (notches between the points).
+		const coin_path =
+			'M 50 0 L 61 35 L 98 35 L 68 57 L 79 91 L 50 70 L 21 91 L 32 57 L 2 35 L 39 35 Z';
+		const geo = model.boxSupport!(params, { coin_path }, { seam: 8, floor: 1.2, cavityTolerance: 0.4 });
+		expect(geo).toBeTruthy();
+		const man = geometryToManifold(geo!);
+		const volume = man.volume();
+		man.delete();
+		expect(volume).toBeGreaterThan(0);
+		expectPrintable(geo!);
 	});
 
 	it('props the tilted coin with a ramp wedge and still closes', async () => {

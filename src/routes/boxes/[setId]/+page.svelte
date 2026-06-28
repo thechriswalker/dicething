@@ -54,7 +54,7 @@
 	let outerSize = $state<{ x: number; y: number }>({ x: 0, y: 0 });
 
 	// user-facing scene control: dice see-through-ness (0 = hidden, 1 = solid).
-	let dieOpacity = $state(0.33);
+	let dieOpacity = $state(0.33*0);
 	let fileLayout = $state<'single' | 'zip'>('zip');
 
 	const gridHelper = createGridHelper(160);

@@ -66,6 +66,10 @@ export type BuiltBox = {
 type PreparedDie = {
 	dieId: string;
 	cavity: BufferGeometry; // oversized solid, centred xy, bottom at z=0
+	// a more-grown cavity (double the tolerance) for the LID half of dice that add a
+	// box support: the support fin rises above the seam into the lid's cavity, so the
+	// lid needs extra room for it. undefined => the lid uses the normal cavity.
+	lidCavity?: BufferGeometry;
 	solid: BufferGeometry; // true die solid, centred xy, bottom at z=0
 	size: Vector3; // cavity size (x,y footprint, z height)
 	// convex hull of the cavity projected onto the xy plane, centred on the die.
@@ -157,9 +161,20 @@ function prepareDie(
 		cavitySize = trueOriented.size.clone();
 	}
 
+	// dice with a box support (e.g. the tilted coin) have a fin that rises above the
+	// seam into the lid's cavity; build the lid a looser cavity (double the tolerance)
+	// so the fin clears it. Only the precise (blankParameters) path supports this.
+	let lidCavity: BufferGeometry | undefined;
+	if (model.boxSupport && model.blankParameters && cavityTolerance > 0) {
+		const lidParams = model.blankParameters(params, -2 * cavityTolerance);
+		const lidFaces = model.build(lidParams, stringParams).faces;
+		lidCavity = orientDieSolid(model, lidFaces, extraRotation).geometry;
+	}
+
 	return {
 		dieId,
 		cavity,
+		lidCavity,
 		solid: trueOriented.geometry,
 		size: cavitySize,
 		hull: projectedHull(cavity)
@@ -739,6 +754,7 @@ export async function prepareLayout(set: DiceSet, config: BoxConfig): Promise<Pr
 				size: prep.size
 			});
 			prep.cavity.dispose();
+			prep.lidCavity?.dispose();
 			prep.solid.dispose();
 		} catch (e) {
 			console.warn('box: failed to prepare die for layout', pl.dieId, e);
@@ -874,16 +890,10 @@ export async function buildBox(set: DiceSet, config: BoxConfig): Promise<BuiltBo
 	// positive supports for steeply tilted dice (e.g. the coin). The model returns
 	// geometry in its rotation-0 laid-flat XY frame / global box Z; spin it to the
 	// die's box rotation and move it onto the die's (x, y), then union it into the
-	// base. The support may rise above the seam; no matching lid pocket is needed
-	// because the lid's own cavity (swept toward the base when closed) already
-	// clears the space under each die.
+	// base. The fin rises above the seam into the lid's coin cavity, which is grown
+	// extra (see lidCavity in prepareDie) so the fin fits inside it.
 	const placeById = new Map(placements.map((pl) => [pl.dieId, pl]));
 	const baseSupports: Array<Manifold> = [];
-	// keep the support flush with the die's underside so its top is coplanar with
-	// the cavity (indent) floor - which sits essentially at the true underside, the
-	// die cavity's growth barely shifts it - giving one continuous slope with no
-	// step where the wedge meets the indent.
-	const SUPPORT_CLEARANCE = 0;
 	for (const prep of prepared) {
 		const die = dieById.get(prep.dieId);
 		const model = die ? dice[die.kind] : undefined;
@@ -892,10 +902,12 @@ export async function buildBox(set: DiceSet, config: BoxConfig): Promise<BuiltBo
 		}
 		const pos = positions.get(prep.dieId) ?? new Vector2(0, 0);
 		const rot = placeById.get(prep.dieId)?.rotation ?? 0;
-		const g = model.boxSupport(die.parameters, {
+		// pass the same cavity tolerance the die's cavity was grown by, so the
+		// support's top surface coincides with the cavity floor (a seamless indent).
+		const g = model.boxSupport(die.parameters, die.string_parameters ?? {}, {
 			seam,
 			floor: p.floor,
-			clearance: SUPPORT_CLEARANCE
+			cavityTolerance: p.cavityTolerance
 		});
 		if (g) {
 			if (rot) {
@@ -915,7 +927,7 @@ export async function buildBox(set: DiceSet, config: BoxConfig): Promise<BuiltBo
 	const lidCutters: Array<Manifold> = [];
 	for (const prep of prepared) {
 		const pos = positions.get(prep.dieId) ?? new Vector2(0, 0);
-		lidCutters.push(sweptCavity(prep.cavity, true, pos.x, -pos.y, seam));
+		lidCutters.push(sweptCavity(prep.lidCavity ?? prep.cavity, true, pos.x, -pos.y, seam));
 		const die = prep.solid.clone();
 		die.rotateX(Math.PI);
 		placeCentredAtZ(die, pos.x, -pos.y, seam);
@@ -948,6 +960,7 @@ export async function buildBox(set: DiceSet, config: BoxConfig): Promise<BuiltBo
 
 	prepared.forEach((d) => {
 		d.cavity.dispose();
+		d.lidCavity?.dispose();
 		d.solid.dispose();
 	});
 
