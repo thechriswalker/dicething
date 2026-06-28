@@ -15,6 +15,8 @@ export function defaultBoxConfig(setId: string, dice: Array<Dice>): BoxConfig {
 		dieId: d.id,
 		order: i,
 		rotation: 0,
+		x: 0,
+		y: 0,
 		include: true
 	}));
 	return {
@@ -51,6 +53,12 @@ export function loadBoxConfig(setId: string): BoxConfig | undefined {
 		parsed.params = { ...defaultBoxParams(), ...parsed.params };
 		parsed.params.magnets = { ...defaultBoxParams().magnets, ...parsed.params.magnets };
 		parsed.params.hinge = { ...defaultBoxParams().hinge, ...parsed.params.hinge };
+		parsed.params.box = { ...defaultBoxParams().box, ...parsed.params.box };
+		// default per-placement manual position (added with the 2D layout editor).
+		for (const pl of parsed.placements) {
+			pl.x ??= 0;
+			pl.y ??= 0;
+		}
 		return parsed;
 	} catch {
 		return undefined;
@@ -68,10 +76,14 @@ export function reconcileBoxConfig(config: BoxConfig, dice: Array<Dice>): BoxCon
 	const placements: Array<BoxDiePlacement> = [...kept];
 	for (const d of dice) {
 		if (!byId.has(d.id)) {
+			// new dice land at the origin; in a manual layout the user repositions
+			// them in the editor (the build tolerates an overlapping die at 0,0).
 			placements.push({
 				dieId: d.id,
 				order: ++maxOrder,
 				rotation: 0,
+				x: 0,
+				y: 0,
 				include: true
 			});
 		}

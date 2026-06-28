@@ -24,6 +24,10 @@ export type BoxDiePlacement = {
 	// extra in-plane (about the vertical axis) rotation in radians, applied on
 	// top of the auto-chosen resting orientation.
 	rotation: number;
+	// manual centre position (mm) in the box frame, set by the 2D layout editor.
+	// Only used when params.manual is true; the auto-layout ignores it.
+	x: number;
+	y: number;
 	// include this die in the box at all.
 	include: boolean;
 };
@@ -81,8 +85,17 @@ export type BoxParams = {
 	trayDepth: number;
 	// how many rows the dice are split across. The dice are filled in order into
 	// this many rows (larger rows first) and each row is centred relative to the
-	// others, so this directly shapes the box (1 row = a long thin box).
+	// others, so this directly shapes the box (1 row = a long thin box). Only used
+	// to seed the auto-layout (and the editor's auto-arrange).
 	rows: number;
+	// when true, the box uses the 2D layout editor's manual placements (each
+	// placement's x/y/rotation) and the explicit box half-extents below, instead
+	// of the parametric auto-layout. Set by the editor on apply.
+	manual: boolean;
+	// body-octagon half-extents (the seam footprint = outerHalf) chosen in the
+	// editor. Only used when manual is true; {0,0} means "not set" (fall back to
+	// the auto-layout sizing).
+	box: { halfX: number; halfY: number };
 	magnets: MagnetConfig;
 	hinge: HingeConfig;
 };
@@ -106,6 +119,8 @@ export const defaultBoxParams = (): BoxParams => ({
 	cavityTolerance: 0.4,
 	trayDepth: 1.5,
 	rows: 2,
+	manual: false,
+	box: { halfX: 0, halfY: 0 },
 	magnets: {
 		enabled: true,
 		count: 4,

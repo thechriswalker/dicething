@@ -4,7 +4,7 @@ import dice from '$lib/dice';
 import type { Dice, DiceSet } from '$lib/interfaces/storage.svelte';
 import { getManifold, manifold, geometryToManifold, toFlatPositions } from '$lib/utils/manifold';
 import { checkMesh } from '$lib/utils/mesh_check';
-import { buildBox, magnetCorners } from './box_builder';
+import { buildBox, magnetCorners, prepareLayout } from './box_builder';
 import { defaultBoxParams, type BoxConfig } from './types';
 
 // build a Dice using a model's parameter defaults (no legends needed: the box
@@ -38,6 +38,8 @@ function makeConfig(set: DiceSet, overrides: Partial<BoxConfig['params']> = {}):
 			dieId: d.id,
 			order: i,
 			rotation: 0,
+			x: 0,
+			y: 0,
 			include: true
 		}))
 	};
@@ -207,6 +209,28 @@ describe('box builder produces printable solids', () => {
 			expect(Math.max(Math.abs(bb.min.x), Math.abs(bb.max.x))).toBeLessThanOrEqual(outerHalf.x);
 			expect(Math.max(Math.abs(bb.min.y), Math.abs(bb.max.y))).toBeLessThanOrEqual(outerHalf.y);
 		}
+	});
+
+	it('builds from manual placements + an explicit box size', async () => {
+		// the 2D layout editor stores per-die x/y/rotation and an explicit box; the
+		// build must honour them (no auto-layout) and stay printable.
+		const set = makeSet(['d6_cube', 'd6_cube', 'd20_icosahedron']);
+		const config = makeConfig(set);
+		const prep = await prepareLayout(set, config);
+		config.params.manual = true;
+		config.params.box = { halfX: prep.box.halfX, halfY: prep.box.halfY };
+		for (const pl of config.placements) {
+			const d = prep.dice.find((x) => x.dieId === pl.dieId)!;
+			pl.x = d.autoPos.x;
+			pl.y = d.autoPos.y;
+			pl.rotation = 0;
+		}
+		const built = await buildBox(set, config);
+		expectPrintable(built.base);
+		expectPrintable(built.lid);
+		// the footprint comes straight from the explicit box, not the auto sizing.
+		expect(built.outer.x).toBeCloseTo(prep.box.halfX * 2, 6);
+		expect(built.outer.y).toBeCloseTo(prep.box.halfY * 2, 6);
 	});
 
 	it('cuts draft-free cavities (a pushed-in die can be lifted out)', async () => {

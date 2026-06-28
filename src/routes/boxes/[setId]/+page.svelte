@@ -11,7 +11,9 @@
 	import { m } from '$lib/paraglide/messages';
 	import { createFancyRender, createGridHelper, type SceneRenderer } from '$lib/utils/scene';
 	import { debounce } from '$lib/utils/debounce';
-	import { buildBox, type BuiltBox } from '$lib/box/box_builder';
+	import { buildBox, prepareLayout, type BuiltBox } from '$lib/box/box_builder';
+	import LayoutEditor from '$lib/components/box_layout/LayoutEditor.svelte';
+	import type { EditorItem, LayoutResult } from '$lib/components/box_layout/types';
 	import {
 		defaultBoxConfig,
 		loadBoxConfig,
@@ -35,10 +37,9 @@
 	import {
 		ArrowLeftIcon,
 		DownloadIcon,
-		ChevronUp,
-		ChevronDown,
 		Frame,
 		BoxSelect,
+		LayoutGridIcon,
 		SparklesIcon,
 		CopyIcon
 	} from '@lucide/svelte';
@@ -133,22 +134,22 @@
 	// tuning panel state; defaults mirror createFancyRender() plus separate base
 	// colours for the box shell and the dice.
 	let tune = $state({
-	boxColour: '#58697e',
-	dieColour: '#a3a3a3',
-	roughness: 1,
-	metalness: 0.07,
-	clearcoat: 0.81,
-	clearcoatRoughness: 0.5,
-	envMapIntensity: 0.9,
-	exposure: 1,
-	lightIntensity: 0.5,
-	lightIntensity2: 1,
-	fillIntensity: 0,
-	aoRadius: 2.5,
-	aoScale: 1,
-	aoThickness: 1,
-	aoDistanceExponent: 1
-});
+		boxColour: '#58697e',
+		dieColour: '#a3a3a3',
+		roughness: 1,
+		metalness: 0.07,
+		clearcoat: 0.81,
+		clearcoatRoughness: 0.5,
+		envMapIntensity: 0.9,
+		exposure: 1,
+		lightIntensity: 0.5,
+		lightIntensity2: 1,
+		fillIntensity: 0,
+		aoRadius: 2.5,
+		aoScale: 1,
+		aoThickness: 1,
+		aoDistanceExponent: 1
+	});
 	$effect(() => {
 		const fr = fancyRender;
 		if (!fr || !ctx) {
@@ -353,7 +354,12 @@
 		boundsGroup = undefined;
 	}
 
-	function boundLoop(poly: Array<{ x: number; y: number }>, ySign: number, z: number, mat: LineBasicMaterial) {
+	function boundLoop(
+		poly: Array<{ x: number; y: number }>,
+		ySign: number,
+		z: number,
+		mat: LineBasicMaterial
+	) {
 		const pts = poly.map((p) => new Vector3(p.x, ySign * p.y, z));
 		const loop = new LineLoop(new BufferGeometry().setFromPoints(pts), mat);
 		loop.renderOrder = 999;
@@ -426,36 +432,84 @@
 		config.params.hinge.enabled = value;
 	}
 
-	function dieName(dieId: string): string {
-		const die = setData?.dice.find((d) => d.id === dieId);
-		if (!die) {
-			return dieId;
-		}
-		return m.dice_name({ kind: die.kind });
-	}
-
-	function moveDie(index: number, delta: number) {
-		if (!config) {
-			return;
-		}
-		const ordered = [...config.placements].sort((a, b) => a.order - b.order);
-		const target = index + delta;
-		if (target < 0 || target >= ordered.length) {
-			return;
-		}
-		const tmp = ordered[index];
-		ordered[index] = ordered[target];
-		ordered[target] = tmp;
-		ordered.forEach((p, i) => (p.order = i));
-		config.placements = ordered;
-	}
-
 	let orderedPlacements = $derived(
 		config ? [...config.placements].sort((a, b) => a.order - b.order) : []
 	);
 
 	let anyIncluded = $derived(orderedPlacements.some((p) => p.include));
-	let dieCount = $derived(orderedPlacements.filter((p) => p.include).length);
+
+	// --- 2D layout editor ---------------------------------------------------
+	let layoutOpen = $state(false);
+	let layoutLoading = $state(false);
+	let editorItems = $state<Array<EditorItem>>([]);
+	let editorBox = $state<{ halfX: number; halfY: number }>({ halfX: 0, halfY: 0 });
+
+	function dieLabel(kind: string): string {
+		return m.dice_name({ kind });
+	}
+
+	async function openLayout() {
+		if (!setData || !config) {
+			return;
+		}
+		layoutLoading = true;
+		try {
+			const prep = await prepareLayout(setData, $state.snapshot(config) as BoxConfig);
+			const manual = config.params.manual && config.params.box.halfX > 0;
+			const byId = new Map(config.placements.map((pl) => [pl.dieId, pl]));
+			editorItems = prep.dice.map((d) => {
+				const pl = byId.get(d.dieId);
+				return {
+					dieId: d.dieId,
+					kind: d.kind,
+					hull0: d.hull0,
+					size: d.size,
+					x: manual ? (pl?.x ?? d.autoPos.x) : d.autoPos.x,
+					y: manual ? (pl?.y ?? d.autoPos.y) : d.autoPos.y,
+					rotation: pl?.rotation ?? 0,
+					include: d.include
+				};
+			});
+			editorBox =
+				manual && config.params.box.halfX > 0
+					? { halfX: config.params.box.halfX, halfY: config.params.box.halfY }
+					: prep.box;
+			layoutOpen = true;
+		} catch (e) {
+			console.error('failed to prepare layout', e);
+		} finally {
+			layoutLoading = false;
+		}
+	}
+
+	function applyLayout(result: LayoutResult) {
+		if (!config) {
+			return;
+		}
+		const byId = new Map(result.placements.map((p) => [p.dieId, p]));
+		for (const pl of config.placements) {
+			const r = byId.get(pl.dieId);
+			if (r) {
+				pl.x = r.x;
+				pl.y = r.y;
+				pl.rotation = r.rotation;
+				pl.include = r.include;
+			}
+		}
+		config.params.box = { halfX: result.box.halfX, halfY: result.box.halfY };
+		config.params.manual = true;
+		config.params.rows = result.layoutParams.rows;
+		config.params.gap = result.layoutParams.gap;
+		config.params.marginX = result.layoutParams.marginX;
+		config.params.marginY = result.layoutParams.marginY;
+		config.params.chamfer = result.shape.chamfer;
+		config.params.wall = result.shape.wall;
+		config.params.magnets.enabled = result.shape.magnetsEnabled;
+		config.params.magnets.count = result.shape.magnetCount;
+		config.params.magnets.diameter = result.shape.magnetDiameter;
+		config.params.magnets.tolerance = result.shape.magnetTolerance;
+		layoutOpen = false;
+	}
 
 	function exportBox() {
 		if (!built) {
@@ -610,12 +664,6 @@
 							setParam('bevel', v)
 						)}
 						<p class="text-surface-600-400 text-xs">{m.boxes_bevel_hint()}</p>
-						{@render sliderRow(m.boxes_margin_x(), config.params.marginX, 0, 12, 0.5, (v) =>
-							setParam('marginX', v)
-						)}
-						{@render sliderRow(m.boxes_margin_y(), config.params.marginY, 0, 12, 0.5, (v) =>
-							setParam('marginY', v)
-						)}
 						{@render sliderRow(m.boxes_tray_depth(), config.params.trayDepth, 0, 6, 0.25, (v) =>
 							setParam('trayDepth', v)
 						)}
@@ -625,9 +673,6 @@
 
 				<Collapsible title={m.boxes_section_cavities()}>
 					<div class="flex flex-col gap-2 pt-2">
-						{@render sliderRow(m.boxes_gap(), config.params.gap, 0, 12, 0.5, (v) =>
-							setParam('gap', v)
-						)}
 						{@render sliderRow(
 							m.boxes_cavity_tolerance(),
 							config.params.cavityTolerance,
@@ -636,22 +681,6 @@
 							0.05,
 							(v) => setParam('cavityTolerance', v)
 						)}
-
-						<div class="flex flex-col">
-							<span class="flex justify-between text-sm">
-								<span>{m.boxes_rows()}</span>
-								<span>{Math.min(config.params.rows, Math.max(1, dieCount))}</span>
-							</span>
-							<Slider
-								class="py-1"
-								value={config.params.rows}
-								min={1}
-								max={Math.max(1, dieCount)}
-								step={1}
-								onChange={(v) => setParam('rows', v)}
-							/>
-							<span class="text-surface-600-400 text-xs">{m.boxes_rows_hint()}</span>
-						</div>
 					</div>
 				</Collapsible>
 
@@ -746,41 +775,20 @@
 
 				<Collapsible title={m.boxes_section_dice()}>
 					<div class="flex flex-col gap-2 pt-2">
-						{#each orderedPlacements as pl, i (pl.dieId)}
-							<div class="border-surface-300-700 flex flex-col gap-1 rounded-md border p-2">
-								<div class="flex items-center justify-between gap-2">
-									<label class="flex items-center gap-2 text-sm">
-										<input type="checkbox" class="checkbox" bind:checked={pl.include} />
-										<span>{i + 1}. {dieName(pl.dieId)}</span>
-									</label>
-									<div class="flex gap-1">
-										<button
-											class="btn-icon btn-icon-sm preset-tonal"
-											aria-label={m.boxes_die_move_up()}
-											onclick={() => moveDie(i, -1)}><ChevronUp class="size-4" /></button
-										>
-										<button
-											class="btn-icon btn-icon-sm preset-tonal"
-											aria-label={m.boxes_die_move_down()}
-											onclick={() => moveDie(i, 1)}><ChevronDown class="size-4" /></button
-										>
-									</div>
-								</div>
-								{#if pl.include}
-									<div class="flex flex-col">
-										<span class="text-xs">{m.boxes_die_rotate()}</span>
-										<Slider
-											class="py-1"
-											value={pl.rotation}
-											min={0}
-											max={Math.PI * 2}
-											step={Math.PI / 12}
-											onChange={(v) => (pl.rotation = v)}
-										/>
-									</div>
-								{/if}
-							</div>
-						{/each}
+						<p class="text-surface-600-400 text-xs">
+							{m.boxes_dice_summary({
+								included: orderedPlacements.filter((p) => p.include).length,
+								total: orderedPlacements.length
+							})}
+						</p>
+						<button
+							class="btn preset-tonal-primary mt-1"
+							disabled={orderedPlacements.length === 0 || layoutLoading}
+							onclick={openLayout}
+						>
+							<LayoutGridIcon class="size-4" />
+							<span>{layoutLoading ? m.boxes_layout_loading() : m.boxes_layout_edit()}</span>
+						</button>
 					</div>
 				</Collapsible>
 
@@ -938,4 +946,16 @@
 			{/if}
 		</div>
 	</div>
+
+	{#if config}
+		<LayoutEditor
+			open={layoutOpen}
+			initialItems={editorItems}
+			initialBox={editorBox}
+			params={config.params}
+			{dieLabel}
+			onApply={applyLayout}
+			onClose={() => (layoutOpen = false)}
+		/>
+	{/if}
 </Layout>
