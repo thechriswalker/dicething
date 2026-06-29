@@ -34,8 +34,13 @@ let _initPromise: Promise<ManifoldToplevel> | undefined;
 // project)? In node the emscripten module locates its own .wasm beside the .js,
 // so we must NOT pass a `locateFile`; in the browser we resolve the asset URL via
 // Vite's `?url` import. We key off `window` rather than `process` because the
-// jsdom test environments define `process` too.
-const isBrowser = typeof window !== 'undefined';
+// jsdom test environments define `process` too. A web worker has no `window` but
+// is still a browser context that needs the Vite-resolved `?url` (otherwise the
+// emscripten loader 404s on the .wasm), so treat a WorkerGlobalScope as browser.
+const workerScope = (globalThis as { WorkerGlobalScope?: new () => object }).WorkerGlobalScope;
+const isWorker =
+	typeof workerScope !== 'undefined' && typeof self !== 'undefined' && self instanceof workerScope;
+const isBrowser = typeof window !== 'undefined' || isWorker;
 
 // Initialise (once) and return the Manifold WASM toplevel. Safe to call
 // concurrently; all callers await the same in-flight init.

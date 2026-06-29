@@ -61,6 +61,22 @@ export type BuiltBox = {
 	boundaries: BoxBoundaries;
 };
 
+// Which stage of a build a progress tick belongs to. `prepare` is the per-die
+// tessellation loop; `base`/`lid` are the two big CSG passes.
+export type BuildPhase = 'prepare' | 'base' | 'lid';
+
+// A single discrete progress tick. `totalSteps` is known up front so a UI can
+// pick a fitting indicator immediately; `step` runs 0..totalSteps. `label` is an
+// English fallback - a localised UI should prefer `phase` + the step counts.
+export type BuildProgress = {
+	step: number;
+	totalSteps: number;
+	phase: BuildPhase;
+	label: string;
+};
+
+export type ProgressCallback = (p: BuildProgress) => void;
+
 // A die prepared for the box: its cavity (oversized) and true solids laid flat,
 // plus the layout footprint/height and the cavity's projected 2D outline.
 type PreparedDie = {
@@ -709,7 +725,11 @@ export type PreparedLayout = {
 // checkboxes for every die): build each once (at rotation 0) to get its
 // hull/size, then seed positions + box size from the auto-layout over just the
 // included dice. No solids are returned (CSG geometry is disposed).
-export async function prepareLayout(set: DiceSet, config: BoxConfig): Promise<PreparedLayout> {
+export async function prepareLayout(
+	set: DiceSet,
+	config: BoxConfig,
+	onProgress?: ProgressCallback
+): Promise<PreparedLayout> {
 	await getManifold();
 	const p = config.params;
 	const byId = new Map(config.placements.map((pl) => [pl.dieId, pl]));
@@ -718,6 +738,8 @@ export async function prepareLayout(set: DiceSet, config: BoxConfig): Promise<Pr
 		.filter((pl) => set.dice.some((d) => d.id === pl.dieId))
 		.slice()
 		.sort((a, b) => a.order - b.order);
+	const totalSteps = ordered.length;
+	onProgress?.({ step: 0, totalSteps, phase: 'prepare', label: 'Preparing dice' });
 	const prepared: Array<{
 		dieId: string;
 		kind: string;
@@ -727,38 +749,41 @@ export async function prepareLayout(set: DiceSet, config: BoxConfig): Promise<Pr
 		size: Vector3;
 	}> = [];
 	const dieById = new Map(set.dice.map((d) => [d.id, d]));
-	for (const pl of ordered) {
+	for (let i = 0; i < ordered.length; i++) {
+		const pl = ordered[i];
 		const die = dieById.get(pl.dieId);
-		if (!die) {
-			continue;
+		const model = die ? dice[die.kind] : undefined;
+		if (die && model) {
+			try {
+				const prep = prepareDie(
+					model,
+					die.parameters,
+					die.string_parameters ?? {},
+					pl.dieId,
+					p.cavityTolerance,
+					0
+				);
+				prepared.push({
+					dieId: pl.dieId,
+					kind: die.kind,
+					rotation: pl.rotation,
+					include: pl.include,
+					hull0: prep.hull,
+					size: prep.size
+				});
+				prep.cavity.dispose();
+				prep.lidCavity?.dispose();
+				prep.solid.dispose();
+			} catch (e) {
+				console.warn('box: failed to prepare die for layout', pl.dieId, e);
+			}
 		}
-		const model = dice[die.kind];
-		if (!model) {
-			continue;
-		}
-		try {
-			const prep = prepareDie(
-				model,
-				die.parameters,
-				die.string_parameters ?? {},
-				pl.dieId,
-				p.cavityTolerance,
-				0
-			);
-			prepared.push({
-				dieId: pl.dieId,
-				kind: die.kind,
-				rotation: pl.rotation,
-				include: pl.include,
-				hull0: prep.hull,
-				size: prep.size
-			});
-			prep.cavity.dispose();
-			prep.lidCavity?.dispose();
-			prep.solid.dispose();
-		} catch (e) {
-			console.warn('box: failed to prepare die for layout', pl.dieId, e);
-		}
+		onProgress?.({
+			step: i + 1,
+			totalSteps,
+			phase: 'prepare',
+			label: `Preparing die ${i + 1}/${ordered.length}`
+		});
 	}
 	// seed positions/box from the auto-layout of the included dice only.
 	const auto = deriveAutoLayout(
@@ -782,7 +807,11 @@ export async function prepareLayout(set: DiceSet, config: BoxConfig): Promise<Pr
 	return { dice: diceList, box: { halfX: auto.outerHalf.x, halfY: auto.outerHalf.y } };
 }
 
-export async function buildBox(set: DiceSet, config: BoxConfig): Promise<BuiltBox> {
+export async function buildBox(
+	set: DiceSet,
+	config: BoxConfig,
+	onProgress?: ProgressCallback
+): Promise<BuiltBox> {
 	await getManifold();
 	const p = config.params;
 
@@ -791,31 +820,40 @@ export async function buildBox(set: DiceSet, config: BoxConfig): Promise<BuiltBo
 		.slice()
 		.sort((a, b) => a.order - b.order);
 
+	// prepare each die (N steps) then cut the base and the lid (2 steps).
+	const totalSteps = placements.length + 2;
+	onProgress?.({ step: 0, totalSteps, phase: 'prepare', label: 'Preparing dice' });
+
 	const dieById = new Map(set.dice.map((d) => [d.id, d]));
 	const prepared: Array<PreparedDie> = [];
-	for (const pl of placements) {
+	for (let i = 0; i < placements.length; i++) {
+		const pl = placements[i];
 		const die = dieById.get(pl.dieId);
-		if (!die) {
-			continue;
+		if (die) {
+			const model = dice[die.kind];
+			if (model) {
+				try {
+					prepared.push(
+						prepareDie(
+							model,
+							die.parameters,
+							die.string_parameters ?? {},
+							pl.dieId,
+							p.cavityTolerance,
+							pl.rotation
+						)
+					);
+				} catch (e) {
+					console.warn('box: failed to prepare die', pl.dieId, e);
+				}
+			}
 		}
-		const model = dice[die.kind];
-		if (!model) {
-			continue;
-		}
-		try {
-			prepared.push(
-				prepareDie(
-					model,
-					die.parameters,
-					die.string_parameters ?? {},
-					pl.dieId,
-					p.cavityTolerance,
-					pl.rotation
-				)
-			);
-		} catch (e) {
-			console.warn('box: failed to prepare die', pl.dieId, e);
-		}
+		onProgress?.({
+			step: i + 1,
+			totalSteps,
+			phase: 'prepare',
+			label: `Preparing die ${i + 1}/${placements.length}`
+		});
 	}
 
 	// --- position the dice and size the box --------------------------------
@@ -918,6 +956,12 @@ export async function buildBox(set: DiceSet, config: BoxConfig): Promise<BuiltBo
 			g.dispose();
 		}
 	}
+	onProgress?.({
+		step: placements.length + 1,
+		totalSteps: placements.length + 2,
+		phase: 'base',
+		label: 'Cutting base'
+	});
 	const base = cutToGeometry(baseBody, baseCutters, baseSupports);
 
 	// --- lid: upper half of every die. The die is rotated 180deg about X so the
@@ -939,6 +983,12 @@ export async function buildBox(set: DiceSet, config: BoxConfig): Promise<BuiltBo
 		);
 	}
 	lidCutters.push(...magnetBores(p, lidCorners, seam));
+	onProgress?.({
+		step: placements.length + 2,
+		totalSteps: placements.length + 2,
+		phase: 'lid',
+		label: 'Cutting lid'
+	});
 	const lid = cutToGeometry(lidBody, lidCutters);
 
 	// developer boundary overlay outlines (box xy frame, centred on the origin).

@@ -1,16 +1,6 @@
 <script lang="ts">
-	import Layout from '$lib/components/layout/Layout.svelte';
-	import Logo from '$lib/components/icons/Logo.svelte';
+	import SplashShell from '$lib/components/layout/SplashShell.svelte';
 	import { m } from '$lib/paraglide/messages';
-	import {
-		BoxIcon,
-		TypeOutlineIcon,
-		GithubIcon,
-		GitBranchIcon,
-		TriangleAlertIcon
-	} from '@lucide/svelte';
-	import BouncyDice from '$lib/components/bouncy_dice/BouncyDice.svelte';
-	import { PUBLIC_APP_REPO_URL, PUBLIC_APP_VERSION } from '$env/static/public';
 	import { page } from '$app/state';
 
 	let status = $derived(page.status);
@@ -25,44 +15,9 @@
 	);
 </script>
 
-<Layout>
-	<div class="relative flex min-h-full flex-col items-center justify-center p-4">
-		<BouncyDice />
-		<div
-			class="card preset-glass-surface text-surface-900 z-10 flex w-full max-w-2xl flex-col items-center gap-6 rounded-4xl p-8 text-center"
-		>
-			<div
-				class="card preset-filled-error-500 flex w-full flex-col items-center gap-2 rounded-xl p-6"
-			>
-				<h2 class="h3">{title}</h2>
-				<p class="text-xl opacity-90">{message}</p>
-			</div>
-
-			<div class="sm:flex-row1 flex w-full flex-col justify-center gap-4">
-				<a href="/dice" class="btn btn-lg preset-filled-primary-500 flex-1 rounded-xl text-2xl">
-					<BoxIcon class="inline-block size-[1em]" />
-					{m.home_create_dice()}
-				</a>
-				<a
-					href="/legends"
-					class="btn btn-lg preset-filled-secondary-500 flex-1 rounded-xl text-2xl"
-				>
-					<TypeOutlineIcon class="inline-block size-[1em]" />
-					{m.home_create_legends()}
-				</a>
-			</div>
-			<div class="text-surface-700 flex w-full flex-row items-center justify-center gap-4 text-sm">
-				<span>{PUBLIC_APP_VERSION}</span>
-				<a href={PUBLIC_APP_REPO_URL} class="inline-flex items-center gap-1 hover:underline">
-					{#if PUBLIC_APP_REPO_URL.includes('github.com')}
-						<GithubIcon class="size-4" />
-						Source on GitHub
-					{:else}
-						<GitBranchIcon class="size-4" />
-						Source Code
-					{/if}
-				</a>
-			</div>
-		</div>
+<SplashShell>
+	<div class="card preset-filled-error-500 flex w-full flex-col items-center gap-2 rounded-xl p-6">
+		<h2 class="h3">{title}</h2>
+		<p class="text-xl opacity-90">{message}</p>
 	</div>
-</Layout>
+</SplashShell>

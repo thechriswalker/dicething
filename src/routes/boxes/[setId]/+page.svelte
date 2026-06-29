@@ -11,7 +11,9 @@
 	import { m } from '$lib/paraglide/messages';
 	import { createFancyRender, createGridHelper, type SceneRenderer } from '$lib/utils/scene';
 	import { debounce } from '$lib/utils/debounce';
-	import { buildBox, prepareLayout, type BuiltBox } from '$lib/box/box_builder';
+	import type { BuiltBox, BuildProgress } from '$lib/box/box_builder';
+	import { buildBoxInWorker, prepareLayoutInWorker } from '$lib/box/box_client';
+	import BoxProgressDie from '$lib/box/BoxProgressDie.svelte';
 	import LayoutEditor from '$lib/components/box_layout/LayoutEditor.svelte';
 	import type { EditorItem, LayoutResult } from '$lib/components/box_layout/types';
 	import {
@@ -22,7 +24,7 @@
 	} from '$lib/box/store';
 	import type { BoxConfig } from '$lib/box/types';
 	import { download, exportStlSingle, exportStlZip, type NamedMesh } from '$lib/utils/export';
-	import { onMount } from 'svelte';
+	import { onDestroy, onMount } from 'svelte';
 	import {
 		BufferGeometry,
 		Group,
@@ -41,7 +43,8 @@
 		BoxSelect,
 		LayoutGridIcon,
 		SparklesIcon,
-		CopyIcon
+		CopyIcon,
+		PlayIcon
 	} from '@lucide/svelte';
 	import { Button } from 'bits-ui';
 
@@ -51,10 +54,23 @@
 	let config = $state<BoxConfig | undefined>(undefined);
 	let ctx = $state<SceneRenderer>();
 	let building = $state(false);
+	let buildProgress = $state<BuildProgress | null>(null);
+	// the build's compute has finished (its result is rendering); combined with
+	// the die reaching its final face, drives the brief "linger" before hiding.
+	let buildFinished = $state(false);
+	// bound from the indicator: true once the die has rotated all the way down to
+	// its final face ("1"). The linger only starts once this is true.
+	let atFinalFace = $state(false);
+	// bound to the indicator's dev "decouple" toggle: while true the indicator
+	// stays open (and frozen) so a dev can play with it.
+	let progressDecoupled = $state(false);
+	// monotonically increasing id of the latest build request, so results from a
+	// superseded build (e.g. after a rapid config change) can be dropped.
+	let buildSeq = 0;
 	let outerSize = $state<{ x: number; y: number }>({ x: 0, y: 0 });
 
 	// user-facing scene control: dice see-through-ness (0 = hidden, 1 = solid).
-	let dieOpacity = $state(0.33*0);
+	let dieOpacity = $state(0.33 * 0);
 	let fileLayout = $state<'single' | 'zip'>('zip');
 
 	const gridHelper = createGridHelper(160);
@@ -272,17 +288,91 @@
 		if (!ctx || !setData || !config) {
 			return;
 		}
-		building = true;
+		const seq = ++buildSeq;
+		buildProgress = null;
+		buildFinished = false;
+		atFinalFace = false;
+		progressDecoupled = false;
+		// Most builds are fast; only surface the progress indicator once a build
+		// has been running long enough to be worth showing (e.g. a complex edged
+		// coin), so quick rebuilds don't flash it on and off.
+		const showTimer = setTimeout(() => {
+			if (seq === buildSeq) {
+				building = true;
+			}
+		}, 100);
 		try {
-			const result = await buildBox(setData, $state.snapshot(config) as BoxConfig);
+			const result = await buildBoxInWorker(setData, $state.snapshot(config) as BoxConfig, (p) => {
+				// ignore progress from a build that's already been superseded.
+				if (seq === buildSeq) {
+					buildProgress = p;
+				}
+			});
+			// a newer build started while this one ran: drop the stale result.
+			if (seq !== buildSeq) {
+				return;
+			}
 			built = result;
 			outerSize = { x: result.outer.x, y: result.outer.y };
 			renderPreview();
 		} catch (e) {
 			console.error('failed to build box', e);
 		} finally {
-			building = false;
+			clearTimeout(showTimer);
+			// mark the build done; the hideIndicator effect lingers briefly then
+			// hides it (or keeps it open while a dev has decoupled the indicator).
+			if (seq === buildSeq) {
+				buildFinished = true;
+			}
 		}
+	}
+
+	// Hide the progress indicator a short beat AFTER the build has finished AND
+	// the die has rolled all the way down to its final face ("1") - so the linger
+	// starts when the die hits 1, not when the compute ends. Unless a dev has
+	// decoupled it to play with, in which case it stays open until re-coupled.
+	let hideTimer: ReturnType<typeof setTimeout> | undefined;
+	$effect(() => {
+		if (building && buildFinished && atFinalFace && !progressDecoupled) {
+			hideTimer = setTimeout(() => {
+				building = false;
+				buildProgress = null;
+				buildFinished = false;
+			}, 200);
+			return () => clearTimeout(hideTimer);
+		}
+	});
+
+	// dev-only: replay a synthetic progress sequence so the loading indicator can
+	// be watched without waiting for a real (slow) build.
+	let previewTimer: ReturnType<typeof setInterval> | undefined;
+	onDestroy(() => clearInterval(previewTimer));
+	function previewLoading() {
+		const seq = ++buildSeq;
+		const totalSteps = 12;
+		building = true;
+		buildFinished = false;
+		atFinalFace = false;
+		progressDecoupled = false;
+		buildProgress = { step: 0, totalSteps, phase: 'prepare', label: '' };
+		let step = 0;
+		clearInterval(previewTimer);
+		previewTimer = setInterval(() => {
+			// a real build (or another preview) took over: stop.
+			if (seq !== buildSeq) {
+				clearInterval(previewTimer);
+				return;
+			}
+			step++;
+			const phase: BuildProgress['phase'] =
+				step >= totalSteps ? 'lid' : step === totalSteps - 1 ? 'base' : 'prepare';
+			buildProgress = { step, totalSteps, phase, label: '' };
+			if (step >= totalSteps) {
+				clearInterval(previewTimer);
+				// hand off to the hideIndicator effect (which honours decouple).
+				buildFinished = true;
+			}
+		}, 650);
 	}
 
 	// (re)draw the cached box honouring the visibility toggles. Cheap: no CSG.
@@ -454,7 +544,7 @@
 		}
 		layoutLoading = true;
 		try {
-			const prep = await prepareLayout(setData, $state.snapshot(config) as BoxConfig);
+			const prep = await prepareLayoutInWorker(setData, $state.snapshot(config) as BoxConfig);
 			const manual = config.params.manual && config.params.box.halfX > 0;
 			const byId = new Map(config.placements.map((pl) => [pl.dieId, pl]));
 			editorItems = prep.dice.map((d) => {
@@ -598,10 +688,28 @@
 								>
 							{/snippet}
 						</Tooltip>
+						<Tooltip content={m.boxes_preview_loading()} side="right">
+							{#snippet children(props)}
+								<Button.Root
+									{...props}
+									class="btn-icon preset-tonal-primary"
+									aria-label={m.boxes_preview_loading()}
+									onclick={previewLoading}><PlayIcon /></Button.Root
+								>
+							{/snippet}
+						</Tooltip>
 					{/if}
 				</li>
 				{#if building}
-					<li class="card preset-filled-surface-100-900 p-2 text-sm">{m.boxes_building()}</li>
+					<li>
+						<BoxProgressDie
+							progress={buildProgress}
+							showDevTools={devMode}
+							complete={buildFinished}
+							bind:decoupled={progressDecoupled}
+							bind:atFinalFace
+						/>
+					</li>
 				{/if}
 			</ul>
 		</Scene>
