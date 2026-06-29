@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import DeleteSetDialog from '$lib/components/delete_set/DeleteSetDialog.svelte';
+	import DiePreview from '$lib/components/die_preview/DiePreview.svelte';
 	import Layout from '$lib/components/layout/Layout.svelte';
 	import Modal from '$lib/components/modal/Modal.svelte';
 	import PresetOptions from '$lib/components/preset_options/PresetOptions.svelte';
@@ -8,12 +9,19 @@
 	import Tooltip from '$lib/components/tooltip/Tooltip.svelte';
 	import { mergeProps } from 'svelte-toolbelt';
 	import type { Preset, PresetOption } from '$lib/interfaces/presets';
-	import { getSavedSets, saveSet, waitForInitialLoad } from '$lib/interfaces/storage.svelte';
+	import {
+		getSavedSets,
+		saveSet,
+		waitForInitialLoad,
+		type Dice
+	} from '$lib/interfaces/storage.svelte';
+	import type { LegendSet } from '$lib/utils/legends';
 	import { m } from '$lib/paraglide/messages';
 	import { fromPreset, presets } from '$lib/presets';
 	import { importSetJson } from '$lib/utils/export';
 	import { XIcon } from '@lucide/svelte';
 	import { Progress } from '@skeletonlabs/skeleton-svelte';
+	import { onMount } from 'svelte';
 
 	// merge a parent trigger's props (e.g. a dialog trigger) with our tooltip
 	// trigger props so a single element can drive both behaviours.
@@ -22,6 +30,33 @@
 	}
 
 	let savedSets = getSavedSets();
+
+	// how many dice to show as a thumbnail strip on each set / preset card.
+	const PREVIEW_COUNT = 5;
+
+	// thumbnail dice for each preset, built once with the preset's default
+	// options so the picker shows what each preset will produce. Built lazily on
+	// mount (the factories are async and resolve legends), keyed by preset id.
+	type PresetPreview = { dice: Array<Dice>; legends: LegendSet; total: number };
+	let presetPreviews = $state<Record<string, PresetPreview>>({});
+
+	onMount(async () => {
+		for (const preset of presets) {
+			try {
+				const built = await preset.factory(preset.options());
+				presetPreviews[preset.id] = {
+					legends: built.legends,
+					total: built.dice.length,
+					dice: built.dice.slice(0, PREVIEW_COUNT).map((d, i) => ({
+						...d,
+						id: `preset:${preset.id}:${i}`
+					}))
+				};
+			} catch (e) {
+				console.warn('failed to build preset preview', preset.id, e);
+			}
+		}
+	});
 
 	let fileInput = $state<HTMLInputElement>();
 	let importing = $state(false);
@@ -79,6 +114,19 @@
 									{m.presets_title({ preset: preset.id })}
 								</h6>
 								<p class="">{m.presets_description({ preset: preset.id })}</p>
+								{#if presetPreviews[preset.id]?.dice.length}
+									{@const pv = presetPreviews[preset.id]}
+									<div class="mt-1 flex flex-row flex-wrap items-end gap-1">
+										{#each pv.dice as die (die.id)}
+											<DiePreview class="w-12" {die} legends={pv.legends} />
+										{/each}
+										{#if pv.total > PREVIEW_COUNT}
+											<span class="text-surface-600-400 self-center text-sm"
+												>+{pv.total - PREVIEW_COUNT}</span
+											>
+										{/if}
+									</div>
+								{/if}
 							</button>
 						{/snippet}
 						{#snippet inner(close)}
@@ -134,6 +182,18 @@
 								>
 									<h6 class="text-xl">{set.name}</h6>
 									<p><Time t={set.updated} /></p>
+									{#if set.dice.length > 0}
+										<div class="flex flex-row flex-wrap items-end gap-1">
+											{#each set.dice.slice(0, PREVIEW_COUNT) as die (die.id)}
+												<DiePreview class="w-12" {die} legends={set.legends} />
+											{/each}
+											{#if set.dice.length > PREVIEW_COUNT}
+												<span class="text-surface-600-400 self-center text-sm"
+													>+{set.dice.length - PREVIEW_COUNT}</span
+												>
+											{/if}
+										</div>
+									{/if}
 								</a>
 								<DeleteSetDialog setId={set.id} setName={set.name}>
 									{#snippet trigger(props)}

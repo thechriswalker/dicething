@@ -20,6 +20,11 @@ export type UpAxis = 'y' | 'z';
 
 export type ThreeMfObject = IndexedMesh & { name: string };
 
+// A named bundle of meshes that should export as ONE grouped object: the child
+// meshes become individual mesh objects and a wrapping component object ties
+// them together (see groupedModelXml).
+export type ThreeMfGroup = { name: string; objects: Array<ThreeMfObject> };
+
 // Round to micrometre precision and strip trailing zeros. Values are in mm and
 // never near the exponent range, so toString() stays in plain decimal notation.
 function fmt(n: number): string {
@@ -79,6 +84,18 @@ function objectXml(obj: ThreeMfObject, id: number, upAxis: UpAxis): string {
 	);
 }
 
+// Wrap the assembled <resources> / <build> bodies in the model document.
+function wrapModel(resources: string, items: string): string {
+	return (
+		`<?xml version="1.0" encoding="UTF-8"?>\n` +
+		`<model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">\n` +
+		`\t<metadata name="Application">dicething</metadata>\n` +
+		`\t<resources>\n${resources}\t</resources>\n` +
+		`\t<build>\n${items}\t</build>\n` +
+		`</model>\n`
+	);
+}
+
 // The 3D/3dmodel.model XML for a set of objects, each placed once in the build.
 export function modelXml(objects: Array<ThreeMfObject>, upAxis: UpAxis): string {
 	let resources = '';
@@ -88,14 +105,35 @@ export function modelXml(objects: Array<ThreeMfObject>, upAxis: UpAxis): string 
 		resources += objectXml(obj, id, upAxis);
 		items += `\t\t<item objectid="${id}"/>\n`;
 	});
-	return (
-		`<?xml version="1.0" encoding="UTF-8"?>\n` +
-		`<model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">\n` +
-		`\t<metadata name="Application">dicething</metadata>\n` +
-		`\t<resources>\n${resources}\t</resources>\n` +
-		`\t<build>\n${items}\t</build>\n` +
-		`</model>\n`
-	);
+	return wrapModel(resources, items);
+}
+
+// Like modelXml, but every group's meshes are emitted as child mesh objects and
+// tied together by a wrapping <components> object. Only that wrapper is placed
+// in the build, so a slicer reads each group as a single grouped object/assembly
+// (the parts already carry their world placement, so no per-component transform).
+export function groupedModelXml(groups: Array<ThreeMfGroup>, upAxis: UpAxis): string {
+	let resources = '';
+	let items = '';
+	let nextId = 1;
+	for (const group of groups) {
+		const childIds: Array<number> = [];
+		for (const obj of group.objects) {
+			const id = nextId++;
+			resources += objectXml(obj, id, upAxis);
+			childIds.push(id);
+		}
+		const groupId = nextId++;
+		const components = childIds
+			.map((cid) => `\t\t\t\t<component objectid="${cid}"/>\n`)
+			.join('');
+		resources +=
+			`\t\t<object id="${groupId}" type="model" name="${escapeAttr(group.name)}">\n` +
+			`\t\t\t<components>\n${components}\t\t\t</components>\n` +
+			`\t\t</object>\n`;
+		items += `\t\t<item objectid="${groupId}"/>\n`;
+	}
+	return wrapModel(resources, items);
 }
 
 const _enc = new TextEncoder();
@@ -115,6 +153,32 @@ function pack(model: string): Uint8Array {
 export function buildThreeMf(objects: Array<ThreeMfObject>, upAxis: UpAxis): Blob {
 	const bytes = pack(modelXml(objects, upAxis));
 	return new Blob([bytes as BlobPart], { type: 'model/3mf' });
+}
+
+// One .3mf where each group's meshes are combined into a single grouped object
+// (a 3MF component object). Use when several parts belong to one logical object,
+// e.g. a box base + lid that should stay together.
+export function buildThreeMfGrouped(groups: Array<ThreeMfGroup>, upAxis: UpAxis): Blob {
+	const bytes = pack(groupedModelXml(groups, upAxis));
+	return new Blob([bytes as BlobPart], { type: 'model/3mf' });
+}
+
+// One .3mf per group, all packed into a ZIP. Each file holds a single grouped
+// component object (the group's meshes), so it's the "one file per group" layout.
+export function buildThreeMfGroupZip(groups: Array<ThreeMfGroup>, upAxis: UpAxis): Blob {
+	const files: Zippable = {};
+	const used = new Set<string>();
+	for (const group of groups) {
+		let filename = `${group.name}.3mf`;
+		let i = 1;
+		while (used.has(filename)) {
+			filename = `${group.name}_${i++}.3mf`;
+		}
+		used.add(filename);
+		files[filename] = pack(groupedModelXml([group], upAxis));
+	}
+	const zipped = zipSync(files);
+	return new Blob([zipped as BlobPart], { type: 'application/zip' });
 }
 
 // One .3mf per object, all packed into a ZIP (the "separate files" layout).

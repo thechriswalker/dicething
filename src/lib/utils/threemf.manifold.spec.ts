@@ -2,7 +2,14 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import { Shape, Vector2 } from 'three';
 import { unzipSync, strFromU8 } from 'fflate';
 import { getManifold, geometryToIndexedMesh } from './manifold';
-import { buildThreeMf, buildThreeMfZip, modelXml, type UpAxis } from './threemf';
+import {
+	buildThreeMf,
+	buildThreeMfGrouped,
+	buildThreeMfZip,
+	groupedModelXml,
+	modelXml,
+	type UpAxis
+} from './threemf';
 import { buildPlatform } from './build_options/platforms';
 import { checkMesh } from './mesh_check';
 
@@ -114,6 +121,31 @@ describe('manifold -> 3MF export pipeline', () => {
 		// both meshes present as separate objects, each placed in the build.
 		expect((model.match(/<object /g) ?? []).length).toBe(2);
 		expect((model.match(/<item /g) ?? []).length).toBe(2);
+	});
+
+	it('groups meshes into one component object with a single build item', async () => {
+		const objects = [pentagon(10), plus(10, 4)].map((s, i) => ({
+			name: `box_part_${i}`,
+			...geometryToIndexedMesh(buildPlatform(s, platform))
+		}));
+		const xml = groupedModelXml([{ name: 'box', objects }], 'z');
+		// two child mesh objects + one wrapper component object = three objects,
+		// but only the wrapper is placed in the build.
+		expect((xml.match(/<object /g) ?? []).length).toBe(3);
+		expect((xml.match(/<components>/g) ?? []).length).toBe(1);
+		expect((xml.match(/<component /g) ?? []).length).toBe(2);
+		expect((xml.match(/<item /g) ?? []).length).toBe(1);
+		// the build item targets the wrapper (the highest object id), and the
+		// components reference the two child mesh objects.
+		expect(xml).toContain('<item objectid="3"/>');
+		expect(xml).toContain('<component objectid="1"/>');
+		expect(xml).toContain('<component objectid="2"/>');
+		expect(xml).toContain('name="box"');
+
+		// the grouped package is still a valid OPC container.
+		const blob = buildThreeMfGrouped([{ name: 'box', objects }], 'z');
+		const files = unzipSync(new Uint8Array(await blob.arrayBuffer()));
+		expect(Object.keys(files)).toContain('3D/3dmodel.model');
 	});
 
 	it('buildThreeMfZip emits one .3mf per mesh', async () => {

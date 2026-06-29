@@ -12,10 +12,13 @@
 	import {
 		buildExportMeshes,
 		download,
+		exportStlGroupZip,
 		exportStlSingle,
 		exportStlZip,
-		exportThreeMfSingle,
+		exportThreeMfGrouped,
+		exportThreeMfGroupZip,
 		exportThreeMfZip,
+		groupMeshesByCategory,
 		layoutGrid,
 		type ExportFormat,
 		type OptionStates
@@ -56,7 +59,7 @@
 	let dieErrors = $state<Record<string, Array<EngravingError>>>({});
 	let includeDice = $state(true);
 	let format = $state<ExportFormat>('3mf');
-	let fileLayout = $state<'single' | 'zip'>('single');
+	let fileLayout = $state<'single' | 'group' | 'object'>('single');
 
 	let optionStates = $state<OptionStates>(
 		Object.fromEntries(
@@ -452,6 +455,15 @@
 	});
 	let totalVolumeMl = $derived(volumeGroups.reduce((sum, row) => sum + row.volume, 0));
 
+	// the "one file per group" layout only makes sense with more than one group
+	// (dice + at least one artifact type). Fall back to a single file otherwise.
+	let multiGroup = $derived(volumeGroups.length > 1);
+	$effect(() => {
+		if (fileLayout === 'group' && !multiGroup) {
+			fileLayout = 'single';
+		}
+	});
+
 	async function exportModel() {
 		if (!setData || nothingToExport) {
 			return;
@@ -462,22 +474,37 @@
 			optionStates: $state.snapshot(optionStates)
 		});
 		const name = (setData.name || 'set').replace(/[^a-z0-9-_]+/gi, '_');
+		const groups = groupMeshesByCategory(named, name);
 		// dice are built Y-up; the 3MF writer reorients them to the print bed.
 		if (format === '3mf') {
-			if (fileLayout === 'single') {
-				layoutGrid(named.map((n) => n.mesh));
-				download(await exportThreeMfSingle(named, 'y'), `${name}.3mf`);
-			} else {
+			if (fileLayout === 'object') {
 				download(await exportThreeMfZip(named, 'y'), `${name}.zip`);
+			} else if (fileLayout === 'group' && groups.length > 1) {
+				// each group laid out within its own file, then one grouped 3MF per
+				// group, all packed into a ZIP.
+				for (const g of groups) {
+					layoutGrid(g.meshes.map((n) => n.mesh));
+				}
+				download(await exportThreeMfGroupZip(groups, 'y'), `${name}.zip`);
+			} else {
+				layoutGrid(named.map((n) => n.mesh));
+				// group each category (dice / blanks / platforms / ...) into one 3MF
+				// object so the slicer treats each as a single grouped object.
+				download(await exportThreeMfGrouped(groups, 'y'), `${name}.3mf`);
 			}
 			return;
 		}
-		if (fileLayout === 'single') {
+		if (fileLayout === 'object') {
+			download(exportStlZip(named), `${name}.zip`);
+		} else if (fileLayout === 'group' && groups.length > 1) {
+			for (const g of groups) {
+				layoutGrid(g.meshes.map((n) => n.mesh));
+			}
+			download(exportStlGroupZip(groups), `${name}.zip`);
+		} else {
 			const meshes = named.map((n) => n.mesh);
 			layoutGrid(meshes);
 			download(exportStlSingle(meshes), `${name}.stl`);
-		} else {
-			download(exportStlZip(named), `${name}.zip`);
 		}
 	}
 </script>
@@ -854,9 +881,15 @@
 						<input type="radio" class="radio" value="single" bind:group={fileLayout} />
 						<span>{m.export_file_single()}</span>
 					</label>
+					{#if multiGroup}
+						<label class="flex items-center gap-2 text-sm">
+							<input type="radio" class="radio" value="group" bind:group={fileLayout} />
+							<span>{m.export_file_group()}</span>
+						</label>
+					{/if}
 					<label class="flex items-center gap-2 text-sm">
-						<input type="radio" class="radio" value="zip" bind:group={fileLayout} />
-						<span>{m.export_file_zip()}</span>
+						<input type="radio" class="radio" value="object" bind:group={fileLayout} />
+						<span>{m.export_file_object()}</span>
 					</label>
 				</div>
 			</Collapsible>

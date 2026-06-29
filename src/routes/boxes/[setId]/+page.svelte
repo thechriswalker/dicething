@@ -27,7 +27,7 @@
 		download,
 		exportStlSingle,
 		exportStlZip,
-		exportThreeMfSingle,
+		exportThreeMfGrouped,
 		exportThreeMfZip,
 		type ExportFormat,
 		type NamedMesh
@@ -81,7 +81,7 @@
 
 	// user-facing scene control: dice see-through-ness (0 = hidden, 1 = solid).
 	let dieOpacity = $state(0.33);
-	let fileLayout = $state<'single' | 'zip'>('zip');
+	let fileLayout = $state<'single' | 'zip'>('single');
 	let format = $state<ExportFormat>('3mf');
 
 	const gridHelper = createGridHelper(160);
@@ -696,7 +696,12 @@
 					{ name: `${name}_box_base`, mesh: base, group: 'box' },
 					{ name: `${name}_box_lid`, mesh: lid, group: 'box' }
 				];
-				download(await exportThreeMfSingle(named, 'z'), `${name}_box.3mf`);
+				// base + lid are one print-in-place piece: keep them as a single
+				// grouped 3MF object so the slicer never treats them as two parts.
+				download(
+					await exportThreeMfGrouped([{ name: `${name}_box`, meshes: named }], 'z'),
+					`${name}_box.3mf`
+				);
 			} else {
 				download(exportStlSingle([base, lid]), `${name}_box.stl`);
 			}
@@ -723,7 +728,12 @@
 					{ name: `${name}_box_base`, mesh: base, group: 'box' },
 					{ name: `${name}_box_lid`, mesh: lid, group: 'box' }
 				];
-				download(await exportThreeMfSingle(named, 'z'), `${name}_box.3mf`);
+				// the base and lid are halves of one box: group them into a single
+				// 3MF object rather than two independent build items.
+				download(
+					await exportThreeMfGrouped([{ name: `${name}_box`, meshes: named }], 'z'),
+					`${name}_box.3mf`
+				);
 			} else {
 				download(exportStlSingle([base, lid]), `${name}_box.stl`);
 			}

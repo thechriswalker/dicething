@@ -10,7 +10,15 @@ import { extraBuildOptions, type OptionValues } from './build_options';
 import { blanks, isBuiltin, loadBuiltinById } from '$lib/fonts';
 import { uuid } from './uuid';
 import { getManifold, geometryToIndexedMesh } from './manifold';
-import { buildThreeMf, buildThreeMfZip, type ThreeMfObject, type UpAxis } from './threemf';
+import {
+	buildThreeMf,
+	buildThreeMfGrouped,
+	buildThreeMfGroupZip,
+	buildThreeMfZip,
+	type ThreeMfGroup,
+	type ThreeMfObject,
+	type UpAxis
+} from './threemf';
 
 export type ExportFormat = 'stl' | '3mf';
 
@@ -156,13 +164,35 @@ function stlBinary(object: Mesh | Group): Uint8Array {
 	return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
 }
 
-// All meshes combined into a single STL (they should already be laid out).
-export function exportStlSingle(meshes: Array<Mesh>): Blob {
+function stlBinaryOfMeshes(meshes: Array<Mesh>): Uint8Array {
 	const group = new Group();
 	for (const m of meshes) {
 		group.add(m);
 	}
-	return new Blob([stlBinary(group) as BlobPart], { type: 'model/stl' });
+	return stlBinary(group);
+}
+
+// All meshes combined into a single STL (they should already be laid out).
+export function exportStlSingle(meshes: Array<Mesh>): Blob {
+	return new Blob([stlBinaryOfMeshes(meshes) as BlobPart], { type: 'model/stl' });
+}
+
+// One STL per group, packed into a single ZIP: each group's meshes are merged
+// into one combined STL (the group's meshes should already be laid out).
+export function exportStlGroupZip(groups: Array<ThreeMfMeshGroup>): Blob {
+	const files: Zippable = {};
+	const used = new Set<string>();
+	for (const g of groups) {
+		let filename = `${g.name}.stl`;
+		let i = 1;
+		while (used.has(filename)) {
+			filename = `${g.name}_${i++}.stl`;
+		}
+		used.add(filename);
+		files[filename] = stlBinaryOfMeshes(g.meshes.map((n) => n.mesh));
+	}
+	const zipped = zipSync(files);
+	return new Blob([zipped as BlobPart], { type: 'application/zip' });
 }
 
 // One STL per mesh, packed into a single ZIP.
@@ -186,19 +216,21 @@ export function exportStlZip(named: Array<NamedMesh>): Blob {
 
 // Convert the named meshes into indexed 3MF objects by routing each through
 // Manifold (see geometryToIndexedMesh). Awaits the one-time WASM init up front.
+function toThreeMfObject(named: NamedMesh, used: Set<string>): ThreeMfObject {
+	let uniqueName = named.name;
+	let i = 1;
+	while (used.has(uniqueName)) {
+		uniqueName = `${named.name}_${i++}`;
+	}
+	used.add(uniqueName);
+	const { positions, indices } = geometryToIndexedMesh(named.mesh.geometry);
+	return { name: uniqueName, positions, indices };
+}
+
 async function toThreeMfObjects(named: Array<NamedMesh>): Promise<Array<ThreeMfObject>> {
 	await getManifold();
 	const used = new Set<string>();
-	return named.map(({ name, mesh }) => {
-		let uniqueName = name;
-		let i = 1;
-		while (used.has(uniqueName)) {
-			uniqueName = `${name}_${i++}`;
-		}
-		used.add(uniqueName);
-		const { positions, indices } = geometryToIndexedMesh(mesh.geometry);
-		return { name: uniqueName, positions, indices };
-	});
+	return named.map((n) => toThreeMfObject(n, used));
 }
 
 // All meshes combined into a single .3mf (each die/artifact is its own object in
@@ -209,6 +241,62 @@ export async function exportThreeMfSingle(
 	upAxis: UpAxis = 'y'
 ): Promise<Blob> {
 	return buildThreeMf(await toThreeMfObjects(named), upAxis);
+}
+
+// A set of meshes that should export as one grouped 3MF object.
+export type ThreeMfMeshGroup = { name: string; meshes: Array<NamedMesh> };
+
+// Partition named meshes into one grouped-object spec per export group ('dice',
+// 'blanks', 'platforms', ...), preserving first-appearance order. Each category
+// becomes a single grouped 3MF object named `${prefix}_${group}`, so a slicer
+// sees e.g. all numbered dice as one object, all blanks as another, etc.
+export function groupMeshesByCategory(
+	named: Array<NamedMesh>,
+	prefix: string
+): Array<ThreeMfMeshGroup> {
+	const order: Array<string> = [];
+	const byGroup = new Map<string, Array<NamedMesh>>();
+	for (const n of named) {
+		let bucket = byGroup.get(n.group);
+		if (!bucket) {
+			bucket = [];
+			byGroup.set(n.group, bucket);
+			order.push(n.group);
+		}
+		bucket.push(n);
+	}
+	return order.map((g) => ({ name: `${prefix}_${g}`, meshes: byGroup.get(g)! }));
+}
+
+// All meshes combined into a single .3mf, but each group becomes ONE grouped
+// object (a 3MF component object) rather than independent build items. The
+// meshes should already be laid out. `upAxis` is the source frame's up axis.
+export async function exportThreeMfGrouped(
+	groups: Array<ThreeMfMeshGroup>,
+	upAxis: UpAxis = 'y'
+): Promise<Blob> {
+	await getManifold();
+	const used = new Set<string>();
+	const tmGroups: Array<ThreeMfGroup> = groups.map((g) => ({
+		name: g.name,
+		objects: g.meshes.map((n) => toThreeMfObject(n, used))
+	}));
+	return buildThreeMfGrouped(tmGroups, upAxis);
+}
+
+// One .3mf per group, packed into a ZIP. Each file holds the group's meshes as a
+// single grouped object (the meshes should already be laid out per group).
+export async function exportThreeMfGroupZip(
+	groups: Array<ThreeMfMeshGroup>,
+	upAxis: UpAxis = 'y'
+): Promise<Blob> {
+	await getManifold();
+	const used = new Set<string>();
+	const tmGroups: Array<ThreeMfGroup> = groups.map((g) => ({
+		name: g.name,
+		objects: g.meshes.map((n) => toThreeMfObject(n, used))
+	}));
+	return buildThreeMfGroupZip(tmGroups, upAxis);
 }
 
 // One .3mf per mesh, packed into a single ZIP (mirrors exportStlZip).
