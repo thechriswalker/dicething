@@ -1,0 +1,135 @@
+import { describe, it, expect, beforeAll } from 'vitest';
+import { Shape, Vector2 } from 'three';
+import { unzipSync, strFromU8 } from 'fflate';
+import { getManifold, geometryToIndexedMesh } from './manifold';
+import { buildThreeMf, buildThreeMfZip, modelXml, type UpAxis } from './threemf';
+import { buildPlatform } from './build_options/platforms';
+import { checkMesh } from './mesh_check';
+
+// A few watertight source solids to push through the manifold -> 3MF path.
+// buildPlatform yields a closed solid without needing a full Builder/legend set.
+function pentagon(radius: number): Shape {
+	const pts: Array<Vector2> = [];
+	for (let k = 0; k < 5; k++) {
+		const a = (k * 2 * Math.PI) / 5;
+		pts.push(new Vector2(radius * Math.cos(a), radius * Math.sin(a)));
+	}
+	return new Shape(pts);
+}
+
+function plus(arm: number, half: number): Shape {
+	return new Shape([
+		new Vector2(-half, -arm),
+		new Vector2(half, -arm),
+		new Vector2(half, -half),
+		new Vector2(arm, -half),
+		new Vector2(arm, half),
+		new Vector2(half, half),
+		new Vector2(half, arm),
+		new Vector2(-half, arm),
+		new Vector2(-half, half),
+		new Vector2(-arm, half),
+		new Vector2(-arm, -half),
+		new Vector2(-half, -half)
+	]);
+}
+
+// Expand an indexed mesh (as the 3MF model XML stores it) into the flat,
+// 9-floats-per-triangle buffer mesh_check wants, applying the same up-axis
+// conversion the writer applies. This validates the actual exported coordinates.
+function flatFromModelXml(xml: string): Float32Array {
+	const verts: Array<[number, number, number]> = [];
+	for (const m of xml.matchAll(/<vertex x="([^"]+)" y="([^"]+)" z="([^"]+)"\/>/g)) {
+		verts.push([parseFloat(m[1]), parseFloat(m[2]), parseFloat(m[3])]);
+	}
+	const tris: Array<[number, number, number]> = [];
+	for (const m of xml.matchAll(/<triangle v1="(\d+)" v2="(\d+)" v3="(\d+)"\/>/g)) {
+		tris.push([Number(m[1]), Number(m[2]), Number(m[3])]);
+	}
+	const out = new Float32Array(tris.length * 9);
+	let o = 0;
+	for (const [a, b, c] of tris) {
+		for (const idx of [a, b, c]) {
+			out[o++] = verts[idx][0];
+			out[o++] = verts[idx][1];
+			out[o++] = verts[idx][2];
+		}
+	}
+	return out;
+}
+
+const platform = { height: 2, inset: 1.5, outset: 1.5 };
+
+beforeAll(async () => {
+	await getManifold();
+});
+
+describe('manifold -> 3MF export pipeline', () => {
+	it('geometryToIndexedMesh produces a non-empty indexed mesh', () => {
+		const geo = buildPlatform(pentagon(10), platform);
+		const { positions, indices } = geometryToIndexedMesh(geo);
+		expect(positions.length).toBeGreaterThan(0);
+		expect(positions.length % 3).toBe(0);
+		expect(indices.length).toBeGreaterThan(0);
+		expect(indices.length % 3).toBe(0);
+		// every index must point at a real vertex.
+		const vertCount = positions.length / 3;
+		for (const i of indices) {
+			expect(i).toBeLessThan(vertCount);
+		}
+	});
+
+	it.each<UpAxis>(['y', 'z'])(
+		'exported model XML stays watertight & manifold (up=%s)',
+		(upAxis) => {
+			for (const shape of [pentagon(10), plus(10, 4)]) {
+				const geo = buildPlatform(shape, platform);
+				const indexed = geometryToIndexedMesh(geo);
+				const xml = modelXml([{ name: 'part', ...indexed }], upAxis);
+				const report = checkMesh(flatFromModelXml(xml));
+				expect(report.boundaryEdgeCount).toBe(0);
+				expect(report.nonManifoldEdgeCount).toBe(0);
+				expect(report.isWatertight).toBe(true);
+				expect(report.isManifold).toBe(true);
+			}
+		}
+	);
+
+	it('buildThreeMf packages a valid OPC container with one object per mesh', async () => {
+		const indexed = [pentagon(10), plus(10, 4)].map((s) =>
+			geometryToIndexedMesh(buildPlatform(s, platform))
+		);
+		const blob = buildThreeMf(
+			indexed.map((m, i) => ({ name: `part_${i}`, ...m })),
+			'y'
+		);
+		const bytes = new Uint8Array(await blob.arrayBuffer());
+		const files = unzipSync(bytes);
+		expect(Object.keys(files)).toContain('[Content_Types].xml');
+		expect(Object.keys(files)).toContain('_rels/.rels');
+		expect(Object.keys(files)).toContain('3D/3dmodel.model');
+		const model = strFromU8(files['3D/3dmodel.model']);
+		expect(model).toContain('unit="millimeter"');
+		expect(model).toContain('http://schemas.microsoft.com/3dmanufacturing/core/2015/02');
+		// both meshes present as separate objects, each placed in the build.
+		expect((model.match(/<object /g) ?? []).length).toBe(2);
+		expect((model.match(/<item /g) ?? []).length).toBe(2);
+	});
+
+	it('buildThreeMfZip emits one .3mf per mesh', async () => {
+		const indexed = [pentagon(10), plus(10, 4)].map((s) =>
+			geometryToIndexedMesh(buildPlatform(s, platform))
+		);
+		const blob = buildThreeMfZip(
+			indexed.map((m, i) => ({ name: `part_${i}`, ...m })),
+			'z'
+		);
+		const files = unzipSync(new Uint8Array(await blob.arrayBuffer()));
+		const names = Object.keys(files);
+		expect(names).toContain('part_0.3mf');
+		expect(names).toContain('part_1.3mf');
+		// each entry is itself a valid 3MF package.
+		const inner = unzipSync(files['part_0.3mf']);
+		expect(Object.keys(inner)).toContain('3D/3dmodel.model');
+	});
+});

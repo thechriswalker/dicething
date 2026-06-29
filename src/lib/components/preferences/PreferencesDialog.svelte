@@ -137,6 +137,9 @@
 										<span class="h5">{m.preferences_default_engraving_depth()}</span>
 										<span>({prefs.defaultEngravingDepth})</span>
 									</p>
+									<p class="text-surface-600-400 text-sm">
+										{m.preferences_default_engraving_depth_hint()}
+									</p>
 									<Slider
 										class="py-1"
 										value={prefs.defaultEngravingDepth}
@@ -151,6 +154,9 @@
 									<p class="flex items-center justify-between">
 										<span class="h5">{m.preferences_default_engraving_tolerance()}</span>
 										<span>({prefs.defaultEngravingTolerance})</span>
+									</p>
+									<p class="text-surface-600-400 text-sm">
+										{m.preferences_default_engraving_tolerance_hint()}
 									</p>
 									<Slider
 										class="py-1"

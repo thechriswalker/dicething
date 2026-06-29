@@ -51,10 +51,33 @@ export type MagnetConfig = {
 	mode: MagnetMode;
 };
 
-// Optional living/pin hinge between base and lid. Disabled in v1; when on it
-// halves the magnet count (a hinged box only needs magnets on the opening side).
+// Optional print-in-place knuckle hinge between base and lid (EDDC-style). When
+// on, the back edge grows interleaving knuckles around a continuous pin: the
+// base carries bored barrels and the lid carries the pin + its own barrels, so
+// the two halves print interlocked (open and flat) and fold shut about the seam
+// plane. A hinged box only needs magnets on the opening side, so enabling it
+// drops the magnet count to the opening pair.
+//
+// The barrel/pin/clearance/knuckle figures are scaled from the EDDC reference
+// and clamped to the box's seam height; they are not surfaced in the shipped UI
+// (only the `enabled` toggle is), but developer mode exposes them as live
+// sliders so the hinge can be dialled in. A value of 0 means "use the default".
 export type HingeConfig = {
 	enabled: boolean;
+	// solid pin radius (mm).
+	pinRadius: number;
+	// knuckle barrel outer radius (mm). The barrel's lower half is buried in the
+	// back wall (the anchor); its upper half is the visible hinge bump.
+	barrelRadius: number;
+	// print-in-place gap, applied both radially (pin vs barrel bore) and axially
+	// (between adjacent base/lid knuckles) so nothing fuses and the joint spins.
+	clearance: number;
+	// knuckles per hinge cluster (alternating base/lid along the edge).
+	knuckles: number;
+	// 45-degree clearance chamfer (mm) on each half's inner-wall/seam edge behind
+	// the knuckles, so the opposing barrel can swing through and the lid opens
+	// flat. 0 = off.
+	indent: number;
 };
 
 // The parametric shell + cavity controls.
@@ -130,6 +153,11 @@ export const defaultBoxParams = (): BoxParams => ({
 		mode: 'pushin'
 	},
 	hinge: {
-		enabled: false
+		enabled: false,
+		pinRadius: 1.6,
+		barrelRadius: 3.4,
+		clearance: 0.35,
+		knuckles: 3,
+		indent: 1.2
 	}
 });

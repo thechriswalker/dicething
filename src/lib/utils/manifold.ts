@@ -142,6 +142,73 @@ export function manifoldToGeometry(man: Manifold): BufferGeometry {
 	return geo;
 }
 
+// A welded, indexed triangle mesh: a plain xyz vertex buffer plus triangle
+// indices into it. This is the natural input for an indexed solid format like
+// 3MF (one vertex shared by every triangle that touches it), as opposed to the
+// flat 9-floats-per-triangle form an STL wants.
+export type IndexedMesh = { positions: Float32Array; indices: Uint32Array };
+
+// Bridge a three BufferGeometry into the indexed mesh 3MF wants by routing it
+// through Manifold: ofMesh() welds and validates topology, and getMesh() hands
+// back a clean, deduplicated MeshGL (shared vertices + triVerts). This is the
+// "transfer the model between three and manifold" path, and it guarantees a
+// genuinely manifold solid rather than a soup that merely re-welds.
+//
+// Requires getManifold() to have completed first (uses the sync accessor). The
+// returned arrays are copies, so they survive the temporary Manifold's delete().
+// If Manifold rejects the input (non-manifold) and yields an empty mesh, we fall
+// back to a position-only weld of the original geometry so export still emits
+// something faithful rather than nothing.
+export function geometryToIndexedMesh(geometry: BufferGeometry): IndexedMesh {
+	const man = geometryToManifold(geometry);
+	try {
+		const mesh: ManifoldMesh = man.getMesh();
+		const numProp = mesh.numProp;
+		const vertCount = numProp > 0 ? mesh.vertProperties.length / numProp : 0;
+		if (mesh.triVerts.length > 0 && vertCount > 0) {
+			let positions: Float32Array;
+			if (numProp === 3) {
+				positions = new Float32Array(mesh.vertProperties);
+			} else {
+				positions = new Float32Array(vertCount * 3);
+				for (let i = 0; i < vertCount; i++) {
+					positions[i * 3] = mesh.vertProperties[i * numProp];
+					positions[i * 3 + 1] = mesh.vertProperties[i * numProp + 1];
+					positions[i * 3 + 2] = mesh.vertProperties[i * numProp + 2];
+				}
+			}
+			return { positions, indices: new Uint32Array(mesh.triVerts) };
+		}
+	} finally {
+		man.delete();
+	}
+	return weldedIndexedMesh(geometry);
+}
+
+// Fallback for geometryToIndexedMesh: weld a geometry to an indexed mesh purely
+// in three (position-only, so hard-edge seams collapse), without any manifold
+// guarantee. Used only when Manifold couldn't make sense of the input.
+function weldedIndexedMesh(geometry: BufferGeometry): IndexedMesh {
+	const positionOnly = new BufferGeometry();
+	positionOnly.setAttribute('position', geometry.getAttribute('position').clone());
+	if (geometry.index) {
+		positionOnly.setIndex(geometry.index.clone());
+	}
+	const welded = mergeVertices(positionOnly);
+	const pos = welded.getAttribute('position');
+	const index = welded.index;
+	if (!index) {
+		throw new Error('mergeVertices did not produce an indexed geometry');
+	}
+	const positions = new Float32Array(pos.count * 3);
+	for (let i = 0; i < pos.count; i++) {
+		positions[i * 3] = pos.getX(i);
+		positions[i * 3 + 1] = pos.getY(i);
+		positions[i * 3 + 2] = pos.getZ(i);
+	}
+	return { positions, indices: new Uint32Array(index.array) };
+}
+
 // Convenience: run a CSG difference (a minus each of `cutters`) and return the
 // result geometry. Deletes every Manifold it touches, including the inputs, so
 // callers can pass freshly-built solids and not worry about leaks.

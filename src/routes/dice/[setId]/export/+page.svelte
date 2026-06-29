@@ -14,6 +14,8 @@
 		download,
 		exportStlSingle,
 		exportStlZip,
+		exportThreeMfSingle,
+		exportThreeMfZip,
 		layoutGrid,
 		type ExportFormat,
 		type OptionStates
@@ -53,7 +55,7 @@
 	// broken), keyed by die id. used to default-exclude broken dice and warn.
 	let dieErrors = $state<Record<string, Array<EngravingError>>>({});
 	let includeDice = $state(true);
-	let format = $state<ExportFormat>('stl');
+	let format = $state<ExportFormat>('3mf');
 	let fileLayout = $state<'single' | 'zip'>('single');
 
 	let optionStates = $state<OptionStates>(
@@ -450,7 +452,7 @@
 	});
 	let totalVolumeMl = $derived(volumeGroups.reduce((sum, row) => sum + row.volume, 0));
 
-	function exportModel() {
+	async function exportModel() {
 		if (!setData || nothingToExport) {
 			return;
 		}
@@ -460,6 +462,16 @@
 			optionStates: $state.snapshot(optionStates)
 		});
 		const name = (setData.name || 'set').replace(/[^a-z0-9-_]+/gi, '_');
+		// dice are built Y-up; the 3MF writer reorients them to the print bed.
+		if (format === '3mf') {
+			if (fileLayout === 'single') {
+				layoutGrid(named.map((n) => n.mesh));
+				download(await exportThreeMfSingle(named, 'y'), `${name}.3mf`);
+			} else {
+				download(await exportThreeMfZip(named, 'y'), `${name}.zip`);
+			}
+			return;
+		}
 		if (fileLayout === 'single') {
 			const meshes = named.map((n) => n.mesh);
 			layoutGrid(meshes);
@@ -835,7 +847,7 @@
 						<span class="text-sm">{m.export_format()}</span>
 						<select class="select" bind:value={format}>
 							<option value="stl">STL</option>
-							<option value="3mf" disabled>3MF {m.export_format_3mf_soon()}</option>
+							<option value="3mf">3MF</option>
 						</select>
 					</label>
 					<label class="flex items-center gap-2 text-sm">

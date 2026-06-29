@@ -4,7 +4,7 @@ import dice from '$lib/dice';
 import type { Dice, DiceSet } from '$lib/interfaces/storage.svelte';
 import { getManifold, manifold, geometryToManifold, toFlatPositions } from '$lib/utils/manifold';
 import { checkMesh } from '$lib/utils/mesh_check';
-import { buildBox, magnetCorners, prepareLayout } from './box_builder';
+import { buildBox, chooseHingeClusters, magnetCorners, prepareLayout } from './box_builder';
 import { defaultBoxParams, type BoxConfig } from './types';
 
 // build a Dice using a model's parameter defaults (no legends needed: the box
@@ -80,6 +80,80 @@ describe('box builder produces printable solids', () => {
 		const built = await buildBox(set, config);
 		expectPrintable(built.base);
 		expectPrintable(built.lid);
+		expect(built.hinge).toBeTruthy();
+	});
+
+	it('chooses 1 hinge cluster when narrow, 2 when wide', () => {
+		// flat back-edge length = 2*(outerHalf.x - bodyChamfer). 5 knuckles ->
+		// targetLen = 20mm, so two need >= 52mm of flat edge.
+		const knuckles = 5;
+		expect(chooseHingeClusters(new Vector2(18, 14), 8, knuckles).length).toBe(1);
+		const two = chooseHingeClusters(new Vector2(50, 14), 8, knuckles);
+		expect(two.length).toBe(2);
+		// the two clusters are symmetric about the centre and stay on the flat run.
+		expect(two[0].centerX).toBeCloseTo(-two[1].centerX, 6);
+		const flatHalf = 50 - 8;
+		for (const c of two) {
+			expect(Math.abs(c.centerX) + c.length / 2).toBeLessThanOrEqual(flatHalf + 1e-6);
+		}
+	});
+
+	it('builds a real hinge into both halves (1 and 2 clusters) and stays printable', async () => {
+		// a single small die -> a narrow box (one cluster); a row of cubes -> a
+		// wide box (two clusters). Both must produce watertight, manifold halves.
+		for (const set of [
+			makeSet(['d6_cube']),
+			makeSet(['d6_cube', 'd6_cube', 'd6_cube', 'd6_cube'])
+		]) {
+			const config = makeConfig(set, { rows: 1 });
+			config.params.hinge.enabled = true;
+			const built = await buildBox(set, config);
+			expectPrintable(built.base);
+			expectPrintable(built.lid);
+			expect(built.hinge).toBeTruthy();
+		}
+	});
+
+	it('raises a round knuckle bump above the seam and braces it to the wall', async () => {
+		// the round barrel bump must rise ABOVE the seam (an upward feature, not a
+		// downward overhang); its self-supporting tail leans back into the body so
+		// the elevated barrel has no unsupported overhang, and the half still sits
+		// flat on the bed (z = 0) via the body.
+		const set = makeSet(['d6_cube', 'd6_cube']);
+
+		const config = makeConfig(set, { rows: 1 });
+		config.params.hinge.enabled = true;
+		const built = await buildBox(set, config);
+		built.base.computeBoundingBox();
+		const seam = built.hinge!.axisZ;
+		expect(built.base.boundingBox!.min.z).toBeCloseTo(0, 5);
+		expect(built.base.boundingBox!.max.z).toBeGreaterThan(seam + 1);
+	});
+
+	it('lays out the hinged halves interlocked without fusing them', async () => {
+		// the print-in-place layout places the halves a parting gap apart so their
+		// barrels are coaxial. With the clearances built in, the two solids must
+		// barely touch - any real overlap would fuse the joint.
+		const set = makeSet(['d6_cube', 'd6_cube', 'd6_cube']);
+		const config = makeConfig(set, { rows: 1 });
+		config.params.hinge.enabled = true;
+		const built = await buildBox(set, config);
+		const halfOffset = built.outer.y / 2 + built.hinge!.partingGap / 2;
+		const base = built.base.clone();
+		base.translate(0, -halfOffset, 0);
+		const lid = built.lid.clone();
+		lid.translate(0, halfOffset, 0);
+		const wasm = manifold();
+		const mb = geometryToManifold(base);
+		const ml = geometryToManifold(lid);
+		const inter = wasm.Manifold.intersection(mb, ml);
+		const overlap = inter.volume();
+		const baseVol = mb.volume();
+		inter.delete();
+		mb.delete();
+		ml.delete();
+		// overlap should be a vanishing fraction of a half's volume (clearance only).
+		expect(overlap).toBeLessThan(baseVol * 0.01);
 	});
 
 	it('cuts magnet bores and stays printable', async () => {
@@ -153,7 +227,11 @@ describe('box builder produces printable solids', () => {
 		// a concave star-ish outline (notches between the points).
 		const coin_path =
 			'M 50 0 L 61 35 L 98 35 L 68 57 L 79 91 L 50 70 L 21 91 L 32 57 L 2 35 L 39 35 Z';
-		const geo = model.boxSupport!(params, { coin_path }, { seam: 8, floor: 1.2, cavityTolerance: 0.4 });
+		const geo = model.boxSupport!(
+			params,
+			{ coin_path },
+			{ seam: 8, floor: 1.2, cavityTolerance: 0.4 }
+		);
 		expect(geo).toBeTruthy();
 		const man = geometryToManifold(geo!);
 		const volume = man.volume();

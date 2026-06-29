@@ -9,6 +9,8 @@ import { Legend, loadMutableLegends, type LegendSet, type SerialisedLegendSet } 
 import { extraBuildOptions, type OptionValues } from './build_options';
 import { blanks, isBuiltin, loadBuiltinById } from '$lib/fonts';
 import { uuid } from './uuid';
+import { getManifold, geometryToIndexedMesh } from './manifold';
+import { buildThreeMf, buildThreeMfZip, type ThreeMfObject, type UpAxis } from './threemf';
 
 export type ExportFormat = 'stl' | '3mf';
 
@@ -178,6 +180,43 @@ export function exportStlZip(named: Array<NamedMesh>): Blob {
 	}
 	const zipped = zipSync(files);
 	return new Blob([zipped as BlobPart], { type: 'application/zip' });
+}
+
+// --- 3MF -------------------------------------------------------------------
+
+// Convert the named meshes into indexed 3MF objects by routing each through
+// Manifold (see geometryToIndexedMesh). Awaits the one-time WASM init up front.
+async function toThreeMfObjects(named: Array<NamedMesh>): Promise<Array<ThreeMfObject>> {
+	await getManifold();
+	const used = new Set<string>();
+	return named.map(({ name, mesh }) => {
+		let uniqueName = name;
+		let i = 1;
+		while (used.has(uniqueName)) {
+			uniqueName = `${name}_${i++}`;
+		}
+		used.add(uniqueName);
+		const { positions, indices } = geometryToIndexedMesh(mesh.geometry);
+		return { name: uniqueName, positions, indices };
+	});
+}
+
+// All meshes combined into a single .3mf (each die/artifact is its own object in
+// one build). The meshes should already be laid out, mirroring exportStlSingle.
+// `upAxis` is the source frame's up axis ('y' for dice, 'z' for boxes).
+export async function exportThreeMfSingle(
+	named: Array<NamedMesh>,
+	upAxis: UpAxis = 'y'
+): Promise<Blob> {
+	return buildThreeMf(await toThreeMfObjects(named), upAxis);
+}
+
+// One .3mf per mesh, packed into a single ZIP (mirrors exportStlZip).
+export async function exportThreeMfZip(
+	named: Array<NamedMesh>,
+	upAxis: UpAxis = 'y'
+): Promise<Blob> {
+	return buildThreeMfZip(await toThreeMfObjects(named), upAxis);
 }
 
 // --- JSON ------------------------------------------------------------------

@@ -29,7 +29,14 @@
 	import type { DieTags, FaceParams } from '$lib/interfaces/dice';
 	import { getPreferences } from '$lib/interfaces/preferences.svelte';
 	import { m } from '$lib/paraglide/messages';
-	import { Builder, computeEngravingErrors, type EngravingError } from '$lib/utils/builder';
+	import {
+		Builder,
+		computeEngravingErrors,
+		engravingParam,
+		engravingToleranceParam,
+		type EngravingError
+	} from '$lib/utils/builder';
+	import SetConfigModal from '$lib/components/set_config/SetConfigModal.svelte';
 	import { computeLandWarning } from '$lib/utils/stability';
 	import { debounce } from '$lib/utils/debounce';
 	import { createHistory } from '$lib/utils/history.svelte';
@@ -176,6 +183,36 @@
 		gotoDie(id);
 	};
 
+	// the set-wide value of an engraving parameter for the set-config modal. Reports
+	// the shared value when every die agrees, else the first die's value plus a
+	// `mixed` flag so the UI can note that applying will unify them.
+	function commonEngravingParam(key: string, fallback: number): { value: number; mixed: boolean } {
+		const dice = setData?.dice ?? [];
+		if (dice.length === 0) {
+			return { value: fallback, mixed: false };
+		}
+		const first = dice[0].parameters[key] ?? fallback;
+		const mixed = dice.some((d) => (d.parameters[key] ?? fallback) !== first);
+		return { value: first, mixed };
+	}
+	let setDepth = $derived(commonEngravingParam(engravingParam.id, engravingParam.defaultValue));
+	let setTolerance = $derived(
+		commonEngravingParam(engravingToleranceParam.id, engravingToleranceParam.defaultValue)
+	);
+
+	// apply one engraving value to every die in the set (the set-config modal).
+	// per-die overrides are written into each die's serialised parameters, so the
+	// choice travels with an exported set rather than depending on local defaults.
+	function setEngravingForAllDice(key: string, value: number) {
+		if (!setData) {
+			return;
+		}
+		for (const d of setData.dice) {
+			d.parameters[key] = value;
+		}
+		save(setData);
+	}
+
 	let removeDie = (id: string) => {
 		if (setData) {
 			const idx = setData.dice.findIndex((x) => x.id === id);
@@ -199,6 +236,14 @@
 	onMount(async () => {
 		setData = await waitForSet(setId);
 		if (setData) {
+			// legacy sets may predate the engraving params; make them explicit so they
+			// serialise (and survive export/import) rather than silently falling back
+			// to whatever defaults the importing machine happens to have.
+			const prefs = getPreferences();
+			for (const d of setData.dice) {
+				d.parameters[engravingParam.id] ??= prefs.defaultEngravingDepth;
+				d.parameters[engravingToleranceParam.id] ??= prefs.defaultEngravingTolerance;
+			}
 			// seed the undo stack with the loaded state as the baseline.
 			history.reset(diceToJSON(setData.dice));
 			if (setData.dice.length === 0 && dieId !== '') {
@@ -1156,6 +1201,14 @@
 				onEdit={editOrCloneLegends}
 				onSelectCustom={(set) => setLegends(set)()}
 				onSelectBuiltin={(b) => fontAction(b)()}
+			/>
+			<SetConfigModal
+				depth={setDepth.value}
+				tolerance={setTolerance.value}
+				depthMixed={setDepth.mixed}
+				toleranceMixed={setTolerance.mixed}
+				onChangeDepth={(v) => setEngravingForAllDice(engravingParam.id, v)}
+				onChangeTolerance={(v) => setEngravingForAllDice(engravingToleranceParam.id, v)}
 			/>
 		{/if}
 		<Menu data={exportMenu} submenuOnLeft></Menu>

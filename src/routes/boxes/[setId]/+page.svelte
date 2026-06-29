@@ -23,7 +23,15 @@
 		saveBoxConfig
 	} from '$lib/box/store';
 	import type { BoxConfig } from '$lib/box/types';
-	import { download, exportStlSingle, exportStlZip, type NamedMesh } from '$lib/utils/export';
+	import {
+		download,
+		exportStlSingle,
+		exportStlZip,
+		exportThreeMfSingle,
+		exportThreeMfZip,
+		type ExportFormat,
+		type NamedMesh
+	} from '$lib/utils/export';
 	import { onDestroy, onMount } from 'svelte';
 	import {
 		BufferGeometry,
@@ -44,7 +52,9 @@
 		LayoutGridIcon,
 		SparklesIcon,
 		CopyIcon,
-		PlayIcon
+		PlayIcon,
+		Package,
+		PackageOpen
 	} from '@lucide/svelte';
 	import { Button } from 'bits-ui';
 
@@ -70,8 +80,9 @@
 	let outerSize = $state<{ x: number; y: number }>({ x: 0, y: 0 });
 
 	// user-facing scene control: dice see-through-ness (0 = hidden, 1 = solid).
-	let dieOpacity = $state(0.33 * 0);
+	let dieOpacity = $state(0.33);
 	let fileLayout = $state<'single' | 'zip'>('zip');
+	let format = $state<ExportFormat>('3mf');
 
 	const gridHelper = createGridHelper(160);
 
@@ -96,6 +107,19 @@
 	let previewGroup: Group | undefined;
 	let boxMeshes: Array<Mesh> = [];
 	let dieMeshes: Array<Mesh> = [];
+
+	// --- lid fold animation -------------------------------------------------
+	// the lid is parented to a pivot on the seam/hinge line so it can swing up
+	// and over onto the base ("closing the box"). `lidAngle` is the live angle
+	// (0 = open flat, PI = closed); `boxClosed` is the target the rAF loop eases
+	// towards. The pivot is rebuilt with the preview, so the current angle is
+	// re-applied to keep the animation continuous across rebuilds.
+	let lidPivot: Group | undefined;
+	let lidAngle = 0;
+	let lidAnimFrom = 0;
+	let lidAnimStart = 0;
+	let boxClosed = $state(false);
+	const LID_ANIM_MS = 900;
 
 	// developer boundary overlay: per-die footprint, the combined hull, and the
 	// box interior outline. Drawn as flat line loops above the seam plane.
@@ -216,8 +240,36 @@
 		fancyRender = createFancyRender(_ctx);
 		fancyRender.setEnabled(fancy);
 		gridHelper.visible = !fancy;
+		_ctx.onBeforeRender(stepLidAnim);
 		_ctx.render();
 	};
+
+	// ease the lid pivot towards its target each frame (the scene runs a
+	// continuous rAF loop, so this is all the animation needs).
+	function stepLidAnim() {
+		if (!lidPivot) {
+			return;
+		}
+		const target = boxClosed ? Math.PI : 0;
+		if (Math.abs(lidAngle - target) < 1e-4) {
+			if (lidAngle !== target) {
+				lidAngle = target;
+				lidPivot.rotation.x = lidAngle;
+			}
+			return;
+		}
+		const t = Math.min(1, (performance.now() - lidAnimStart) / LID_ANIM_MS);
+		// easeInOutQuad
+		const e = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+		lidAngle = lidAnimFrom + (target - lidAnimFrom) * e;
+		lidPivot.rotation.x = lidAngle;
+	}
+
+	function toggleClosed() {
+		lidAnimFrom = lidAngle;
+		lidAnimStart = performance.now();
+		boxClosed = !boxClosed;
+	}
 
 	function toggleFancy() {
 		fancy = !fancy;
@@ -391,7 +443,8 @@
 
 		// lay the two halves side by side in the footprint plane (along the box's
 		// Y, which reads as vertical in the top-down view) so they read top/bottom.
-		const gap = 8;
+		// A hinged box sits its halves a parting gap apart so the barrels are coaxial.
+		const gap = built.hinge ? built.hinge.partingGap : 8;
 		const offset = (built.outer.y + gap) / 2;
 
 		{
@@ -410,8 +463,12 @@
 			root.add(g);
 		}
 		{
+			// the lid hangs off a pivot on the seam line (box-frame z = seam, y = 0)
+			// so toggling `boxClosed` swings it up and over onto the base.
+			const pivot = new Group();
+			pivot.position.set(0, 0, built.baseHeight);
 			const g = new Group();
-			g.position.set(0, offset, 0);
+			g.position.set(0, offset, -built.baseHeight);
 			const lidMesh = new Mesh(built.lid, normalMat);
 			g.add(lidMesh);
 			boxMeshes.push(lidMesh);
@@ -422,7 +479,10 @@
 					dieMeshes.push(dm);
 				}
 			}
-			root.add(g);
+			pivot.add(g);
+			pivot.rotation.x = lidAngle;
+			root.add(pivot);
+			lidPivot = pivot;
 		}
 
 		applyMaterials();
@@ -466,7 +526,7 @@
 		}
 		const root = new Group();
 		root.rotation.x = -Math.PI / 2;
-		const gap = 8;
+		const gap = built.hinge ? built.hinge.partingGap : 8;
 		const offset = (built.outer.y + gap) / 2;
 		const z = built.baseHeight + 0.5;
 		for (const { yoff, ySign } of [
@@ -520,6 +580,21 @@
 			return;
 		}
 		config.params.hinge.enabled = value;
+		// a hinged box only needs magnets on the opening side; drop a 4-magnet
+		// box to the opening pair when the hinge is switched on.
+		if (value && config.params.magnets.count > 2) {
+			config.params.magnets.count = 2;
+		}
+	}
+
+	function setHingeParam<K extends keyof BoxConfig['params']['hinge']>(
+		key: K,
+		value: BoxConfig['params']['hinge'][K]
+	) {
+		if (!config) {
+			return;
+		}
+		config.params.hinge[key] = value;
 	}
 
 	let orderedPlacements = $derived(
@@ -601,23 +676,57 @@
 		layoutOpen = false;
 	}
 
-	function exportBox() {
+	async function exportBox() {
 		if (!built) {
 			return;
 		}
 		const name = (setData?.name || 'set').replace(/[^a-z0-9-_]+/gi, '_');
+		// a print-in-place hinge must print as ONE interlocked, open-flat piece:
+		// the two halves meet on the seam line so their barrels are coaxial and
+		// the pin threads the base bores. Force a single file in that layout.
+		if (built.hinge) {
+			// halves sit a parting gap apart so their barrels are coaxial.
+			const halfOffset = built.outer.y / 2 + built.hinge.partingGap / 2;
+			const base = new Mesh(built.base.clone(), normalMat);
+			const lid = new Mesh(built.lid.clone(), normalMat);
+			base.geometry.translate(0, -halfOffset, 0);
+			lid.geometry.translate(0, halfOffset, 0);
+			if (format === '3mf') {
+				const named: Array<NamedMesh> = [
+					{ name: `${name}_box_base`, mesh: base, group: 'box' },
+					{ name: `${name}_box_lid`, mesh: lid, group: 'box' }
+				];
+				download(await exportThreeMfSingle(named, 'z'), `${name}_box.3mf`);
+			} else {
+				download(exportStlSingle([base, lid]), `${name}_box.stl`);
+			}
+			return;
+		}
 		if (fileLayout === 'zip') {
 			const named: Array<NamedMesh> = [
 				{ name: `${name}_box_base`, mesh: new Mesh(built.base.clone(), normalMat), group: 'box' },
 				{ name: `${name}_box_lid`, mesh: new Mesh(built.lid.clone(), normalMat), group: 'box' }
 			];
-			download(exportStlZip(named), `${name}_box.zip`);
+			// the box is already built Z-up, so no reorientation for 3MF.
+			if (format === '3mf') {
+				download(await exportThreeMfZip(named, 'z'), `${name}_box.zip`);
+			} else {
+				download(exportStlZip(named), `${name}_box.zip`);
+			}
 		} else {
 			const base = new Mesh(built.base.clone(), normalMat);
 			const lid = new Mesh(built.lid.clone(), normalMat);
 			// place side by side so they don't overlap in one file (Z-up frame).
 			lid.geometry.translate(built.outer.x + 8, 0, 0);
-			download(exportStlSingle([base, lid]), `${name}_box.stl`);
+			if (format === '3mf') {
+				const named: Array<NamedMesh> = [
+					{ name: `${name}_box_base`, mesh: base, group: 'box' },
+					{ name: `${name}_box_lid`, mesh: lid, group: 'box' }
+				];
+				download(await exportThreeMfSingle(named, 'z'), `${name}_box.3mf`);
+			} else {
+				download(exportStlSingle([base, lid]), `${name}_box.stl`);
+			}
 		}
 	}
 </script>
@@ -656,6 +765,19 @@
 								aria-label={m.controls_toggle_fancy_render()}
 								aria-pressed={fancy}
 								onclick={toggleFancy}><SparklesIcon /></Button.Root
+							>
+						{/snippet}
+					</Tooltip>
+					<Tooltip content={boxClosed ? m.boxes_open_box() : m.boxes_close_box()} side="right">
+						{#snippet children(props)}
+							<Button.Root
+								{...props}
+								class={'btn-icon ' +
+									(boxClosed ? 'preset-filled-primary-500' : 'preset-tonal-primary')}
+								aria-label={boxClosed ? m.boxes_open_box() : m.boxes_close_box()}
+								aria-pressed={boxClosed}
+								onclick={toggleClosed}
+								>{#if boxClosed}<Package />{:else}<PackageOpen />{/if}</Button.Root
 							>
 						{/snippet}
 					</Tooltip>
@@ -878,6 +1000,50 @@
 							/>
 						</label>
 						<p class="text-surface-600-400 text-xs">{m.boxes_hinge_hint()}</p>
+						{#if devMode && config.params.hinge.enabled}
+							<p class="text-surface-600-400 text-xs font-semibold">{m.boxes_hinge_dev_title()}</p>
+							{@render sliderRow(
+								m.boxes_hinge_pin_radius(),
+								config.params.hinge.pinRadius,
+								0.8,
+								4,
+								0.1,
+								(v) => setHingeParam('pinRadius', v)
+							)}
+							{@render sliderRow(
+								m.boxes_hinge_barrel_radius(),
+								config.params.hinge.barrelRadius,
+								1.5,
+								8,
+								0.1,
+								(v) => setHingeParam('barrelRadius', v)
+							)}
+							{@render sliderRow(
+								m.boxes_hinge_clearance(),
+								config.params.hinge.clearance,
+								0.1,
+								0.8,
+								0.05,
+								(v) => setHingeParam('clearance', v)
+							)}
+							{@render sliderRow(
+								m.boxes_hinge_knuckles(),
+								config.params.hinge.knuckles,
+								3,
+								9,
+								1,
+								(v) => setHingeParam('knuckles', v),
+								''
+							)}
+							{@render sliderRow(
+								m.boxes_hinge_indent(),
+								config.params.hinge.indent,
+								0,
+								3,
+								0.1,
+								(v) => setHingeParam('indent', v)
+							)}
+						{/if}
 					</div>
 				</Collapsible>
 
@@ -902,14 +1068,25 @@
 
 				<Collapsible title={m.boxes_section_export()}>
 					<div class="flex flex-col gap-2 pt-2">
-						<label class="flex items-center gap-2 text-sm">
-							<input type="radio" class="radio" value="zip" bind:group={fileLayout} />
-							<span>{m.boxes_export_zip()}</span>
+						<label class="flex flex-col gap-1">
+							<span class="text-sm">{m.export_format()}</span>
+							<select class="select" bind:value={format}>
+								<option value="stl">STL</option>
+								<option value="3mf">3MF</option>
+							</select>
 						</label>
-						<label class="flex items-center gap-2 text-sm">
-							<input type="radio" class="radio" value="single" bind:group={fileLayout} />
-							<span>{m.boxes_export_single()}</span>
-						</label>
+						{#if built?.hinge}
+							<p class="text-surface-600-400 text-xs">{m.boxes_hinge_export_note()}</p>
+						{:else}
+							<label class="flex items-center gap-2 text-sm">
+								<input type="radio" class="radio" value="zip" bind:group={fileLayout} />
+								<span>{m.boxes_export_zip()}</span>
+							</label>
+							<label class="flex items-center gap-2 text-sm">
+								<input type="radio" class="radio" value="single" bind:group={fileLayout} />
+								<span>{m.boxes_export_single()}</span>
+							</label>
+						{/if}
 						{#if !anyIncluded}
 							<p class="text-warning-600-400 text-sm">{m.boxes_nothing()}</p>
 						{/if}

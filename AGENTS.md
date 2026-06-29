@@ -39,7 +39,7 @@ Tests are vitest, split into three projects (see `vite.config.ts`):
   projects). Run this routinely.
 - `bun run test:slow` - the `slow` project: exhaustive 3D audits (every glyph on
   every die's face shapes, etc.). **Always run this after any change to
-  geometry, engraving, tessellation, or the export pipeline** - the fast suite
+  dice geometry, engraving, tessellation functions, or the export pipeline** - the fast suite
   will not catch most manifold regressions.
 
 Test file naming conventions (the include/exclude globs depend on these):

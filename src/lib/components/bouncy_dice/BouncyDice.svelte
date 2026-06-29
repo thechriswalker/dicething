@@ -227,7 +227,7 @@
 	}
 </script>
 
-<div class="pointer-events-none absolute z-1 h-screen w-screen overflow-hidden" bind:this={wrap}>
+<div class="pointer-events-none absolute z-1 h-full w-full overflow-hidden" bind:this={wrap}>
 	<!-- these are both ignored, because this is a purely visual thing, and has no semantic meaning -->
 	<!-- svelte-ignore a11y_click_events_have_key_events -->
 	<!-- svelte-ignore a11y_no_static_element_interactions -->

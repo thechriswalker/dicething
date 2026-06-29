@@ -30,7 +30,7 @@ import {
 import { repairDegenerateTriangles } from '$lib/utils/bad_edges';
 import { orientDieSolid } from './orient';
 import { layoutDice, type LayoutItem } from './layout';
-import type { BoxConfig, BoxHalf, BoxParams } from './types';
+import type { BoxConfig, BoxHalf, BoxParams, HingeConfig } from './types';
 
 export type PlacedDie = {
 	dieId: string;
@@ -50,6 +50,19 @@ export type BoxBoundaries = {
 	inner: Array<Vector2>;
 };
 
+// Where a print-in-place hinge ended up, so the preview / export can lay the two
+// halves out interlocked (back edges set `partingGap` apart so their barrels are
+// coaxial on the seam line) and the fold animation knows the pivot. Absent when
+// the box has no hinge.
+export type BuiltHinge = {
+	// the hinge/fold axis height (= the seam plane).
+	axisZ: number;
+	// number of knuckle clusters placed across the back edge (1 or 2).
+	clusters: number;
+	// gap between the two halves along the parting line when laid open flat.
+	partingGap: number;
+};
+
 export type BuiltBox = {
 	base: BufferGeometry;
 	lid: BufferGeometry;
@@ -59,6 +72,7 @@ export type BuiltBox = {
 	baseHeight: number;
 	lidHeight: number;
 	boundaries: BoxBoundaries;
+	hinge?: BuiltHinge;
 };
 
 // Which stage of a build a progress tick belongs to. `prepare` is the per-die
@@ -500,6 +514,331 @@ function magnetBores(params: BoxParams, corners: Array<Vector2>, topZ: number): 
 	return bores;
 }
 
+// --- print-in-place knuckle hinge -------------------------------------------
+// The hinge runs along the +y back edge at the seam plane (z = seam). Each half
+// keeps its body almost full; only a thin strip of the flat back edge is shaved
+// off so the two halves don't fuse along the parting line when printed open and
+// flat. Barrel bulbs (radius `barrelR`) are centred on the seam line, anchored
+// into the body, and the two sets of knuckles interleave along x: the base
+// carries the two outer (solid) knuckles with the pin/bar running between them,
+// and the lid carries the inner knuckle(s), bored to thread onto that bar. Each
+// half is relieved where the *other* half's knuckle intrudes, so nothing fuses
+// and the joint spins. A hinged box is laid out with both back edges meeting on
+// the seam line (barrels coaxial), so the lid folds 180deg about it to close.
+//
+// Matching the EDDC knuckle (confirmed against EDDC_Blanc.stl):
+//   - Each knuckle is a plain ROUND barrel centred on the seam line; its lower
+//     half is buried in the body and its upper half is the visible round bump.
+//     Printed open and flat, both halves rest on the bed and the two rows of
+//     barrels interleave coaxially across the parting gap.
+//   - The "teardrop" look in the reference is not the barrel itself: it is the
+//     parting gap between the two halves, which is tight at the pin and opens
+//     into a V toward the bed (the bevelled bottom edges), plus the inner-seam
+//     indent below - so each half reads as a round bump with a tapering gap.
+//   - Inner-seam indent: a 45-degree chamfer on each half's inner-wall/seam edge
+//     behind the knuckles, relieving the corner the opposing barrel sweeps so the
+//     lid can open all the way flat.
+
+// nominal axial length budget per knuckle; the print-in-place gap is taken out
+// of this so neighbouring base/lid knuckles don't touch.
+const HINGE_KNUCKLE_PITCH = 4;
+// the smallest a knuckle band may shrink to (when the flat edge is short) before
+// we drop the knuckle count instead.
+const HINGE_MIN_PITCH = 1.4;
+// keep clusters this far in from the ends of the straight back-edge run, so a
+// barrel never lands on the chamfered corner (where the edge is pulled inward).
+const HINGE_END_MARGIN = 1.5;
+// flat run to spare between two clusters before splitting into two.
+const HINGE_CLUSTER_GAP = 12;
+// how far the barrel reaches into the body below the seam (anchor overlap).
+const HINGE_BODY_OVERLAP = 1;
+// smallest parting gap between the two halves when open, used when the wall is
+// thick relative to the barrel (otherwise the gap is sized so the barrel's inner
+// face lands flush on the inner wall - see buildHinge).
+const HINGE_MIN_PARTING_GAP = 1;
+const HINGE_SEGMENTS = 48;
+
+type ResolvedHinge = {
+	clearance: number;
+	barrelR: number;
+	pinR: number;
+	knuckles: number;
+	// 45-degree opening-clearance chamfer leg on each half's inner-wall/seam edge.
+	indent: number;
+};
+
+// Clamp the (dev-tunable, EDDC-scaled) hinge dimensions to a given seam height:
+// the barrel's lower half must fit below the seam, and the pin must leave a
+// printable wall inside the barrel.
+function resolveHinge(h: HingeConfig, seam: number): ResolvedHinge {
+	const clearance = h.clearance > 0 ? h.clearance : 0.35;
+	let barrelR = h.barrelRadius > 0 ? h.barrelRadius : 3.4;
+	let pinR = h.pinRadius > 0 ? h.pinRadius : 1.6;
+	// at least 3 knuckles so the pin is captured by >= 2 base barrels.
+	const knuckles = Math.max(3, Math.round(h.knuckles > 0 ? h.knuckles : 3));
+	barrelR = Math.max(1.5, Math.min(barrelR, seam - HINGE_BODY_OVERLAP - 0.5));
+	pinR = Math.max(0.8, Math.min(pinR, barrelR - clearance - 0.8));
+	const indentReq = h.indent >= 0 ? h.indent : 1.2;
+	const indent = Math.max(0, Math.min(indentReq, seam - 0.5));
+	return { clearance, barrelR, pinR, knuckles, indent };
+}
+
+export type HingeCluster = { centerX: number; length: number };
+
+// Choose 1 or 2 knuckle clusters across the straight part of the back edge (the
+// octagon's +y run, between its truncated corners). Two clusters once the edge
+// fits both with a sensible gap; otherwise a single centred cluster. Capped at 2.
+export function chooseHingeClusters(
+	outerHalf: Vector2,
+	bodyChamfer: number,
+	knuckles: number
+): Array<HingeCluster> {
+	const flatHalf = Math.max(0, outerHalf.x - bodyChamfer);
+	// usable straight run, keeping a margin off each chamfered corner.
+	const avail = flatHalf * 2 - 2 * HINGE_END_MARGIN;
+	const targetLen = Math.max(3, Math.round(knuckles)) * HINGE_KNUCKLE_PITCH;
+	if (avail >= 2 * targetLen + HINGE_CLUSTER_GAP) {
+		// centre the two clusters on the quarter / three-quarter points of the
+		// straight run, so they sit well apart near the box's shoulders.
+		const cx = avail / 4;
+		return [
+			{ centerX: -cx, length: targetLen },
+			{ centerX: cx, length: targetLen }
+		];
+	}
+	const length = Math.max(3, Math.min(targetLen, avail));
+	return [{ centerX: 0, length }];
+}
+
+// A cylinder whose axis runs along X, centred at (cx, y, z).
+function xCylinder(r: number, length: number, cx: number, y: number, z: number): Manifold {
+	const wasm = manifold();
+	return wasm.Manifold.cylinder(length, r, r, HINGE_SEGMENTS, true)
+		.rotate([0, 90, 0])
+		.translate([cx, y, z]);
+}
+
+// Signed area of a 2D polygon (CCW positive).
+function signedArea(pts: Array<[number, number]>): number {
+	let a = 0;
+	for (let i = 0; i < pts.length; i++) {
+		const [x1, y1] = pts[i];
+		const [x2, y2] = pts[(i + 1) % pts.length];
+		a += x1 * y2 - x2 * y1;
+	}
+	return a / 2;
+}
+
+// Extrude a y-z cross-section (points given as [z, y]) into a prism whose axis
+// runs along X, centred at x = cx and spanning `length`. The CrossSection lives
+// in its local xy plane and extrudes along +z; rotating by -90deg about Y maps
+// local x -> world +z, local y -> world y, and the extrude axis -> world -x. So
+// the supplied [z, y] coordinates land directly in the world z/y they name.
+function xPrismZY(pointsZY: Array<[number, number]>, length: number, cx: number): Manifold {
+	const wasm = manifold();
+	const pts = signedArea(pointsZY) < 0 ? pointsZY.slice().reverse() : pointsZY;
+	const cs = new wasm.CrossSection(pts, 'Positive');
+	const solid = cs
+		.extrude(length)
+		.translate([0, 0, -length / 2])
+		.rotate([0, -90, 0])
+		.translate([cx, 0, 0]);
+	cs.delete();
+	return solid;
+}
+
+// The (y,z) outline of a knuckle: a FULL round circle of radius R centred at
+// (ay, S), kept completely round, with a tapering support tail ADDED below it.
+// The tail's two flanks are the straight tangent lines from the circle down to
+// the apex (apexY, apexZ), where they meet at a single point. With the apex at
+// the box's back-wall foot (where the bottom bevel begins) the tail leans back
+// and dies flush into the wall (rather than dropping straight into the parting
+// gap), so the elevated barrel is braced off the wall and prints with no
+// overhang under it - matching the EDDC support. Needs the apex outside the
+// circle. Returned as [z, y] pairs.
+function teardropPolygonZY(
+	ay: number,
+	S: number,
+	R: number,
+	apexY: number,
+	apexZ: number
+): Array<[number, number]> {
+	// tangent points from the external apex A=(apexY,apexZ) to the circle O=(ay,S).
+	const wy = apexY - ay;
+	const wz = apexZ - S;
+	const L2 = wy * wy + wz * wz;
+	const f1 = (R * R) / L2;
+	const f2 = (R * Math.sqrt(Math.max(1e-9, L2 - R * R))) / L2;
+	// perp(w) = (-wz, wy)
+	const t1 = { y: ay + f1 * wy + f2 * -wz, z: S + f1 * wz + f2 * wy };
+	const t2 = { y: ay + f1 * wy - f2 * -wz, z: S + f1 * wz - f2 * wy };
+	const tPos = t1.y >= t2.y ? t1 : t2; // tangent on the +y (overhang) flank
+	const tNeg = t1.y >= t2.y ? t2 : t1;
+	const aPos = Math.atan2(tPos.z - S, tPos.y - ay);
+	const aNeg = Math.atan2(tNeg.z - S, tNeg.y - ay);
+	// walk the MAJOR arc from tPos to tNeg (over the top, away from the apex).
+	let diff = aNeg - aPos;
+	while (diff <= 0) diff += 2 * Math.PI; // 0..2pi, the arc going over the top
+	// a single apex vertex: the tail tapers to a point at the wall foot (flush
+	// with the wall/bevel) rather than a small flat that would overshoot it.
+	const pts: Array<[number, number]> = [[apexZ, apexY]];
+	pts.push([tPos.z, tPos.y]);
+	const n = HINGE_SEGMENTS;
+	for (let i = 1; i < n; i++) {
+		const phi = aPos + (i / n) * diff;
+		pts.push([S + R * Math.sin(phi), ay + R * Math.cos(phi)]);
+	}
+	pts.push([tNeg.z, tNeg.y]);
+	return pts;
+}
+
+// A round knuckle barrel (radius R) braced by a self-supporting tail that leans
+// back to the apex (apexY, apexZ) - the foot of the box's vertical wall, where
+// its bottom bevel begins, so the tail dies into the wall instead of poking past
+// the bevelled footprint. See teardropPolygonZY. Falls back to a plain cylinder
+// if the barrel is too tall to leave room for the tail.
+function teardropBarrel(
+	R: number,
+	length: number,
+	cx: number,
+	ay: number,
+	S: number,
+	apexY: number,
+	apexZ: number
+): Manifold {
+	const wy = apexY - ay;
+	const wz = apexZ - S;
+	if (R >= S - 0.1 || wy * wy + wz * wz <= (R + 0.1) * (R + 0.1)) {
+		return xCylinder(R, length, cx, ay, S);
+	}
+	return xPrismZY(teardropPolygonZY(ay, S, R, apexY, apexZ), length, cx);
+}
+
+type HingeSolids = {
+	// applied to BOTH halves (each in its own frame): cutters then adds.
+	baseCutters: Array<Manifold>;
+	baseAdds: Array<Manifold>;
+	lidCutters: Array<Manifold>;
+	lidAdds: Array<Manifold>;
+	clusters: number;
+	partingGap: number;
+};
+
+// Build the hinge manifolds for both halves (EDDC layout): the base carries the
+// outer knuckles (solid barrels) with the pin/bar running between them, so the
+// ends are closed; the lid carries the inner knuckle(s), bored to wrap the bar.
+// The barrel axis sits half a parting gap beyond each back edge, so once the lid
+// is laid out folded-open (its back edge `partingGap` from the base's) the two
+// are coaxial on the seam line and the lid knuckles thread onto the base bar.
+function buildHinge(
+	h: HingeConfig,
+	outerHalf: Vector2,
+	bodyChamfer: number,
+	wall: number,
+	seam: number,
+	bevel: number
+): HingeSolids {
+	const wasm = manifold();
+	const { clearance, barrelR, pinR, knuckles, indent } = resolveHinge(h, seam);
+	// the support tail dies into the foot of the vertical wall - i.e. the height
+	// where the body's bottom bevel begins - so it never pokes past the bevelled
+	// bottom footprint. (The bevel itself then carries the body down to the bed.)
+	const tailZ = Math.max(0, Math.min(bevel, seam - 0.5));
+	const clusters = chooseHingeClusters(outerHalf, bodyChamfer, knuckles);
+	// the barrel axis sits half a parting gap beyond the back edge; choosing the
+	// gap = 2*(barrelR - wall) lands the barrel's inner surface flush on the inner
+	// wall (tangent, so the wall flows smoothly up into the barrel) and gives a
+	// full-`wall` anchor overlap. Floored so a thick wall still leaves a gap.
+	const gapHalf = Math.max(HINGE_MIN_PARTING_GAP / 2, barrelR - wall);
+	const partingGap = gapHalf * 2;
+	const baseY = outerHalf.y + gapHalf;
+	const lidY = -baseY;
+	const boreR = pinR + clearance;
+	// the opposing knuckle is relieved by a round bore of barrelR + clearance so
+	// the barrel spins freely once the joint is closed.
+	const reliefR = barrelR + clearance;
+	const innerWallY = Math.max(1, outerHalf.y - wall);
+
+	const baseCutters: Array<Manifold> = [];
+	const baseAdds: Array<Manifold> = [];
+	const lidCutters: Array<Manifold> = [];
+	const lidAdds: Array<Manifold> = [];
+
+	for (const cl of clusters) {
+		// inner-seam clearance chamfer behind this cluster: a 45deg bevel on the
+		// inner-wall/seam edge (running a touch wider than the cluster), so the
+		// opposing barrel can swing through the corner and the lid opens flat.
+		if (indent > 0) {
+			const span = cl.length + 2 * HINGE_END_MARGIN;
+			baseCutters.push(
+				xPrismZY(
+					[
+						[seam, innerWallY],
+						[seam, innerWallY + indent],
+						[seam - indent, innerWallY]
+					],
+					span,
+					cl.centerX
+				)
+			);
+			lidCutters.push(
+				xPrismZY(
+					[
+						[seam, -innerWallY],
+						[seam, -innerWallY - indent],
+						[seam - indent, -innerWallY]
+					],
+					span,
+					cl.centerX
+				)
+			);
+		}
+		// drop the knuckle count if the cluster is too short to hold them all at a
+		// printable pitch, and keep it ODD so both end knuckles are base (solid,
+		// closed ends) with the lid knuckle(s) on the inside.
+		let n = Math.max(3, Math.min(knuckles, Math.floor(cl.length / HINGE_MIN_PITCH)));
+		if (n % 2 === 0) {
+			n -= 1;
+		}
+		n = Math.max(3, n);
+		const bw = cl.length / n;
+		const center = (i: number) => cl.centerX - cl.length / 2 + (i + 0.5) * bw;
+
+		// the bar runs between the centres of the outermost base knuckles.
+		const pinFrom = center(0);
+		const pinTo = center(n - 1);
+		const pinMid = (pinFrom + pinTo) / 2;
+		const pinLen = pinTo - pinFrom;
+		baseAdds.push(xCylinder(pinR, pinLen, pinMid, baseY, seam));
+		// clear the bar from the lid along its whole span (the gaps between the
+		// lid's bored knuckles still have the bar passing through them).
+		lidCutters.push(xCylinder(boreR, pinLen + 1, pinMid, lidY, seam));
+
+		for (let i = 0; i < n; i++) {
+			const c = center(i);
+			const knuckleW = Math.max(0.6, bw - clearance);
+			const reliefW = bw + clearance;
+			if (i % 2 === 0) {
+				// outer / base knuckle: a SOLID round barrel fused to the bar, braced
+				// to the bed by a tail leaning back to the base's wall foot; the lid is
+				// relieved here (same teardrop, grown by clearance) so it has room.
+				baseAdds.push(teardropBarrel(barrelR, knuckleW, c, baseY, seam, outerHalf.y, tailZ));
+				lidCutters.push(teardropBarrel(reliefR, reliefW, c, lidY, seam, -outerHalf.y, tailZ));
+			} else {
+				// inner / lid knuckle: a bored round barrel (also tailed back to the
+				// lid's wall foot) that wraps the bar; the base is relieved here.
+				const barrel = teardropBarrel(barrelR, knuckleW, c, lidY, seam, -outerHalf.y, tailZ);
+				const bore = xCylinder(boreR, knuckleW + 1, c, lidY, seam);
+				const tube = wasm.Manifold.difference(barrel, bore);
+				deleteAll(barrel, bore);
+				lidAdds.push(tube);
+				baseCutters.push(teardropBarrel(reliefR, reliefW, c, baseY, seam, outerHalf.y, tailZ));
+			}
+		}
+	}
+	return { baseCutters, baseAdds, lidCutters, lidAdds, clusters: clusters.length, partingGap };
+}
+
 // mesh_check welds coincident corners on a 1e-4 mm grid; Manifold's working
 // tolerance can be finer, so it leaves slivers that read as degenerate after
 // that weld. Simplifying just above the weld grid collapses those short edges
@@ -888,7 +1227,12 @@ export async function buildBox(
 		}
 	}
 	const outline = boxOutline(p, outerHalf, placedHull);
-	const { bodyChamfer, recessBase, trayBossR, corners } = outline;
+	const { bodyChamfer, recessBase, trayBossR } = outline;
+	// a hinged box only needs magnets on the opening side, and a magnet bore in a
+	// hinge-side corner clashes with the knuckles. magnetCorners orders the
+	// opening pair first, so clamp to it when hinged.
+	const corners =
+		p.hinge.enabled && outline.corners.length > 2 ? outline.corners.slice(0, 2) : outline.corners;
 
 	// the bevel only truncates the bottom edge inward, so the body octagon is the
 	// widest footprint.
@@ -905,6 +1249,11 @@ export async function buildBox(
 	// lid feature is Y-mirrored relative to the base; that fold maps it back so
 	// the dice cavities and magnets meet their partners in the base.
 	const lidCorners = corners.map((c) => new Vector2(c.x, -c.y));
+
+	// print-in-place hinge along the +y back edge (built into both halves below).
+	const hinge = p.hinge.enabled
+		? buildHinge(p.hinge, outerHalf, bodyChamfer, p.wall, seam, p.bevel)
+		: undefined;
 
 	const placedDice: Array<PlacedDie> = [];
 
@@ -924,6 +1273,9 @@ export async function buildBox(
 		);
 	}
 	baseCutters.push(...magnetBores(p, corners, seam));
+	if (hinge) {
+		baseCutters.push(...hinge.baseCutters);
+	}
 
 	// positive supports for steeply tilted dice (e.g. the coin). The model returns
 	// geometry in its rotation-0 laid-flat XY frame / global box Z; spin it to the
@@ -956,6 +1308,9 @@ export async function buildBox(
 			g.dispose();
 		}
 	}
+	if (hinge) {
+		baseSupports.push(...hinge.baseAdds);
+	}
 	onProgress?.({
 		step: placements.length + 1,
 		totalSteps: placements.length + 2,
@@ -983,13 +1338,18 @@ export async function buildBox(
 		);
 	}
 	lidCutters.push(...magnetBores(p, lidCorners, seam));
+	const lidAdds: Array<Manifold> = [];
+	if (hinge) {
+		lidCutters.push(...hinge.lidCutters);
+		lidAdds.push(...hinge.lidAdds);
+	}
 	onProgress?.({
 		step: placements.length + 2,
 		totalSteps: placements.length + 2,
 		phase: 'lid',
 		label: 'Cutting lid'
 	});
-	const lid = cutToGeometry(lidBody, lidCutters);
+	const lid = cutToGeometry(lidBody, lidCutters, lidAdds);
 
 	// developer boundary overlay outlines (box xy frame, centred on the origin).
 	const diceBounds = prepared.map((prep) => {
@@ -1021,6 +1381,9 @@ export async function buildBox(
 		outer,
 		baseHeight: half,
 		lidHeight: half,
-		boundaries
+		boundaries,
+		hinge: hinge
+			? { axisZ: seam, clusters: hinge.clusters, partingGap: hinge.partingGap }
+			: undefined
 	};
 }
