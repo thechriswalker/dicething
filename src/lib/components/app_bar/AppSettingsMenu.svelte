@@ -7,6 +7,7 @@
 	import {
 		Box,
 		MessageCircleQuestion,
+		Package,
 		Settings,
 		SlidersHorizontal,
 		TypeOutline
@@ -41,6 +42,12 @@
 				href: '/legends'
 			},
 			{
+				type: 'link',
+				title: boxesTitle,
+				icon: Package,
+				href: '/boxes'
+			},
+			{
 				type: 'action',
 				title: m.splash_about(),
 				icon: MessageCircleQuestion,
@@ -51,6 +58,15 @@
 		]
 	};
 </script>
+
+{#snippet boxesTitle()}
+	<span class="inline-flex items-center gap-2">
+		{m.home_create_boxes()}
+		<span class="badge preset-filled-warning-500 rounded-full px-2 py-0.5 text-xs uppercase">
+			{m.beta_label()}
+		</span>
+	</span>
+{/snippet}
 
 <Menu data={settingsMenu} submenuOnLeft class="btn-icon preset-outlined-surface-500" />
 <AboutDialog bind:open={aboutOpen} />
