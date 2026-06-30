@@ -88,121 +88,75 @@ But only visually...
 
 There were still problems with the exported STLs, and I have discovered that this is almost always due to the fonts. The font conversion to paths is not always "clean", and sometimes paths overlap. This doesn't cause a rendering problem on screen, but the meshes get complicated and sometime appear non-manifold. Careful handling of the fonts before legend creation helps.
 
-After much work, the geometry on the engraving still wasn't correct, and I flipped from three.js's earcut `ShapeGeometry` triangulation to `libtess` a more forgiving algorithm that works better with holes and non-convex shapes. This work also helped fix a lot of the font issues I was seeing and font-loading now works on many fonts that it previously failed on.
+After much work, the geometry on the engraving still wasn't correct, and I flipped from three.js's earcut `ShapeGeometry` triangulation to `libtess` a more forgiving algorithm that works better with holes and non-convex shapes. This work also helped fix a lot of the font issues I was seeing and font-loading now works on many fonts that it previously failed on. The more I test the more edge-case I find that can be fixed.
 
-## Checklist
+## Features
 
-This was / is my list of features I want to get in. Remarkably most of them got done, or I decided not to do it for a reason.
+I should probably do a direct comparison with DiceMaker, but I haven't yet.
 
-### Technical
+DiceMaker features I know of, that DiceThing doesn't have: 
+ - different edge chamfers/bumpers
+ - fin supports
+ - per-dice custom names
+ - image import/tracing for legends
 
-This is the list of the things I have implemented the code for, but not necessarily created the UI for.
-The UI section will need a whole lot more...
+So if you need those features, DiceThing probably isn't for you. However it can do a bunch of cool things:
 
-- [ ] Parameterised Dice Shapes
+- [x] Parameterised Dice Shapes
   - [x] Classic 7 (caltrop d4, cube d6, octahderon d8, trapezohedron d10/d%, dodecahedron d12, icosahedron d20)
   - [x] Crystals (d4, d6, d8, d10/d%, d12)
   - [x] Rhombics (d6, d12)
-  - [x] Shards (d4,d6, d8, d10/d%, d12) (theoretically we can do weird ones here, like D3,D5,D7,D9...)
-  - [ ] Barrels (d4,d6, d8, d10/d%, d12) (these are the triangle faced ones)
+  - [x] Shards (d4,d6, d8, d10/d%, d12)
+  - [x] Barrels (d4,d6, d8, d10/d%, d12) (these are the triangle faced ones)
   - [x] Caltrop D4 (as 12 faces both on tips and edges, and with only 4 faces)
     - [x] With 12 faces on tips
     - [x] With 12 faces on edges
     - [x] With 4 faces (for custom stuff)
-    - [x] Truncated? i.e. legends on tips?
+    - [x] Truncated (legends on tips)
   - [x] Coin D2 - a short cylinder
-    - [x] Regular Polygon
-    - [x] Circle ~~(I probably have to keep these separate)~~ (just use 96 segements)
+    - [x] Regular Polygon / Circle (polygon with 96 segments is basically a circle...)
+    - [x] Custom SVG Path definition
   - [x] Skewed dice
-    - [x] Regular polyhedrals can be "skewed" (left or right handed) and remain
-          fair. I believe we could add the "skew" as a parameter? rather than
-          a completely new style, but actually I think it would be better to have them separate (so "discoverable")
-- [x] Legend Engraving
+    - [x] D6 and D12 polyhedrals can be "skewed" (left or right handed) and remain
+          fair.
+  - [x] Odd dice - D3, D5, D7 on a prism with numbers on the ends.
+  - [x] High numbers - D24s, D30s, D60s
+- [x] Legends 
+  - [x] A number of built in legend fonts.
+  - [x] Create from an uploaded TTF/OTF
+  - [x] SVG import for a legend
+    - [x] Basic import
+    - [x] Complex per-path settings import.
+  - [x] Mix and match symbols into a custom set
+- [x] Engraving
   - [x] auto-fit legends by default
-    - [x] auto custom scale per-face-per-legend (i.e. a D20 wants numbers as large as possible on each face, not consistent on each face) - maybe an "oncreate" option?
   - [x] customisable scale/rotation/translation
   - [x] per-face engraving depth
   - [x] per-face legend override
-- [ ] position/orient all Die shapes for optimal printing.
-- [x] Rendering
-  - [x] basic scene render and materials
-  - [x] customisable materials for faces/engravings
-  - [x] per-face render cache with invalidation
-  - [x] offscreen canvas rendering
-    - [x] in worker for preview images
-    - [-] for main scene (might be more trouble than it's worth at the moment, need to test on slower machines...) - skipping this for now.
-  - [x] STL output and geometry preprocessing
-  - [x] Bad manifold detection and edge fixing (not 100%, some errors don't cause problems, but it is a warning)
-  - [x] multiple dice scene for rendering full sets.
-  - [x] mouse pointer integration (for click detection/handling)
-- [x] Blanks / Platforms
-  - [x] generate a die with blanks at a given "inset" from the source parameters
-  - [x] generate platforms automatically from the number faces (custom face shape needed for caltrop)
-  - [x] make blank/platform generation configurable.
-  - [x] how to make the output accessible to the renderer
-  - [ ] Supports? (fins are easiest, but real supports could be done!)
-- [x] Save / Load JSON
-  - [x] create a serialisation format (JSON, but a schema)
-  - [x] save
-  - [x] load
-  - [x] identify whether use of (say) indexedDB would be a good fit for our data
-    - [x] localStorage is fine
-- [ ] Legend Creation
-  - [x] Load fonts from TTF
-  - [x] proprocess font shapes for easily fixable issues
-  - [x] create a save/load-able LegendSet from a font and a set of strings to use for each legend
-  - [x] find and create legends sets for a few fonts so we have some in-builtin options
-  - [x] Add (simple) SVG i.e just paths with fill, not strokes.
-  - [x] Add "symbol from font by text" with letter spacing
-  - [x] Add "line under symbol" for 6/9 marked symbols - hopefully without breaking the centering?
-  - [-] Add "lucide" icons as legends - potrace? or from font lucide is available as a font... (we can certainly import svgs from lucide now, the "pick from font directly though might be a nice feature for UX, i.e. insert icon -> icon picker -> legend)
-  - [-] Add custom legend from image. that needs potrace working on a canvas. possibly with some knobs to turn...
-    Maybe a disclaimer that for best results provide an SVG pre-converted from "stoke to path" with inkscape instructions.
-    In fact maybe ONLY allow that...
-    Yeah, I don't think we will allow raster images at all.
+- [x] Set builder
+  - [x] Format paint one face config to others
+  - [x] "Explode" view to see all faces side-by-side
+  - [x] "Landing" warning if your shape can rest in an invalid position (e.g. truncated dice, or dice with caps)
+- [x] Export
+  - [x] As JSON to share
+  - [x] As STL/3MF
+    - [x] Dice
+    - [x] Auto-Blank generation with configurable inset
+    - [x] Auto-Platform generation (parameterised)
+    - [x] Export as one file or zip with file-per-group, or file-per-object
+- [x] Dice Box Creation
+  - [x] Import a set and have a box built for that set
+  - [x] Edit box layout and dice position/rotation
+  - [x] Magnet bores, open (press-in) and closed (pause and insert)
+  - [x] Optional hinges (vs magnets only)
 
-### User Interface
+On the roadmap:
 
-This is the final piece that makes all this usable.
-I'd like to keep it account-free, and "offline" if possible, but the first step will be "local-first", i.e. whatever data is in your browser.
+- Bevelled engraving (bevel the inner base of legend engraving)
+- Print Orientations - correct orientation for easier printing.
+- Alternate Legend ordering configurations (i.e. standard / spindown / etc...)
 
-The first flow will be
-
-1. "new set" button
-2. pick dice shapes
-3. overview of current dice
-4. pick one to edit
-5. single die editor
-   - live preview
-   - all parameters tweakable
-   - options for each face
-   - single die export (with or without blanks/platforms)
-6. back to overview
-7. add/remove die shapes
-8. save set
-9. load new / start new
-10. export all as set.
-
-- [x] new set from preset
-- [x] load saved set
-- [x] import JSON
-- [x] set view
-  - [x] previews of die
-  - [x] main selected die view
-  - [x] edit singel die parameters
-  - [-] close die parameter draw (for space) (not doing it)
-  - [x] save changes!
-  - [x] title edit
-  - [x] legend editor (component)
-    - [x] font loader - character set picker
-  - [x] legend picker (component) - i.e. pick a symbol from the current set - a select box alike
-  - [x] set menu
-    - [x] combine legends/export/lightswitch into a single menu
-    - [x] export options (component)
-      - [x] toSTL options i.e. auto blanks
-      - [x] toJSON ? are there options?
-
-### Fonts
+### Fonts and Font Handling
 
 Most issues come from font problems when converted to SVG paths for engraving.
 
