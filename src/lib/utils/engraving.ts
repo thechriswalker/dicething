@@ -192,31 +192,130 @@ export function engrave(
 // getPoints()/getPointsHoles() calls return exactly these cleaned points
 // regardless of the division count passed.
 //
-// Normally returns a single shape. If any loop self-intersects (a figure-8 /
-// self-overlapping font or SVG contour that resolveShapeBoundaries didn't fully
-// resolve), the caps and the extruded walls would disagree about the boundary -
-// libtess resolves the crossing while the walls would extrude the raw crossing
-// loop, tearing the engraving open. In that case we re-derive the true fill
-// boundary with a nonzero boundary pass (the winding rule fonts fill with) and
-// rebuild clean, non-self-intersecting outer+hole loops that the caps and walls
-// then agree on. This can split one symbol into several shapes.
+// Normally returns a single shape. Two classes of font/SVG defect break the
+// agreement between the libtess cap and the extruded walls, tearing the
+// engraving open; both are repaired here so the caps and walls see the same
+// clean loops:
+//
+//  - Proper self-intersection (a figure-8 / self-overlapping contour that
+//    resolveShapeBoundaries didn't fully resolve): libtess resolves the crossing
+//    under the fill rule while the walls would extrude the raw crossing loop. We
+//    re-derive the true fill boundary with a nonzero boundary pass (the winding
+//    rule fonts fill with) and rebuild clean outer+hole loops.
+//
+//  - A loop that self-TOUCHES at a vertex (a spur/pinch that returns to an
+//    earlier point) or a near-zero-area sliver loop. A self-touching loop makes
+//    the vertical wall edge at the touch point shared by four wall quads
+//    (non-manifold); a sliver loop's walls have no matching cap (open edges).
+//    Neither is a proper crossing, so unionBoundaryLoops leaves them intact. We
+//    de-pinch every loop (splitting it at the touch point into sub-loops) and
+//    drop the near-degenerate slivers/spurs, which are sub-print-resolution font
+//    artifacts carrying no real engraveable surface.
+//
+// Either repair can split one symbol into several shapes.
 function cleanShape(s: Shape, divisions: number, epsilon: number): Array<Shape> {
 	const outer = removeRedundantPoints(s.getPoints(divisions), epsilon);
 	const holes = s
 		.getPointsHoles(divisions)
 		.map((hole) => removeRedundantPoints(hole, epsilon))
 		.filter((hole) => hole.length >= 3);
+	const all = [outer, ...holes];
 
-	if (!anyLoopSelfIntersects([outer, ...holes])) {
+	const selfIntersects = anyLoopSelfIntersects(all);
+	// Fast path: a clean glyph (no crossing, no self-touch, no degenerate loop)
+	// keeps the font's outer/hole structure verbatim - unchanged behaviour for
+	// the overwhelming majority of glyphs.
+	if (
+		!selfIntersects &&
+		!all.some((loop) => loopSelfTouches(loop)) &&
+		!all.some((loop) => isDegenerateLoop(loop, epsilon))
+	) {
 		const shape = new Shape(outer);
 		shape.holes = holes.map((hole) => new Path(hole));
 		return [shape];
 	}
 
-	const loops = unionBoundaryLoops([outer, ...holes])
-		.map((loop) => removeRedundantPoints(loop, epsilon))
-		.filter((loop) => loop.length >= 3);
+	let loops = selfIntersects
+		? unionBoundaryLoops(all)
+				.map((loop) => removeRedundantPoints(loop, epsilon))
+				.filter((loop) => loop.length >= 3)
+		: all;
+	loops = loops
+		.flatMap((loop) => depinchLoop(loop))
+		.filter((loop) => !isDegenerateLoop(loop, epsilon));
 	return loopsToShapes(loops);
+}
+
+// Two loop vertices closer than this weld to one vertex in the exported mesh, so
+// a loop revisiting a point within this distance is a self-touch (pinch) that
+// would make its wall edge there non-manifold. Matches the mesh weld tolerance.
+const SelfTouchTolerance = 1e-4;
+
+// True if a loop revisits any earlier (non-adjacent) vertex within the weld
+// tolerance - i.e. it touches itself at a point (a spur/pinch).
+function loopSelfTouches(loop: Array<Vector2>): boolean {
+	const n = loop.length;
+	const tol2 = SelfTouchTolerance * SelfTouchTolerance;
+	for (let i = 0; i < n; i++) {
+		for (let j = i + 2; j < n; j++) {
+			if (i === 0 && j === n - 1) {
+				continue; // shared wrap-around vertex
+			}
+			if (loop[i].distanceToSquared(loop[j]) <= tol2) {
+				return true;
+			}
+		}
+	}
+	return false;
+}
+
+// Split a loop that touches itself at a vertex into independent simple loops.
+// When vertex i and vertex j (i<j) are the same point, [i..j-1] closes into one
+// sub-loop and the remainder ([0..i-1] + [j..n-1]) closes into another, each
+// using the touch point exactly once. Recurses so a loop with several pinches
+// (or a point revisited 3+ times) is fully separated. A clean loop is returned
+// unchanged.
+function depinchLoop(loop: Array<Vector2>): Array<Array<Vector2>> {
+	const n = loop.length;
+	if (n < 3) {
+		return [loop];
+	}
+	const tol2 = SelfTouchTolerance * SelfTouchTolerance;
+	for (let i = 0; i < n; i++) {
+		for (let j = i + 2; j < n; j++) {
+			if (i === 0 && j === n - 1) {
+				continue;
+			}
+			if (loop[i].distanceToSquared(loop[j]) <= tol2) {
+				const inner = loop.slice(i, j);
+				const rest = [...loop.slice(0, i), ...loop.slice(j)];
+				return [...depinchLoop(inner), ...depinchLoop(rest)];
+			}
+		}
+	}
+	return [loop];
+}
+
+// A loop with no real engraveable surface: it collapses to fewer than three
+// points, or it is a sub-print-resolution sliver/spur whose walls have no
+// matching cap. Judged scale-awarely by area and by perpendicular thickness
+// (2*area/perimeter, the width of a thin sliver), so both a tiny tab (small
+// area) and a long hair-thin sliver (tiny thickness) are caught. These are font
+// artifacts (~10um spurs / near-zero-area holes) far below any real feature.
+const DegenerateLoopArea = 1e-3; // mm^2
+function isDegenerateLoop(loop: Array<Vector2>, epsilon: number): boolean {
+	if (loop.length < 3) {
+		return true;
+	}
+	const area = Math.abs(ShapeUtils.area(loop));
+	if (area < DegenerateLoopArea) {
+		return true;
+	}
+	let perimeter = 0;
+	for (let i = 0; i < loop.length; i++) {
+		perimeter += loop[i].distanceTo(loop[(i + 1) % loop.length]);
+	}
+	return perimeter > 0 && (2 * area) / perimeter < epsilon;
 }
 
 // Group a flat set of boundary loops into Shapes by containment nesting: a loop
