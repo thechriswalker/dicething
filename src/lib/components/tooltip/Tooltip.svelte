@@ -26,7 +26,7 @@
 		sideOffset = 8,
 		delayDuration = 200,
 		disabled = false,
-		contentClasses = 'card preset-outlined bg-surface-950-50 text-surface-50-950 max-w-xs rounded-lg text-sm shadow-lg',
+		contentClasses = 'card preset-outlined bg-surface-950-50 text-surface-50-950 max-w-xs rounded-lg text-sm shadow-lg whitespace-pre-wrap',
 		contentPadding = 'px-2 py-1'
 	}: Props = $props();
 </script>

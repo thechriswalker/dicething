@@ -101,6 +101,27 @@
 
 	let anyMeshProblems = $derived(Object.values(meshReports).some((r) => !r.isPrintable));
 
+	// true while an export is actively building/writing files, so the button can
+	// disable itself and we don't fire overlapping exports.
+	let exporting = $state(false);
+	// the last export failure, surfaced in the UI. Export errors (e.g. Manifold
+	// rejecting input, the 3MF writer failing) used to only reach the console, so
+	// a user just saw nothing download. We catch and show them instead.
+	let exportError = $state<string | undefined>(undefined);
+
+	// dice whose mesh is open or non-manifold cannot be written as 3MF: that
+	// format routes every object through Manifold (WASM), which rejects anything
+	// that isn't a closed 2-manifold. STL has no such constraint, so we fall back
+	// to it (and lock out 3MF) whenever any object would fail the manifold check.
+	let anyNonManifold = $derived(
+		Object.values(meshReports).some((r) => !r.isManifold || !r.isWatertight)
+	);
+	$effect(() => {
+		if (anyNonManifold && format === '3mf') {
+			format = 'stl';
+		}
+	});
+
 	// whether to overlay the problem triangles (open/non-manifold/degenerate) in
 	// red on the preview. on by default so issues are obvious; toggleable.
 	let highlightProblems = $state(true);
@@ -465,46 +486,60 @@
 	});
 
 	async function exportModel() {
-		if (!setData || nothingToExport) {
+		if (!setData || nothingToExport || exporting) {
 			return;
 		}
-		const named = buildExportMeshes(setData, {
-			selectedIds,
-			includeDice,
-			optionStates: $state.snapshot(optionStates)
-		});
-		const name = (setData.name || 'set').replace(/[^a-z0-9-_]+/gi, '_');
-		const groups = groupMeshesByCategory(named, name);
-		// dice are built Y-up; the 3MF writer reorients them to the print bed.
-		if (format === '3mf') {
+		exporting = true;
+		exportError = undefined;
+		try {
+			const named = buildExportMeshes(setData, {
+				selectedIds,
+				includeDice,
+				optionStates: $state.snapshot(optionStates)
+			});
+			const name = (setData.name || 'set').replace(/[^a-z0-9-_]+/gi, '_');
+			const groups = groupMeshesByCategory(named, name);
+			// dice are built Y-up; the 3MF writer reorients them to the print bed.
+			// non-manifold objects can't be written as 3MF (Manifold rejects them), so
+			// fall back to STL even if the format somehow still reads as 3mf here.
+			if (format === '3mf' && !anyNonManifold) {
+				if (fileLayout === 'object') {
+					download(await exportThreeMfZip(named, 'y'), `${name}.zip`);
+				} else if (fileLayout === 'group' && groups.length > 1) {
+					// each group laid out within its own file, then one grouped 3MF per
+					// group, all packed into a ZIP.
+					for (const g of groups) {
+						layoutGrid(g.meshes.map((n) => n.mesh));
+					}
+					download(await exportThreeMfGroupZip(groups, 'y'), `${name}.zip`);
+				} else {
+					layoutGrid(named.map((n) => n.mesh));
+					// group each category (dice / blanks / platforms / ...) into one 3MF
+					// object so the slicer treats each as a single grouped object.
+					download(await exportThreeMfGrouped(groups, 'y'), `${name}.3mf`);
+				}
+				return;
+			}
 			if (fileLayout === 'object') {
-				download(await exportThreeMfZip(named, 'y'), `${name}.zip`);
+				download(exportStlZip(named), `${name}.zip`);
 			} else if (fileLayout === 'group' && groups.length > 1) {
-				// each group laid out within its own file, then one grouped 3MF per
-				// group, all packed into a ZIP.
 				for (const g of groups) {
 					layoutGrid(g.meshes.map((n) => n.mesh));
 				}
-				download(await exportThreeMfGroupZip(groups, 'y'), `${name}.zip`);
+				download(exportStlGroupZip(groups), `${name}.zip`);
 			} else {
-				layoutGrid(named.map((n) => n.mesh));
-				// group each category (dice / blanks / platforms / ...) into one 3MF
-				// object so the slicer treats each as a single grouped object.
-				download(await exportThreeMfGrouped(groups, 'y'), `${name}.3mf`);
+				const meshes = named.map((n) => n.mesh);
+				layoutGrid(meshes);
+				download(exportStlSingle(meshes), `${name}.stl`);
 			}
-			return;
-		}
-		if (fileLayout === 'object') {
-			download(exportStlZip(named), `${name}.zip`);
-		} else if (fileLayout === 'group' && groups.length > 1) {
-			for (const g of groups) {
-				layoutGrid(g.meshes.map((n) => n.mesh));
-			}
-			download(exportStlGroupZip(groups), `${name}.zip`);
-		} else {
-			const meshes = named.map((n) => n.mesh);
-			layoutGrid(meshes);
-			download(exportStlSingle(meshes), `${name}.stl`);
+		} catch (err) {
+			// surface the failure instead of letting it vanish into the console: the
+			// download silently never happened otherwise.
+			console.error('export failed', err);
+			const detail = err instanceof Error ? err.message : String(err);
+			exportError = m.export_failed({ detail });
+		} finally {
+			exporting = false;
 		}
 	}
 </script>
@@ -874,9 +909,12 @@
 						<span class="text-sm">{m.export_format()}</span>
 						<select class="select" bind:value={format}>
 							<option value="stl">STL</option>
-							<option value="3mf">3MF</option>
+							<option value="3mf" disabled={anyNonManifold}>3MF</option>
 						</select>
 					</label>
+					{#if anyNonManifold}
+						<p class="text-warning-600-400 text-sm">{m.export_non_manifold_warning()}</p>
+					{/if}
 					<label class="flex items-center gap-2 text-sm">
 						<input type="radio" class="radio" value="single" bind:group={fileLayout} />
 						<span>{m.export_file_single()}</span>
@@ -918,13 +956,16 @@
 			{#if nothingToExport}
 				<p class="text-warning-600-400 text-sm">{m.export_nothing_selected()}</p>
 			{/if}
+			{#if exportError}
+				<p class="text-error-600-400 text-sm" role="alert">{exportError}</p>
+			{/if}
 			<button
 				class="btn preset-filled-primary-500"
-				disabled={nothingToExport}
+				disabled={nothingToExport || exporting}
 				onclick={exportModel}
 			>
 				<DownloadIcon class="size-4" />
-				{m.export_3d_button()}
+				{exporting ? m.export_3d_button_working() : m.export_3d_button()}
 			</button>
 		</div>
 	</div>
