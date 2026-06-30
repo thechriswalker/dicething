@@ -43,6 +43,7 @@
 		type LegendCheckResult
 	} from '$lib/utils/validate_legends';
 	import { checkMeshInWorker } from '$lib/utils/mesh_check_client';
+	import { getPreferences } from '$lib/interfaces/preferences.svelte';
 	import {
 		AlertTriangle,
 		ArrowLeftIcon,
@@ -459,6 +460,31 @@
 		}
 		checkResults = collected;
 		checking = false;
+	}
+
+	// --- developer mode: inspect the raw serialised glyph path --------------
+	// A debugging aid gated on the app-wide developer-mode preference: shows the
+	// exact compact serialisation (shapeToJSON form) of the selected slot so a
+	// problematic glyph can be copied out and reproduced in a test/script.
+	const prefs = getPreferences();
+	let devMode = $derived(prefs.developerMode);
+	let devJson = $derived.by(() => {
+		if (!set) {
+			return '';
+		}
+		void version; // recompute after any edit
+		const shapes = set.toJSON().shapes[selectedLegend] ?? [];
+		return JSON.stringify(shapes);
+	});
+	let devCopied = $state(false);
+	async function copyDevJson() {
+		try {
+			await navigator.clipboard.writeText(devJson);
+			devCopied = true;
+			setTimeout(() => (devCopied = false), 1200);
+		} catch {
+			/* clipboard unavailable; the textarea is still selectable */
+		}
 	}
 
 	// human-readable issues for one broken result.
@@ -978,6 +1004,30 @@
 								{/snippet}
 							</Modal>
 						</div>
+
+						{#if devMode}
+							<div class="flex flex-col gap-2 border-t pt-2">
+								<div class="flex items-center justify-between">
+									<span class="text-sm font-semibold">Serialised path (dev)</span>
+									<button
+										type="button"
+										class="btn btn-sm preset-tonal-surface"
+										onclick={copyDevJson}
+									>
+										{devCopied ? 'Copied' : 'Copy'}
+									</button>
+								</div>
+								<textarea
+									class="textarea h-32 w-full font-mono text-xs"
+									readonly
+									onclick={(e) => e.currentTarget.select()}
+									value={devJson}
+								></textarea>
+								<span class="text-surface-600-400 text-xs">
+									slot {selectedLegend} · {set.getLegendName(selectedLegend)} · {devJson.length} chars
+								</span>
+							</div>
+						{/if}
 					</div>
 				</div>
 			</div>

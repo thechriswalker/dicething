@@ -12,6 +12,7 @@
 	"home_create_dice": "Create Dice",
 	"home_create_legends": "Create Legends",
 	"beta_label": "Beta",
+	"dev_mode_label": "Dev mode",
 	"error_404_title": "Page not found",
 	"error_404_message": "We couldn't find the page you were looking for. It may have rolled off the table.",
 	"error_generic_title": "Something went wrong",

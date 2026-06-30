@@ -818,12 +818,7 @@ export class Builder {
 				geos.push(g);
 			});
 		}
-		const combined = mergeGeometries(geos);
-		const merged = mergeVertices(combined);
-		const deduped = removeDuplicateTriangles(merged);
-		// heal T-junctions / drop zero-area slivers the triangulator can leave
-		// behind, so the exported solid has no degenerate triangles.
-		const repaired = repairDegenerateTriangles(deduped);
+		const repaired = assembleExportSolid(geos);
 		// bake the model's print orientation/raise in last (identity for now).
 		this.printingTransform.applyToGeometry(repaired);
 		return new Mesh(repaired, _genericNormalMaterial);
@@ -900,6 +895,20 @@ export class Builder {
 		// the solid and exploded states.
 		return output;
 	}
+}
+
+// Combine the per-face geometries of a die into the final, print-ready solid:
+// concatenate, weld coincident corners (mergeVertices), drop duplicate
+// triangles, then heal T-junctions / drop zero-area slivers. This is the exact
+// tail of export() factored out so the engraving audit (engraving_audit.ts) can
+// assemble a solid through the identical pipeline - the repair stage in
+// particular is where most manifold regressions live, so the audit must run it.
+// Input geometries must be non-indexed with consistent attributes.
+export function assembleExportSolid(geos: Array<BufferGeometry>): BufferGeometry {
+	const combined = mergeGeometries(geos);
+	const merged = mergeVertices(combined);
+	const deduped = removeDuplicateTriangles(merged);
+	return repairDegenerateTriangles(deduped);
 }
 
 // The structural shape of a stored `Dice` that the engraving check needs, kept
