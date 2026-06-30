@@ -43,7 +43,6 @@ const deferredFontLoader = (fontname: string) => {
 export const blanks = loadImmutableLegends({
 	id: 'builtin:blanks',
 	name: 'Blanks',
-	names: [],
 	shapes: []
 });
 

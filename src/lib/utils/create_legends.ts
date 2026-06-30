@@ -11,7 +11,6 @@ import {
 	createShapesFromSVGChecked,
 	defaultStrings,
 	finalizeImportedShapes,
-	legendNameForText,
 	svgIconScale,
 	svgPieces,
 	unsupportedSVGElements,
@@ -44,7 +43,6 @@ export function legendSetFromFont(
 	const strings = addRenderOptions(characters);
 	// NB createShapesFromFont returns already-serialised shape JSON.
 	const shapes = createShapesFromFont(buffer, strings) as unknown as Array<Array<unknown>>;
-	const names = strings.map((s) => legendNameForText(s.text));
 	const sources: Array<LegendSource | null> = strings.map((s) => ({
 		kind: 'font',
 		text: s.text,
@@ -60,13 +58,11 @@ export function legendSetFromFont(
 		0,
 		createShapesFromSVG(dicethingLogo, svgIconScale(dicethingLogo)) as unknown as Array<unknown>
 	);
-	names.splice(at, 0, 'Logo');
 	sources.splice(at, 0, { kind: 'svg' });
 
 	const serial: SerialisedLegendSet = {
 		id,
 		name,
-		names,
 		shapes,
 		font: { kind: 'uploaded' },
 		updated: Date.now(),

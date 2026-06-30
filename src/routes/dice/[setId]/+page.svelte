@@ -9,6 +9,7 @@
 	import type { MenuItemSubmenu } from '$lib/components/menu/menu';
 	import Menu from '$lib/components/menu/Menu.svelte';
 	import LegendsModal from '$lib/components/legends_modal/LegendsModal.svelte';
+	import ShareModal from '$lib/components/share/ShareModal.svelte';
 	import Scene from '$lib/components/scene/Scene.svelte';
 	import Tooltip from '$lib/components/tooltip/Tooltip.svelte';
 	import dice from '$lib/dice';
@@ -1269,6 +1270,9 @@
 				onChangeDepth={(v) => setEngravingForAllDice(engravingParam.id, v)}
 				onChangeTolerance={(v) => setEngravingForAllDice(engravingToleranceParam.id, v)}
 			/>
+		{/if}
+		{#if setData}
+			<ShareModal set={setData} />
 		{/if}
 		<Menu data={exportMenu} submenuOnLeft></Menu>
 		{#if setData}

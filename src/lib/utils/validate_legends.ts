@@ -94,8 +94,7 @@ export function gatherLegendCandidates(
 export async function checkLegendCandidate(candidate: LegendCandidate): Promise<LegendCheckResult> {
 	try {
 		const shapes = Array.from({ length: 10 }, () => candidate.shapes);
-		const names = shapes.map(() => candidate.label);
-		const tempSet = loadImmutableLegends({ id: 'validate', name: 'validate', names, shapes });
+		const tempSet = loadImmutableLegends({ id: 'validate', name: 'validate', shapes });
 		const builder = new Builder(dice.d6_cube, tempSet);
 		// default face params => each face engraves its default legend, which we've
 		// filled with the candidate glyph.
@@ -127,8 +126,7 @@ const AUDIT_SLOT_COUNT = 110;
 // while non-number faces (rims, hidden facets) default to blank as usual.
 function candidateLegendSet(candidate: LegendCandidate) {
 	const shapes = Array.from({ length: AUDIT_SLOT_COUNT }, () => candidate.shapes);
-	const names = Array.from({ length: AUDIT_SLOT_COUNT }, () => candidate.label);
-	return loadImmutableLegends({ id: 'validate', name: 'validate', names, shapes });
+	return loadImmutableLegends({ id: 'validate', name: 'validate', shapes });
 }
 
 // Build the exported solid for `candidate` engraved across `dieKind`'s number

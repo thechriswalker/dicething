@@ -309,14 +309,18 @@ export async function exportThreeMfZip(
 
 // --- JSON ------------------------------------------------------------------
 
-export type EmbedLegends = 'all' | 'used';
+// 'all' embeds the entire legend set, 'used' only the slots the dice reference,
+// 'reference' embeds no shapes at all (just the id/name) — for built-in sets the
+// importer recovers the shapes from the bundle, so shipping them is wasted bytes
+// (notably in a share URL).
+export type EmbedLegends = 'all' | 'used' | 'reference';
 
 // Serialize a set to a self-contained JSON string, embedding either the entire
 // legend set or only the legends actually referenced by the dice.
 // Strip editor-only metadata (revision, source font, per-slot recipes) so an
 // exported file only carries the legends themselves.
 function stripLegendsForExport(s: SerialisedLegendSet): SerialisedLegendSet {
-	return { id: s.id, name: s.name, names: s.names, shapes: s.shapes };
+	return { id: s.id, name: s.name, shapes: s.shapes };
 }
 
 // Serialize a single legend set to JSON, containing only the legend shapes and
@@ -326,10 +330,14 @@ export function exportLegendSetJson(legends: LegendSet): string {
 }
 
 export function exportSetJson(set: DiceSet, opts: { embedLegends: EmbedLegends }): string {
-	const legends =
-		opts.embedLegends === 'all'
-			? stripLegendsForExport(set.legends.toJSON())
-			: reduceLegends(set, set.legends);
+	let legends: SerialisedLegendSet;
+	if (opts.embedLegends === 'all') {
+		legends = stripLegendsForExport(set.legends.toJSON());
+	} else if (opts.embedLegends === 'reference') {
+		legends = { id: set.legends.id, name: set.legends.name, shapes: [] };
+	} else {
+		legends = reduceLegends(set, set.legends);
+	}
 
 	const payload = {
 		version: 1,
@@ -410,18 +418,11 @@ function reduceLegends(set: DiceSet, legends: LegendSet): SerialisedLegendSet {
 
 	const maxIdx = Math.max(0, ...Array.from(used).filter((l) => l >= 0));
 	const shapes: Array<Array<any>> = [];
-	const names: Array<string> = [];
 	for (let l = 0; l <= maxIdx; l++) {
-		if (used.has(l) && l in full.shapes) {
-			shapes[l] = full.shapes[l];
-			names[l] = full.names[l] ?? '';
-		} else {
-			shapes[l] = [];
-			names[l] = '';
-		}
+		shapes[l] = used.has(l) && l in full.shapes ? full.shapes[l] : [];
 	}
 
-	return { id: full.id, name: full.name, names, shapes };
+	return { id: full.id, name: full.name, shapes };
 }
 
 function collectUsedLegends(set: DiceSet): Set<Legend> {

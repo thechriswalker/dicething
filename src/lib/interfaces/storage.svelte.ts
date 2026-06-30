@@ -318,7 +318,7 @@ export async function cloneLegendSet(src: LegendSet): Promise<MutableLegendSet> 
 // custom set. An uploaded-font origin is dropped (we don't have the blob).
 export function importLegendSet(json: string): MutableLegendSet {
 	const obj = JSON.parse(json) as SerialisedLegendSet;
-	if (!Array.isArray(obj.shapes) || !Array.isArray(obj.names)) {
+	if (!Array.isArray(obj.shapes)) {
 		throw new Error('Not a valid legend set file');
 	}
 	const id = crypto.randomUUID();

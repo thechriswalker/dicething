@@ -208,7 +208,6 @@ export type LegendSet = {
 export type SerialisedLegendSet = {
 	id: string;
 	name: string;
-	names: Array<string>;
 	shapes: Array<Array<any>>;
 	// revision marker (unix millis), bumped on every save so consumers can
 	// detect content changes for the same id.
@@ -236,15 +235,10 @@ export type MutableLegendSet = LegendSet & {
 	font?: LegendFontOrigin;
 	updated?: number;
 	getSource(l: Legend): LegendSource | undefined;
-	set(l: Legend, name: string, shapes: Array<Shape>, source?: LegendSource | null): void;
+	set(l: Legend, shapes: Array<Shape>, source?: LegendSource | null): void;
 	// like set(), but accepts shapes already in the compact serialized form
 	// (as produced by createShapesFromFont / createShapesFromSVG).
-	setSerialized(
-		l: Legend,
-		name: string,
-		shapes: Array<unknown>,
-		source?: LegendSource | null
-	): void;
+	setSerialized(l: Legend, shapes: Array<unknown>, source?: LegendSource | null): void;
 };
 
 export function loadImmutableLegends(s: SerialisedLegendSet): ImmutableLegendSet {
@@ -267,8 +261,8 @@ export function loadImmutableLegends(s: SerialisedLegendSet): ImmutableLegendSet
 				l = Legend.BLANK;
 			}
 			// canonical slots derive their name from the active locale; custom
-			// symbols keep their baked, user-supplied name.
-			return localizedLegendName(l) ?? (l in s.names ? s.names[l] : debugLegendName(l));
+			// symbols use the generic "Custom Legend (n)" name (also localized).
+			return localizedLegendName(l) ?? debugLegendName(l);
 		},
 		get(l: Legend) {
 			// anything not in the array is a blank.
@@ -288,7 +282,6 @@ export function loadImmutableLegends(s: SerialisedLegendSet): ImmutableLegendSet
 			return loadMutableLegends({
 				id,
 				name: s.name,
-				names: s.names,
 				shapes: s.shapes,
 				font: s.font,
 				sources: s.sources
@@ -319,7 +312,6 @@ export function loadMutableLegends(s: SerialisedLegendSet): MutableLegendSet {
 		cache.set(l, shapes);
 		return shapes;
 	};
-	const names = s.names.slice();
 	const sources = (s.sources ?? []).slice();
 	const set: MutableLegendSet = {
 		id: s.id,
@@ -335,8 +327,8 @@ export function loadMutableLegends(s: SerialisedLegendSet): MutableLegendSet {
 				l = Legend.BLANK;
 			}
 			// canonical slots derive their name from the active locale; custom
-			// symbols keep their baked, user-supplied name.
-			return localizedLegendName(l) ?? (l in names ? names[l] : debugLegendName(l));
+			// symbols use the generic "Custom Legend (n)" name (also localized).
+			return localizedLegendName(l) ?? debugLegendName(l);
 		},
 		get(l: Legend) {
 			// anything not in the array is a blank.
@@ -353,18 +345,16 @@ export function loadMutableLegends(s: SerialisedLegendSet): MutableLegendSet {
 		getSource(l) {
 			return sources[l] ?? undefined;
 		},
-		set(l, name, shapes, source) {
+		set(l, shapes, source) {
 			cache.set(l, shapes);
 			data[l] = shapes.map(shapeToJSON);
-			names[l] = name;
 			if (source !== undefined) {
 				sources[l] = source;
 			}
 		},
-		setSerialized(l, name, shapes, source) {
+		setSerialized(l, shapes, source) {
 			cache.delete(l); // will be re-decoded from `data` on next get()
 			data[l] = shapes as Array<any>;
-			names[l] = name;
 			if (source !== undefined) {
 				sources[l] = source;
 			}
@@ -380,7 +370,6 @@ export function loadMutableLegends(s: SerialisedLegendSet): MutableLegendSet {
 			return {
 				id: s.id,
 				name: self.name,
-				names: names,
 				shapes: data,
 				updated: self.updated,
 				font: self.font,

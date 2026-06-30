@@ -17,7 +17,7 @@
 
 import type { DiceParameter, DieFaceModel, DieModel } from '$lib/interfaces/dice';
 import { Transform, previewTilt } from '$lib/utils/3d';
-import { pickForNumber } from '$lib/utils/legends';
+import { Legend, pickForNumber } from '$lib/utils/legends';
 import { centerShapes, getBoundingBox } from '$lib/utils/shapes';
 import { Shape, Vector2, Vector3 } from 'three';
 
@@ -236,7 +236,7 @@ function buildCustom(H: number) {
 		placeOnFace(transform, f, h, H);
 		return {
 			isNumberFace: true,
-			defaultLegend: pickForNumber(f, 4),
+			defaultLegend: Legend.BLANK, // yes, blank - on a number face. It is supposed to be custom.
 			shape,
 			transform
 		};

@@ -27,7 +27,6 @@
 	import { StrokeOnlySVGError } from '$lib/utils/font';
 	import { debounce } from '$lib/utils/debounce';
 	import {
-		debugLegendName,
 		Legend,
 		loadMutableLegends,
 		type LegendSet,
@@ -161,7 +160,6 @@
 		return loadMutableLegends({
 			...json,
 			shapes: json.shapes.slice(0, len),
-			names: json.names.slice(0, len),
 			sources: (json.sources ?? []).slice(0, len)
 		});
 	}
@@ -194,7 +192,7 @@
 			return;
 		}
 		const idx = set.length;
-		set.setSerialized(idx, debugLegendName(idx), [], null);
+		set.setSerialized(idx, [], null);
 		selectedLegend = idx;
 		commit();
 	}
@@ -212,11 +210,10 @@
 			set = loadMutableLegends({
 				...json,
 				shapes: json.shapes.slice(0, last),
-				names: json.names.slice(0, last),
 				sources: (json.sources ?? []).slice(0, last)
 			});
 		} else {
-			set.setSerialized(l, debugLegendName(l), [], null);
+			set.setSerialized(l, [], null);
 		}
 		if (selectedLegend > set.length - 1) {
 			selectedLegend = Math.max(0, set.length - 1);
@@ -240,7 +237,7 @@
 				}
 			: undefined;
 		const shapes = underline ? addUnderline(base, underline) : base;
-		set.setSerialized(selectedLegend, set.getLegendName(selectedLegend), shapes, {
+		set.setSerialized(selectedLegend, shapes, {
 			kind: 'font',
 			text: charText,
 			letterSpacing: letterSpacing || undefined,
@@ -256,7 +253,7 @@
 		if (!set) {
 			return;
 		}
-		set.setSerialized(selectedLegend, set.getLegendName(selectedLegend), [], null);
+		set.setSerialized(selectedLegend, [], null);
 		charText = '';
 		commit();
 	}
@@ -347,7 +344,7 @@
 		if (!set || shapes.length === 0) {
 			return;
 		}
-		set.setSerialized(selectedLegend, set.getLegendName(selectedLegend), shapes, { kind: 'svg' });
+		set.setSerialized(selectedLegend, shapes, { kind: 'svg' });
 		commit();
 		resetImport();
 		close();
@@ -370,7 +367,7 @@
 			return;
 		}
 		const shapes = copySource.get(srcLegend).map(shapeToJSON);
-		set.setSerialized(selectedLegend, set.getLegendName(selectedLegend), shapes, {
+		set.setSerialized(selectedLegend, shapes, {
 			kind: 'glyph',
 			from: copySource.id,
 			legend: srcLegend
@@ -395,7 +392,7 @@
 			return;
 		}
 		const shapes = shapesFromFontText(adhocBuffer, adhocText);
-		set.setSerialized(selectedLegend, set.getLegendName(selectedLegend), shapes, null);
+		set.setSerialized(selectedLegend, shapes, null);
 		commit();
 		close();
 	}

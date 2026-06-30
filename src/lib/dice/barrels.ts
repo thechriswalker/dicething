@@ -34,13 +34,14 @@ import { Matrix4, Quaternion, Shape, Vector2, Vector3 } from 'three';
 
 const defaultHeight = 18;
 const defaultRadius = 9;
+const defaultD4Radius = 6
 const defaultCapHeight = 5;
 const defaultTwist = 0;
 
 function barrelParameters(sides: number): Array<DiceParameter> {
 	const params: Array<DiceParameter> = [
 		{ id: 'barrel_height', defaultValue: defaultHeight, min: 6, max: 60, step: 1 },
-		{ id: 'barrel_radius', defaultValue: defaultRadius, min: 4, max: 40, step: 0.5 }
+		{ id: 'barrel_radius', defaultValue: sides === 4 ? defaultD4Radius : defaultRadius, min: 4, max: 40, step: 0.5 }
 	];
 	// the D4 (m = 2) has no caps, so neither the cap height nor the twist apply.
 	if (sides / 2 >= 3) {
@@ -185,7 +186,7 @@ function cap(verts: Array<Vector3>, apex: Vector3): DieFaceModel {
 function build(sides: number, tens: boolean, turnRight: boolean): DieModel['build'] {
 	return (params) => {
 		const height = params.barrel_height ?? defaultHeight;
-		const radius = params.barrel_radius ?? defaultRadius;
+		const radius = params.barrel_radius ?? (sides === 4 ? defaultD4Radius : defaultRadius);
 		const capHeight = params.barrel_cap ?? defaultCapHeight;
 
 		const m = sides / 2; // vertices per ring (and faces per cap)

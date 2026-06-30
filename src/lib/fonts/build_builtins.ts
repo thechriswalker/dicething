@@ -52,8 +52,7 @@ async function createFontBasedLegends(
 		JSON.stringify({
 			id: builtinPrefix + varname,
 			name,
-			shapes: shapes,
-			names: [] // just use all the default names.
+			shapes: shapes
 		}),
 		{ encoding: 'utf8' }
 	);
@@ -143,7 +142,6 @@ const deferredFontLoader = (fontname: string) => {
 export const blanks = loadImmutableLegends({
 	id: '${builtinPrefix}blanks',
 	name: 'Blanks',
-	names: [],
 	shapes: []
 });
 
