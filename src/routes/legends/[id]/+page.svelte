@@ -606,7 +606,7 @@
 					<div class="card preset-filled-surface-100-900 flex flex-col gap-3 p-3">
 						<div class="flex flex-col items-center gap-1">
 							{#key selectedLegend + ':' + version}
-								<LegendPreview legends={set} legend={selectedLegend} class="size-28" />
+								<LegendPreview legends={set} legend={selectedLegend} class="size-28 preset-filled-primary-500" />
 							{/key}
 							<div class="flex items-center gap-2">
 								<span class="font-semibold">{set.getLegendName(selectedLegend)}</span>

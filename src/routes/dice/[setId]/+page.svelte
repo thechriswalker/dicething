@@ -17,6 +17,7 @@
 		cloneLegendSet,
 		diceFromJSON,
 		diceToJSON,
+		dieToJSON,
 		getSavedLegends,
 		loadLegends,
 		LEGENDS_CHANGED_EVENT,
@@ -31,7 +32,7 @@
 	import { m } from '$lib/paraglide/messages';
 	import {
 		Builder,
-		computeEngravingErrors,
+		engravingErrorsForBuilder,
 		engravingParam,
 		engravingToleranceParam,
 		type EngravingError
@@ -66,7 +67,7 @@
 	} from '@lucide/svelte';
 	import { Button } from 'bits-ui';
 	import { mergeProps } from 'svelte-toolbelt';
-	import { onMount } from 'svelte';
+	import { onDestroy, onMount } from 'svelte';
 	import { type Object3D, Vector2, Vector3 } from 'three';
 	import { degToRad } from 'three/src/math/MathUtils.js';
 
@@ -79,6 +80,11 @@
 	let { setId = '' } = page.params;
 	let dieId = $derived(page.url.searchParams.get('die') ?? '');
 	let renderPass = $state(0);
+
+	// the loaded set, populated in onMount below. Declared up here because SSR
+	// evaluates `$derived` eagerly at its declaration line, and several deriveds
+	// (e.g. setDepth/setTolerance) read setData before that point would otherwise run.
+	let setData: DiceSet | undefined = $state(undefined);
 
 	// per-session undo/redo of the dice state (params, face params, add/remove).
 	const history = createHistory(250);
@@ -232,7 +238,6 @@
 	};
 
 	// need to load the set by id, or 404 if it doesn't exist.
-	let setData: DiceSet | undefined = $state(undefined);
 	onMount(async () => {
 		setData = await waitForSet(setId);
 		if (setData) {
@@ -535,24 +540,69 @@
 	// depends only on the die geometry, but is recomputed in the same debounced
 	// pass as the engraving errors and surfaced in the same tooltip/badge.
 	let dieLandWarnings = $state<Record<string, boolean>>({});
+	// cached builders for the off-screen engraving-error check, one per die id.
+	// reused across recomputes so we don't reinstantiate (and fully rebuild) every
+	// die on every edit; only dice whose inputs changed get rebuilt. kept separate
+	// from `diceBuilders` so checking a die never disturbs the on-screen (possibly
+	// exploded) scene builder. cleared on unmount.
+	const errorBuilders = new Map<string, Builder>();
+	// per-die signature of the inputs the engraving check depends on, so we can
+	// skip dice that didn't change. a legend-set swap invalidates every die.
+	const lastEngravingSig = new Map<string, string>();
+	let lastEngravingLegendsId: string | undefined;
 	const recomputeEngravingErrors = () => {
 		if (!setData) {
 			return;
 		}
 		const legends = setData.legends;
+		// a legend change can flip any die's faces between engraving/blank, so it
+		// forces a recompute of every die; a die edit only affects that one die.
+		const legendsChanged = legends.id !== lastEngravingLegendsId;
+		lastEngravingLegendsId = legends.id;
 		const next: Record<string, Array<EngravingError>> = {};
 		const nextLand: Record<string, boolean> = {};
+		const liveIds = new Set<string>();
 		for (const d of setData.dice) {
+			liveIds.add(d.id);
 			const model = dice[d.kind];
 			if (!model) {
 				continue;
 			}
-			next[d.id] = computeEngravingErrors(model, legends, d);
+			const sig = dieToJSON(d);
+			// reuse the previous pass's result for a die that didn't change.
+			if (!legendsChanged && lastEngravingSig.get(d.id) === sig && d.id in dieEngravingErrors) {
+				next[d.id] = dieEngravingErrors[d.id];
+				nextLand[d.id] = dieLandWarnings[d.id] ?? false;
+				continue;
+			}
+			lastEngravingSig.set(d.id, sig);
+			let builder = errorBuilders.get(d.id);
+			if (!builder) {
+				builder = new Builder(model, legends, d.id);
+				errorBuilders.set(d.id, builder);
+			} else if (legendsChanged) {
+				builder.reloadLegends(legends);
+			}
+			next[d.id] = engravingErrorsForBuilder(builder, d);
 			nextLand[d.id] = computeLandWarning(model, d.parameters, d.string_parameters ?? {});
+		}
+		// forget cached builders/signatures for dice that were removed.
+		for (const id of [...errorBuilders.keys()]) {
+			if (!liveIds.has(id)) {
+				errorBuilders.delete(id);
+				lastEngravingSig.delete(id);
+			}
 		}
 		dieEngravingErrors = next;
 		dieLandWarnings = nextLand;
 	};
+	// drop the cached error-check builders (and the scene builders) when leaving
+	// the editor so their geometries can be collected rather than lingering.
+	onDestroy(() => {
+		errorBuilders.clear();
+		lastEngravingSig.clear();
+		diceBuilders.clear();
+	});
 	const debouncedRecomputeErrors = debounce<void>(300, recomputeEngravingErrors);
 	// signature of everything the engraving check depends on, so the effect
 	// re-runs on any param/legend change.
@@ -749,11 +799,7 @@
 			if (!(e.metaKey || e.ctrlKey)) {
 				return;
 			}
-			const target = e.target as HTMLElement | null;
-			if (
-				target &&
-				(target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)
-			) {
+			if (targetHandlesKeys(e)) {
 				return;
 			}
 			const key = e.key.toLowerCase();
@@ -1024,15 +1070,28 @@
 	}
 
 	// handle the arrow-key shortcuts; returns true if the event was consumed.
+	// true when the focused element handles its own keyboard input, so global
+	// editor shortcuts must keep their hands off. Besides text fields this covers
+	// the skeleton/zag slider, whose focusable thumb is a `role="slider"` element
+	// (not an `<input>`) that consumes arrow keys to change its value.
+	function targetHandlesKeys(e: KeyboardEvent): boolean {
+		const target = e.target as HTMLElement | null;
+		if (!target) {
+			return false;
+		}
+		return (
+			target.tagName === 'INPUT' ||
+			target.tagName === 'TEXTAREA' ||
+			target.isContentEditable ||
+			target.closest('[role="slider"]') !== null
+		);
+	}
+
 	function handleFaceShortcut(e: KeyboardEvent): boolean {
 		if (e.metaKey || e.ctrlKey || e.altKey || formatPaintMode || targetFaces.length === 0) {
 			return false;
 		}
-		const target = e.target as HTMLElement | null;
-		if (
-			target &&
-			(target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)
-		) {
+		if (targetHandlesKeys(e)) {
 			return false;
 		}
 		const shift = e.shiftKey;

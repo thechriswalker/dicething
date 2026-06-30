@@ -34,7 +34,7 @@ const crystalParameters: Array<DiceParameter> = [
 		defaultValue: defaultCapHeight,
 		min: 1,
 		max: 30,
-		step: 0.2
+		step: 0.1
 	},
 	{
 		id: 'crystal_twist',
@@ -45,35 +45,45 @@ const crystalParameters: Array<DiceParameter> = [
 	}
 ];
 
-export const CrystalD4 = crystal('d4_crystal', 'D4 Crystal', 4);
-export const CrystalD6 = crystal('d6_crystal', 'D6 Crystal', 6);
-export const CrystalD8 = crystal('d8_crystal', 'D6 Crystal', 8);
-export const CrystalD10 = crystal('d10_crystal', 'D10 Crystal', 10);
-export const CrystalD12 = crystal('d12_crystal', 'D12 Crystal', 12);
-export const CrystalD00 = crystal('d00_crystal', 'D% Crystal', 10, true);
+function customParameters(params: Record<string, number>): Array<DiceParameter> {
+	return crystalParameters.map(p => ({
+		...p,
+		defaultValue: params[p.id] ?? p.defaultValue
+	}));
+}
 
-function crystal(id: string, name: string, sides: number, tens = false): DieModel {
+export const CrystalD4 = crystal('d4_crystal', 'D4 Crystal', 4);
+export const CrystalD6 = crystal('d6_crystal', 'D6 Crystal', 6, { crystal_cap: 8.4 });
+export const CrystalD8 = crystal('d8_crystal', 'D6 Crystal', 8, { crystal_cap: 8.4, cystal_height: 15, crystal_width: 6 });
+export const CrystalD10 = crystal('d10_crystal', 'D10 Crystal', 10, { crystal_cap: 9.5, cystal_height: 20, crystal_width: 6 });
+export const CrystalD12 = crystal('d12_crystal', 'D12 Crystal', 12, { crystal_cap: 9.5, cystal_height: 20, crystal_width: 6 });
+export const CrystalD00 = crystal('d00_crystal', 'D% Crystal', 10, { crystal_cap: 8, cystal_height: 20, crystal_width: 6 }, true);
+
+function crystal(id: string, name: string, sides: number, customParams: Record<string, number> = {}, tens = false): DieModel {
+	const parameters = customParameters(customParams);
+	const defaultParameters = Object.fromEntries(	parameters.map(p => [p.id, p.defaultValue]));
 	return {
 		id,
 		name,
-		parameters: crystalParameters,
+		parameters,
 		// only the d4 was asked to preview off-axis; the taller crystals keep the
 		// default head-on view.
-		build: build(sides, tens, sides === 4 ? previewTilt() : undefined),
-		blankParameters: crystalBlankParams(sides)
+		build: build(sides, defaultParameters, tens, sides === 4 ? previewTilt() : undefined),
+		blankParameters: crystalBlankParams(sides, defaultParameters)
 	};
 }
 
 function crystalBlankParams(
-	sides: number
+	sides: number,
+	parameters: Record<string, number>
 ): (params: Record<string, number>, offset: number) => Record<string, number> {
 	// we want to reduce face-2-face distance by offset*2.
 	const alpha = (2 * Math.PI) / sides;
 	const tanHalfAlpha = Math.tan(alpha / 2);
 	return (params, offset) => {
-		const x = params.crystal_width ?? defaultWidth;
-		const y = params.crystal_height ?? defaultHeight;
-		const cap = params.crystal_cap ?? defaultCapHeight;
+		const x = parameters['crystal_width'] ?? defaultWidth;
+		const y = parameters['crystal_height'] ?? defaultHeight;
+		const cap = parameters['crystal_cap'] ?? defaultCapHeight;
 		const d = x / (2 * tanHalfAlpha);
 		// this is the current center to face distance.
 		// we want to find x so that d is reduced by offset.
@@ -89,17 +99,17 @@ function crystalBlankParams(
 	};
 }
 
-function build(sides: number, tens: boolean, previewTransform?: Transform): DieModel['build'] {
+function build(sides: number, defaultParameters: Record<string, number>, tens: boolean, previewTransform?: Transform): DieModel['build'] {
 	if (sides % 2 === 1) {
 		throw new RangeError('sides cannot be odd for crystal die');
 	}
 	return (params) => {
-		const x = params.crystal_width ?? defaultWidth;
+		const x = params.crystal_width ?? defaultParameters['crystal_width'] ?? defaultWidth;
 		const x2 = x / 2;
-		const y = params.crystal_height ?? defaultHeight;
+		const y = params.crystal_height ?? defaultParameters['crystal_height'] ?? defaultHeight;
 		const y2 = y / 2;
-		const rot = params.crystal_twist ?? defaultCapTwist;
-		const h = params.crystal_cap ?? defaultCapHeight;
+		const rot = params.crystal_twist ?? defaultParameters['crystal_twist'] ?? defaultCapTwist;
+		const h = params.crystal_cap ?? defaultParameters['crystal_cap'] ?? defaultCapHeight;
 		const isTwisted = rot !== 0;
 
 		// crystals sit upright on their tips.

@@ -4,6 +4,7 @@
 	import { Builder } from '$lib/utils/builder';
 	import { checkMesh, type MeshCheckReport } from '$lib/utils/mesh_check';
 	import fonts, { blanks } from '$lib/fonts';
+	import { getSavedLegends, loadLegends as loadLegendSetById } from '$lib/interfaces/storage.svelte';
 	import { createGridHelper, type SceneRenderer } from '$lib/utils/scene';
 	import {
 		AdditiveBlending,
@@ -12,6 +13,8 @@
 		BufferGeometry,
 		DoubleSide,
 		Group,
+		LineBasicMaterial,
+		LineSegments,
 		Matrix4,
 		Mesh,
 		MeshBasicMaterial,
@@ -36,7 +39,12 @@
 
 	// --- exploration controls --------------------------------------------------
 	let selectedKind = $state<keyof typeof dice>('d6_cube');
-	let selectedFontKey = $state<keyof typeof fonts>('voltaire');
+	// a legend-set selector: either a builtin font key (e.g. 'voltaire') or a
+	// custom legend set's id (a uuid). loadLegendSetById resolves both forms.
+	let selectedFontKey = $state<string>('voltaire');
+	// the user's local custom legend sets, kept reactive so the picker updates
+	// when sets are created/edited in another tab or the legend editor.
+	const customLegends = $derived(getSavedLegends());
 	// which mesh to show + check: the post-export() merged/deduped geometry, or
 	// the raw "working" build (the per-face preview group). lets us see whether
 	// the export pipeline (mergeVertices / removeDuplicateTriangles) is what
@@ -81,6 +89,15 @@
 		depthWrite: false,
 		blending: AdditiveBlending
 	});
+	// boundary / non-manifold edges drawn as bright lines on top of everything.
+	// These are often the ONLY visible signal: an unsound edge has real length
+	// even when there are no problem triangles to fill in.
+	const edgeMaterial = new LineBasicMaterial({
+		color: 0xff2222,
+		transparent: true,
+		depthTest: false,
+		depthWrite: false
+	});
 
 	// --- pulsing-glow animation for the problem highlight ----------------------
 	let pulseRAF = 0;
@@ -95,6 +112,8 @@
 			problemMaterial.opacity = 0.35 + 0.65 * p;
 			// red -> hot orange/yellow as it pulses, like a glowing ember.
 			problemMaterial.color.setRGB(1, 0.1 + 0.75 * p, 0.05 * p);
+			edgeMaterial.opacity = 0.5 + 0.5 * p;
+			edgeMaterial.color.setRGB(1, 0.1 + 0.75 * p, 0.05 * p);
 			markerMaterial.size = 7 + 13 * p;
 			markerMaterial.opacity = 0.5 + 0.5 * p;
 			pulseRAF = requestAnimationFrame(tick);
@@ -110,8 +129,7 @@
 	onDestroy(stopPulse);
 
 	async function loadLegends() {
-		const f = fonts[selectedFontKey];
-		currentLegends = f ? await f.load() : blanks;
+		currentLegends = await loadLegendSetById(selectedFontKey);
 	}
 
 	// Empty face params => every face engraves its default legend (numbers). To
@@ -210,31 +228,58 @@
 			scene.scene.remove(problemGroup);
 			problemGroup = undefined;
 		}
-		const bad = report?.badPositions;
-		if (!showProblems || !bad || bad.length === 0) {
+		const bad = report?.badPositions ?? new Float32Array(0);
+		const badEdges = report?.badEdgePositions ?? new Float32Array(0);
+		if (!showProblems || (bad.length === 0 && badEdges.length === 0)) {
 			stopPulse();
 			return;
 		}
 		const group = new Group();
 
-		// 1) the actual problem triangles, drawn on top so they're never hidden.
-		const triGeo = new BufferGeometry();
-		triGeo.setAttribute('position', new BufferAttribute(bad.slice(), 3));
-		triGeo.computeVertexNormals();
-		const triMesh = new Mesh(triGeo, problemMaterial);
-		triMesh.renderOrder = 999;
-		group.add(triMesh);
+		// centroids/midpoints of every problem feature get a glowing pulsing
+		// marker so even a zero-area sliver or a single bad edge is findable.
+		const centroids: Array<number> = [];
 
-		// 2) glowing pulsing markers at each problem triangle's centroid.
-		const count = Math.floor(bad.length / 9);
-		const centroids = new Float32Array(count * 3);
-		for (let i = 0, j = 0; j < count; i += 9, j++) {
-			centroids[j * 3] = (bad[i] + bad[i + 3] + bad[i + 6]) / 3;
-			centroids[j * 3 + 1] = (bad[i + 1] + bad[i + 4] + bad[i + 7]) / 3;
-			centroids[j * 3 + 2] = (bad[i + 2] + bad[i + 5] + bad[i + 8]) / 3;
+		// 1) the actual problem triangles, drawn on top so they're never hidden.
+		if (bad.length > 0) {
+			const triGeo = new BufferGeometry();
+			triGeo.setAttribute('position', new BufferAttribute(bad.slice(), 3));
+			triGeo.computeVertexNormals();
+			const triMesh = new Mesh(triGeo, problemMaterial);
+			triMesh.renderOrder = 999;
+			group.add(triMesh);
+
+			for (let i = 0; i < bad.length; i += 9) {
+				centroids.push(
+					(bad[i] + bad[i + 3] + bad[i + 6]) / 3,
+					(bad[i + 1] + bad[i + 4] + bad[i + 7]) / 3,
+					(bad[i + 2] + bad[i + 5] + bad[i + 8]) / 3
+				);
+			}
 		}
+
+		// 2) boundary / non-manifold edges as bright lines, with a marker at each
+		// midpoint. These are the only signal when the mesh is unsound purely at
+		// its edges (no problem triangles).
+		if (badEdges.length > 0) {
+			const edgeGeo = new BufferGeometry();
+			edgeGeo.setAttribute('position', new BufferAttribute(badEdges.slice(), 3));
+			const lines = new LineSegments(edgeGeo, edgeMaterial);
+			lines.renderOrder = 999;
+			group.add(lines);
+
+			for (let i = 0; i < badEdges.length; i += 6) {
+				centroids.push(
+					(badEdges[i] + badEdges[i + 3]) / 2,
+					(badEdges[i + 1] + badEdges[i + 4]) / 2,
+					(badEdges[i + 2] + badEdges[i + 5]) / 2
+				);
+			}
+		}
+
+		// 3) glowing pulsing markers at every problem feature's centre.
 		const ptGeo = new BufferGeometry();
-		ptGeo.setAttribute('position', new BufferAttribute(centroids, 3));
+		ptGeo.setAttribute('position', new BufferAttribute(new Float32Array(centroids), 3));
 		const points = new Points(ptGeo, markerMaterial);
 		points.renderOrder = 1000;
 		group.add(points);
@@ -261,7 +306,7 @@
 		rebuild();
 	}
 	function onFontChange(value: string) {
-		selectedFontKey = value as keyof typeof fonts;
+		selectedFontKey = value;
 		reloadAndRebuild();
 	}
 	function toggleEngrave() {
@@ -373,15 +418,24 @@
 			</label>
 
 			<label class="flex flex-col text-sm">
-				<span>Legend font</span>
+				<span>Legend set</span>
 				<select
 					class="select"
 					value={selectedFontKey}
 					onchange={(e) => onFontChange(e.currentTarget.value)}
 				>
-					{#each Object.entries(fonts) as [k, v]}
-						<option value={k}>{v.name}</option>
-					{/each}
+					<optgroup label="Built-in">
+						{#each Object.entries(fonts) as [k, v]}
+							<option value={k}>{v.name}</option>
+						{/each}
+					</optgroup>
+					{#if customLegends.length > 0}
+						<optgroup label="Custom">
+							{#each customLegends as legend (legend.id)}
+								<option value={legend.id}>{legend.name}</option>
+							{/each}
+						</optgroup>
+					{/if}
 				</select>
 			</label>
 

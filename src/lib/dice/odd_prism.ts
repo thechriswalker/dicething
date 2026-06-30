@@ -34,12 +34,21 @@ const oddPrismParameters: Array<DiceParameter> = [
 	{ id: 'prism_twist', defaultValue: defaultTwist, min: 0.1, max: 0.9, step: 0.01 }
 ];
 
-export const OddPrismD3 = oddPrism('d3_odd_prism', 'D3 Prism', 3);
-export const OddPrismD5 = oddPrism('d5_odd_prism', 'D5 Prism', 5);
-export const OddPrismD7 = oddPrism('d7_odd_prism', 'D7 Prism', 7);
+function customParameters(params: Record<string, number>): Array<DiceParameter> {
+	return oddPrismParameters.map(p => ({
+		...p,
+		defaultValue: params[p.id] ?? p.defaultValue
+	}));
+}
 
-function oddPrism(id: string, name: string, sides: number): DieModel {
-	return { id, name, parameters: oddPrismParameters, build: build(sides) };
+export const OddPrismD3 = oddPrism('d3_odd_prism', 'D3 Prism', 3);
+export const OddPrismD5 = oddPrism('d5_odd_prism', 'D5 Prism', 5, { prism_length: 16, prism_width: 9, prism_cap: 5.6 });
+export const OddPrismD7 = oddPrism('d7_odd_prism', 'D7 Prism', 7, { prism_length: 16, prism_width: 6, prism_cap: 5.2 });
+
+function oddPrism(id: string, name: string, sides: number, customParams: Record<string, number> = {}): DieModel {
+	const parameters = customParameters(customParams);
+	const defaultParameters = Object.fromEntries(	parameters.map(p => [p.id, p.defaultValue]));
+	return { id, name, parameters, build: build(sides, defaultParameters) };
 }
 
 // orient a set of coplanar 3D vertices into a face shape + placement transform,
@@ -55,17 +64,17 @@ function orientedFace(verts: Array<Vector3>): { shape: Shape; transform: Transfo
 	return { shape: info.shape, transform: new Transform().rotate(info.quat).translate(info.offset) };
 }
 
-function build(sides: number): DieModel['build'] {
+function build(sides: number, defaultParameters: Record<string, number>): DieModel['build'] {
 	if (!Number.isInteger(sides) || sides < 3) {
 		throw new RangeError('odd prism needs at least 3 sides');
 	}
 	return (params) => {
-		const x = params.prism_width ?? defaultWidth;
+		const x = params.prism_width ?? defaultParameters['prism_width'] ?? defaultWidth;
 		const x2 = x / 2;
-		const y = params.prism_length ?? defaultLength;
+		const y = params.prism_length ?? defaultParameters['prism_length'] ?? defaultLength;
 		const y2 = y / 2;
-		const rot = params.prism_twist ?? defaultTwist;
-		const h = params.prism_cap ?? defaultCapHeight;
+		const rot = params.prism_twist ?? defaultParameters['prism_twist'] ?? defaultTwist;
+		const h = params.prism_cap ?? defaultParameters['prism_cap'] ?? defaultCapHeight;
 
 		const alpha = (2 * Math.PI) / sides;
 		const theta = alpha * rot;

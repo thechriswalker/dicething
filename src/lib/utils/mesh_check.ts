@@ -38,6 +38,12 @@ export type MeshCheckReport = {
 	// optional flat positions (9 per triangle) of every problem triangle, for
 	// visualisation. only populated when `collectBad` is set.
 	badPositions?: Float32Array;
+	// optional flat positions (6 per edge: ax,ay,az,bx,by,bz) of every problem
+	// edge - boundary (open) and non-manifold edges. These are the only signal
+	// when a mesh is unsound purely at its edges (no degenerate/duplicate tris),
+	// so the visualiser has somewhere to point. Only populated when `collectBad`
+	// is set. Endpoints are the welded representative coordinates.
+	badEdgePositions?: Float32Array;
 };
 
 export type MeshCheckOptions = {
@@ -167,11 +173,19 @@ export function checkMesh(
 
 	let boundaryEdgeCount = 0;
 	let nonManifoldEdgeCount = 0;
-	for (const count of edgeUse.values()) {
+	const badEdges: Array<number> = bad ? [] : (null as never);
+	for (const [id, count] of edgeUse) {
+		const isBad = count === 1 || count > 2;
 		if (count === 1) {
 			boundaryEdgeCount++;
 		} else if (count > 2) {
 			nonManifoldEdgeCount++;
+		}
+		if (isBad && badEdges) {
+			const sep = id.indexOf('|');
+			const a = Number(id.slice(0, sep));
+			const b = Number(id.slice(sep + 1));
+			badEdges.push(repX[a], repY[a], repZ[a], repX[b], repY[b], repZ[b]);
 		}
 	}
 
@@ -192,6 +206,7 @@ export function checkMesh(
 	};
 	if (bad) {
 		report.badPositions = new Float32Array(bad);
+		report.badEdgePositions = new Float32Array(badEdges);
 	}
 	return report;
 }
@@ -211,6 +226,7 @@ export function mergeMeshReports(reports: Array<MeshCheckReport>): MeshCheckRepo
 		isPrintable: true
 	};
 	const bads: Array<Float32Array> = [];
+	const badEdges: Array<Float32Array> = [];
 	for (const r of reports) {
 		merged.triangleCount += r.triangleCount;
 		merged.degenerateTriangleCount += r.degenerateTriangleCount;
@@ -223,16 +239,25 @@ export function mergeMeshReports(reports: Array<MeshCheckReport>): MeshCheckRepo
 		if (r.badPositions && r.badPositions.length) {
 			bads.push(r.badPositions);
 		}
+		if (r.badEdgePositions && r.badEdgePositions.length) {
+			badEdges.push(r.badEdgePositions);
+		}
 	}
-	if (bads.length) {
-		const total = bads.reduce((n, a) => n + a.length, 0);
+	const concat = (parts: Array<Float32Array>): Float32Array => {
+		const total = parts.reduce((n, a) => n + a.length, 0);
 		const out = new Float32Array(total);
 		let off = 0;
-		for (const a of bads) {
+		for (const a of parts) {
 			out.set(a, off);
 			off += a.length;
 		}
-		merged.badPositions = out;
+		return out;
+	};
+	if (bads.length) {
+		merged.badPositions = concat(bads);
+	}
+	if (badEdges.length) {
+		merged.badEdgePositions = concat(badEdges);
 	}
 	return merged;
 }

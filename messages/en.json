@@ -380,7 +380,7 @@
 				"kind=d8_crystal": "The caps are tall enough that this crystal can come to rest on a blank cap, leaving no number up. Lower the cap height or increase the twist to fix it.",
 				"kind=d10_crystal": "The caps are tall enough that this crystal can come to rest on a blank cap, leaving no number up. Lower the cap height or increase the twist to fix it.",
 				"kind=d00_crystal": "The caps are tall enough that this crystal can come to rest on a blank cap, leaving no number up. Lower the cap height or increase the twist to fix it.",
-				"kind=d12_crystal": "The caps are tall enough that this crystal can come to rest on a blank cap, leaving no number up. Lower the cap height or increase the twist to fix it.",
+				"kind=d12_crystal": "Making the D12 Crystal not able to rest on a blank cap makes it large. Better to just roll it like a pencil",
 				"kind=d3_odd_prism": "The numbered ends are tall enough that this prism can come to rest on an end instead of a blank side, giving no clear result. Lower the end height to fix it.",
 				"kind=d5_odd_prism": "The numbered ends are tall enough that this prism can come to rest on an end instead of a blank side, giving no clear result. Lower the end height to fix it.",
 				"kind=d7_odd_prism": "The numbered ends are tall enough that this prism can come to rest on an end instead of a blank side, giving no clear result. Lower the end height to fix it.",

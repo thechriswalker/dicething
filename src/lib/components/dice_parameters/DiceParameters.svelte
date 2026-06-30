@@ -331,19 +331,24 @@
 	}
 </script>
 
-<!-- a small "i" affordance that reveals help text on hover/focus. -->
+<!-- a small "i" affordance that reveals help text on hover/focus.
+     deliberately a <span>, not a <button>: these rows are wrapped in a <label>,
+     and a labelable control (button/input/...) inside it captures clicks meant
+     for the slider, stealing focus and popping the tooltip. a span is not
+     labelable, so the label keeps forwarding to the real control. tabindex keeps
+     the help text reachable by keyboard. -->
 {#snippet helpIcon(text: string)}
 	<Tooltip content={text} side="left">
 		{#snippet children(props)}
-			<button
+			<span
 				{...props}
-				type="button"
+				role="button"
+				tabindex={0}
 				class="text-surface-500 hover:text-primary-500 inline-flex items-center"
 				aria-label={text}
-				onclick={(e) => e.preventDefault()}
 			>
 				<InfoIcon class="size-3.5" />
-			</button>
+			</span>
 		{/snippet}
 	</Tooltip>
 {/snippet}

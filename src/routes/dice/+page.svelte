@@ -32,7 +32,8 @@
 	let savedSets = getSavedSets();
 
 	// how many dice to show as a thumbnail strip on each set / preset card.
-	const PREVIEW_COUNT = 5;
+	// 9 means row of 5, row of 4, + extra number
+	const PREVIEW_COUNT = 9;
 
 	// thumbnail dice for each preset, built once with the preset's default
 	// options so the picker shows what each preset will produce. Built lazily on
@@ -95,7 +96,7 @@
 		<div class="card preset-filled-surface-100-900 p-4">
 			<h2 class="h2 my-4">{m.start_new_set_header()}</h2>
 			<div
-				class="m-auto my-2 grid max-w-[90vw] min-w-[60vh] auto-rows-fr grid-cols-1 gap-4 md:grid-cols-2"
+				class="m-auto my-2 grid max-w-[90vw] min-w-[60vh] auto-rows-fr grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3"
 			>
 				{#each presets as preset}
 					{@const presetOptions = preset.options()}
@@ -108,25 +109,26 @@
 						{#snippet trigger(props)}
 							<button
 								{...props}
-								class="btn preset-tonal-surface hover:preset-outlined-primary-500 block flex w-full flex-col justify-start gap-1 border-[1px] border-transparent text-wrap"
-							>
+								class="btn preset-tonal-surface hover:preset-outlined-primary-500 block flex w-full flex-col justify-between gap-1 border-[1px] border-transparent text-wrap"
+							><div>
 								<h6 class="h4">
 									{m.presets_title({ preset: preset.id })}
 								</h6>
 								<p class="">{m.presets_description({ preset: preset.id })}</p>
+								</div>
+								<div class="mt-1 mx-auto flex flex-row flex-wrap items-center justify-center gap-1">
 								{#if presetPreviews[preset.id]?.dice.length}
 									{@const pv = presetPreviews[preset.id]}
-									<div class="mt-1 flex flex-row flex-wrap items-end gap-1">
 										{#each pv.dice as die (die.id)}
-											<DiePreview class="w-12" {die} legends={pv.legends} />
+											<DiePreview class="size-12" {die} legends={pv.legends} />
 										{/each}
 										{#if pv.total > PREVIEW_COUNT}
-											<span class="text-surface-600-400 self-center text-sm"
+											<span class="text-surface-600-400 self-center text-sm w-12"
 												>+{pv.total - PREVIEW_COUNT}</span
 											>
 										{/if}
+										{/if}
 									</div>
-								{/if}
 							</button>
 						{/snippet}
 						{#snippet inner(close)}
@@ -171,29 +173,31 @@
 				<Progress value={null} />
 			{:then}
 				{#if savedSets.length > 0}
-					<div class="my-2 grid auto-rows-fr grid-cols-1 gap-4 sm:grid-cols-2">
+					<div class="my-2 grid auto-rows-fr grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
 						{#each savedSets as set (set.id)}
 							<div
-								class="btn preset-tonal-primary relative flex flex-col justify-start gap-1 text-wrap"
+								class="btn preset-tonal-primary relative flex flex-col justify-between gap-1 text-wrap"
 							>
 								<a
-									class="flex flex-col justify-start gap-1 pr-8 text-wrap"
+									class="flex flex-col justify-start gap-1 pr-8 text-wrap text-center"
 									href={'/dice/' + set.id}
 								>
+								<div>
 									<h6 class="text-xl">{set.name}</h6>
 									<p><Time t={set.updated} /></p>
+								<div>
+									<div class="flex flex-row flex-wrap items-center justify-center gap-1">
 									{#if set.dice.length > 0}
-										<div class="flex flex-row flex-wrap items-end gap-1">
 											{#each set.dice.slice(0, PREVIEW_COUNT) as die (die.id)}
-												<DiePreview class="w-12" {die} legends={set.legends} />
+												<DiePreview class="size-12" {die} legends={set.legends} />
 											{/each}
 											{#if set.dice.length > PREVIEW_COUNT}
-												<span class="text-surface-600-400 self-center text-sm"
+												<span class="text-surface-600-400 self-center text-sm w-12"
 													>+{set.dice.length - PREVIEW_COUNT}</span
 												>
 											{/if}
+											{/if}
 										</div>
-									{/if}
 								</a>
 								<DeleteSetDialog setId={set.id} setName={set.name}>
 									{#snippet trigger(props)}

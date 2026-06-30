@@ -120,7 +120,7 @@ const diceTags: Record<keyof typeof dice, DieTags> = {
 	d7_odd_prism: { kind: 'odd', sides: '7', rarity: 'legendary' },
 	d6_skew: { kind: 'skew', sides: '6', rarity: 'legendary' },
 	d8_truncated_octahedron: { kind: 'polyhedron', variant: 'truncated', sides: '8', rarity: 'rare' },
-	d12_tetartoid: { kind: 'skew', sides: '12', rarity: 'rare' },
+	d12_tetartoid: { kind: 'skew', sides: '12', rarity: 'legendary' },
 	d24_deltoidal_icositetrahedron: {
 		kind: 'polyhedron',
 		variant: 'deltoidal',

@@ -902,21 +902,23 @@ export class Builder {
 	}
 }
 
-// Build a die in isolation purely to discover its engraving errors, without
-// touching any scene. Used by the builder/export pages to warn about (and
-// default-exclude) dice whose legends won't engrave. Accepts the structural
-// shape of a stored `Dice` so this module stays decoupled from storage.
-export function computeEngravingErrors(
-	model: DieModel,
-	legends: LegendSet,
-	die: {
-		parameters: Record<string, number>;
-		face_parameters: Array<FaceParams>;
-		string_parameters?: Record<string, string>;
-	}
+// The structural shape of a stored `Dice` that the engraving check needs, kept
+// local so this module stays decoupled from storage.
+type EngravingCheckDie = {
+	parameters: Record<string, number>;
+	face_parameters: Array<FaceParams>;
+	string_parameters?: Record<string, string>;
+};
+
+// Discover a die's engraving errors using an EXISTING builder. Callers that keep
+// a per-die builder around (the editor) should use this so they don't
+// reinstantiate and rebuild every die on every edit; the builder's own
+// change-detection then skips faces whose params didn't actually change.
+export function engravingErrorsForBuilder(
+	builder: Builder,
+	die: EngravingCheckDie
 ): Array<EngravingError> {
 	try {
-		const builder = new Builder(model, legends);
 		builder.build(
 			die.parameters,
 			die.face_parameters,
@@ -928,6 +930,17 @@ export function computeEngravingErrors(
 		console.warn('failed to compute engraving errors', e);
 		return [];
 	}
+}
+
+// Build a die in isolation purely to discover its engraving errors, without
+// touching any scene. Used by the builder/export pages to warn about (and
+// default-exclude) dice whose legends won't engrave.
+export function computeEngravingErrors(
+	model: DieModel,
+	legends: LegendSet,
+	die: EngravingCheckDie
+): Array<EngravingError> {
+	return engravingErrorsForBuilder(new Builder(model, legends), die);
 }
 
 const tau = 2 * Math.PI;
