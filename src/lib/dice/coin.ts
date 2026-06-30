@@ -156,7 +156,10 @@ function coinInnerRadius(params: Record<string, number>): number {
 	const R = (params.coin_diameter ?? defaultDiameter) / 2;
 	const ht = (params.coin_thickness ?? defaultThickness) / 2;
 	const bevelAngle = ((params.coin_bevel_angle ?? defaultBevelAngle) * Math.PI) / 180;
-	const bevelAmount = Math.min(1, Math.max(0, (params.coin_bevel_amount ?? defaultBevelAmount) / 100));
+	const bevelAmount = Math.min(
+		1,
+		Math.max(0, (params.coin_bevel_amount ?? defaultBevelAmount) / 100)
+	);
 	const inset = Math.min(R * 0.9, bevelAmount * ht * Math.tan(bevelAngle));
 	return R - inset;
 }

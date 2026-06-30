@@ -124,9 +124,7 @@ export function groupedModelXml(groups: Array<ThreeMfGroup>, upAxis: UpAxis): st
 			childIds.push(id);
 		}
 		const groupId = nextId++;
-		const components = childIds
-			.map((cid) => `\t\t\t\t<component objectid="${cid}"/>\n`)
-			.join('');
+		const components = childIds.map((cid) => `\t\t\t\t<component objectid="${cid}"/>\n`).join('');
 		resources +=
 			`\t\t<object id="${groupId}" type="model" name="${escapeAttr(group.name)}">\n` +
 			`\t\t\t<components>\n${components}\t\t\t</components>\n` +

@@ -35,19 +35,32 @@ const oddPrismParameters: Array<DiceParameter> = [
 ];
 
 function customParameters(params: Record<string, number>): Array<DiceParameter> {
-	return oddPrismParameters.map(p => ({
+	return oddPrismParameters.map((p) => ({
 		...p,
 		defaultValue: params[p.id] ?? p.defaultValue
 	}));
 }
 
 export const OddPrismD3 = oddPrism('d3_odd_prism', 'D3 Prism', 3);
-export const OddPrismD5 = oddPrism('d5_odd_prism', 'D5 Prism', 5, { prism_length: 16, prism_width: 9, prism_cap: 5.6 });
-export const OddPrismD7 = oddPrism('d7_odd_prism', 'D7 Prism', 7, { prism_length: 16, prism_width: 6, prism_cap: 5.2 });
+export const OddPrismD5 = oddPrism('d5_odd_prism', 'D5 Prism', 5, {
+	prism_length: 16,
+	prism_width: 9,
+	prism_cap: 5.6
+});
+export const OddPrismD7 = oddPrism('d7_odd_prism', 'D7 Prism', 7, {
+	prism_length: 16,
+	prism_width: 6,
+	prism_cap: 5.2
+});
 
-function oddPrism(id: string, name: string, sides: number, customParams: Record<string, number> = {}): DieModel {
+function oddPrism(
+	id: string,
+	name: string,
+	sides: number,
+	customParams: Record<string, number> = {}
+): DieModel {
 	const parameters = customParameters(customParams);
-	const defaultParameters = Object.fromEntries(	parameters.map(p => [p.id, p.defaultValue]));
+	const defaultParameters = Object.fromEntries(parameters.map((p) => [p.id, p.defaultValue]));
 	return { id, name, parameters, build: build(sides, defaultParameters) };
 }
 

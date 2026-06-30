@@ -13,7 +13,10 @@ const GLYPH_5 = JSON.parse(
 );
 
 const origLog = console.log;
-for (const [name, shapes] of [['1', GLYPH_1], ['5', GLYPH_5]] as Array<[string, unknown[]]>) {
+for (const [name, shapes] of [
+	['1', GLYPH_1],
+	['5', GLYPH_5]
+] as Array<[string, unknown[]]>) {
 	const candidate = { label: name, kind: 'legend' as const, shapes };
 	const fails: string[] = [];
 	for (const die of auditDiceKinds) {

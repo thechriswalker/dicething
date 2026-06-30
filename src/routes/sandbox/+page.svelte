@@ -4,7 +4,10 @@
 	import { Builder } from '$lib/utils/builder';
 	import { checkMesh, type MeshCheckReport } from '$lib/utils/mesh_check';
 	import fonts, { blanks } from '$lib/fonts';
-	import { getSavedLegends, loadLegends as loadLegendSetById } from '$lib/interfaces/storage.svelte';
+	import {
+		getSavedLegends,
+		loadLegends as loadLegendSetById
+	} from '$lib/interfaces/storage.svelte';
 	import { createGridHelper, type SceneRenderer } from '$lib/utils/scene';
 	import {
 		AdditiveBlending,

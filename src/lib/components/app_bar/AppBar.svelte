@@ -19,9 +19,7 @@
 				{m.meta_app_name()}
 			</h1>
 			{#if devMode}
-				<span
-					class="badge preset-filled-warning-500 rounded-full px-2 py-0.5 text-xs uppercase"
-				>
+				<span class="badge preset-filled-warning-500 rounded-full px-2 py-0.5 text-xs uppercase">
 					{m.dev_mode_label()}
 				</span>
 			{/if}

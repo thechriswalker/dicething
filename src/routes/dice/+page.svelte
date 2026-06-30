@@ -110,25 +110,25 @@
 							<button
 								{...props}
 								class="btn preset-tonal-surface hover:preset-outlined-primary-500 block flex w-full flex-col justify-between gap-1 border-[1px] border-transparent text-wrap"
-							><div>
-								<h6 class="h4">
-									{m.presets_title({ preset: preset.id })}
-								</h6>
-								<p class="">{m.presets_description({ preset: preset.id })}</p>
+								><div>
+									<h6 class="h4">
+										{m.presets_title({ preset: preset.id })}
+									</h6>
+									<p class="">{m.presets_description({ preset: preset.id })}</p>
 								</div>
-								<div class="mt-1 mx-auto flex flex-row flex-wrap items-center justify-center gap-1">
-								{#if presetPreviews[preset.id]?.dice.length}
-									{@const pv = presetPreviews[preset.id]}
+								<div class="mx-auto mt-1 flex flex-row flex-wrap items-center justify-center gap-1">
+									{#if presetPreviews[preset.id]?.dice.length}
+										{@const pv = presetPreviews[preset.id]}
 										{#each pv.dice as die (die.id)}
 											<DiePreview class="size-12" {die} legends={pv.legends} />
 										{/each}
 										{#if pv.total > PREVIEW_COUNT}
-											<span class="text-surface-600-400 self-center text-sm w-12"
+											<span class="text-surface-600-400 w-12 self-center text-sm"
 												>+{pv.total - PREVIEW_COUNT}</span
 											>
 										{/if}
-										{/if}
-									</div>
+									{/if}
+								</div>
 							</button>
 						{/snippet}
 						{#snippet inner(close)}
@@ -179,25 +179,25 @@
 								class="btn preset-tonal-primary relative flex flex-col justify-between gap-1 text-wrap"
 							>
 								<a
-									class="flex flex-col justify-start gap-1 pr-8 text-wrap text-center"
+									class="flex flex-col justify-start gap-1 pr-8 text-center text-wrap"
 									href={'/dice/' + set.id}
 								>
-								<div>
-									<h6 class="text-xl">{set.name}</h6>
-									<p><Time t={set.updated} /></p>
-								<div>
+									<div>
+										<h6 class="text-xl">{set.name}</h6>
+										<p><Time t={set.updated} /></p>
+									</div>
 									<div class="flex flex-row flex-wrap items-center justify-center gap-1">
-									{#if set.dice.length > 0}
+										{#if set.dice.length > 0}
 											{#each set.dice.slice(0, PREVIEW_COUNT) as die (die.id)}
 												<DiePreview class="size-12" {die} legends={set.legends} />
 											{/each}
 											{#if set.dice.length > PREVIEW_COUNT}
-												<span class="text-surface-600-400 self-center text-sm w-12"
+												<span class="text-surface-600-400 w-12 self-center text-sm"
 													>+{set.dice.length - PREVIEW_COUNT}</span
 												>
 											{/if}
-											{/if}
-										</div>
+										{/if}
+									</div>
 								</a>
 								<DeleteSetDialog setId={set.id} setName={set.name}>
 									{#snippet trigger(props)}

@@ -158,6 +158,6 @@ export const defaultBoxParams = (): BoxParams => ({
 		barrelRadius: 3.4,
 		clearance: 0.35,
 		knuckles: 3,
-		indent: 0,
+		indent: 0
 	}
 });

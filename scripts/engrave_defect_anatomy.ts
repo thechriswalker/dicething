@@ -39,9 +39,14 @@ const origLog = console.log;
 console.log = () => {};
 const base = (FONT.shapes[GLYPH] as any[]).map((s) => shapeFromJSON(s)) as Shape[];
 const symbols = centerShapes(...base);
-const parts = engrave(squareSurface(), symbols, { scale: SCALE, rotation: ROT }, DEPTH, 0.5, 24).filter(
-	(g) => g.userData?.diceThingPart !== 'symbol'
-);
+const parts = engrave(
+	squareSurface(),
+	symbols,
+	{ scale: SCALE, rotation: ROT },
+	DEPTH,
+	0.5,
+	24
+).filter((g) => g.userData?.diceThingPart !== 'symbol');
 const prepared = parts.map((g) => {
 	const ng = toNonIndexed(g);
 	ng.computeVertexNormals();
@@ -82,7 +87,9 @@ const realEdges = summary(repaired, 'after repairDegenerateTriangles (final)');
 const f = (n: number) => n.toFixed(4).padStart(9);
 console.log('\nreal (non-perimeter) problem edges in final mesh:');
 for (const e of realEdges) {
-	console.log(`  (${f(e[0])},${f(e[1])},${f(e[2])}) -> (${f(e[3])},${f(e[4])},${f(e[5])})  z: ${e[2].toFixed(3)}..${e[5].toFixed(3)}`);
+	console.log(
+		`  (${f(e[0])},${f(e[1])},${f(e[2])}) -> (${f(e[3])},${f(e[4])},${f(e[5])})  z: ${e[2].toFixed(3)}..${e[5].toFixed(3)}`
+	);
 }
 
 // For the final mesh, list how many triangles use each real problem edge, and
@@ -119,8 +126,6 @@ for (let i = 0; i < pos.length; i += 9) {
 for (const [k, tris] of hits) {
 	console.log(`  edge ${k}: used by ${tris.length} triangle(s)`);
 	for (const t of tris) {
-		console.log(
-			`     tri z=[${t[2].toFixed(3)},${t[5].toFixed(3)},${t[8].toFixed(3)}]`
-		);
+		console.log(`     tri z=[${t[2].toFixed(3)},${t[5].toFixed(3)},${t[8].toFixed(3)}]`);
 	}
 }

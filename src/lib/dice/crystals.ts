@@ -46,7 +46,7 @@ const crystalParameters: Array<DiceParameter> = [
 ];
 
 function customParameters(params: Record<string, number>): Array<DiceParameter> {
-	return crystalParameters.map(p => ({
+	return crystalParameters.map((p) => ({
 		...p,
 		defaultValue: params[p.id] ?? p.defaultValue
 	}));
@@ -54,14 +54,38 @@ function customParameters(params: Record<string, number>): Array<DiceParameter> 
 
 export const CrystalD4 = crystal('d4_crystal', 'D4 Crystal', 4);
 export const CrystalD6 = crystal('d6_crystal', 'D6 Crystal', 6, { crystal_cap: 8.4 });
-export const CrystalD8 = crystal('d8_crystal', 'D6 Crystal', 8, { crystal_cap: 8.4, cystal_height: 15, crystal_width: 6 });
-export const CrystalD10 = crystal('d10_crystal', 'D10 Crystal', 10, { crystal_cap: 9.5, cystal_height: 20, crystal_width: 6 });
-export const CrystalD12 = crystal('d12_crystal', 'D12 Crystal', 12, { crystal_cap: 9.5, cystal_height: 20, crystal_width: 6 });
-export const CrystalD00 = crystal('d00_crystal', 'D% Crystal', 10, { crystal_cap: 8, cystal_height: 20, crystal_width: 6 }, true);
+export const CrystalD8 = crystal('d8_crystal', 'D6 Crystal', 8, {
+	crystal_cap: 8.4,
+	cystal_height: 15,
+	crystal_width: 6
+});
+export const CrystalD10 = crystal('d10_crystal', 'D10 Crystal', 10, {
+	crystal_cap: 9.5,
+	cystal_height: 20,
+	crystal_width: 6
+});
+export const CrystalD12 = crystal('d12_crystal', 'D12 Crystal', 12, {
+	crystal_cap: 9.5,
+	cystal_height: 20,
+	crystal_width: 6
+});
+export const CrystalD00 = crystal(
+	'd00_crystal',
+	'D% Crystal',
+	10,
+	{ crystal_cap: 8, cystal_height: 20, crystal_width: 6 },
+	true
+);
 
-function crystal(id: string, name: string, sides: number, customParams: Record<string, number> = {}, tens = false): DieModel {
+function crystal(
+	id: string,
+	name: string,
+	sides: number,
+	customParams: Record<string, number> = {},
+	tens = false
+): DieModel {
 	const parameters = customParameters(customParams);
-	const defaultParameters = Object.fromEntries(	parameters.map(p => [p.id, p.defaultValue]));
+	const defaultParameters = Object.fromEntries(parameters.map((p) => [p.id, p.defaultValue]));
 	return {
 		id,
 		name,
@@ -99,7 +123,12 @@ function crystalBlankParams(
 	};
 }
 
-function build(sides: number, defaultParameters: Record<string, number>, tens: boolean, previewTransform?: Transform): DieModel['build'] {
+function build(
+	sides: number,
+	defaultParameters: Record<string, number>,
+	tens: boolean,
+	previewTransform?: Transform
+): DieModel['build'] {
 	if (sides % 2 === 1) {
 		throw new RangeError('sides cannot be odd for crystal die');
 	}
