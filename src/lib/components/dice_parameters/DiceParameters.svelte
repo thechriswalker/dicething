@@ -469,6 +469,9 @@
 	{:else}
 		<CollapsibleGroup bind:value={openSection}>
 			<Collapsible value="dice" title={m.dice_name({ kind })} defaultOpen={false}>
+				{#snippet titleExtra()}
+					{@render helpIcon(m.dice_blurb({ kind }))}
+				{/snippet}
 				<p class="flex justify-between">
 					<span>{m.dice_parameters_approx_volume()}:</span>
 					<span>{numberFormat(vol)}{typeof vol === 'number' ? ' ml' : ''}</span>

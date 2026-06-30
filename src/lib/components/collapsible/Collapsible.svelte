@@ -7,11 +7,14 @@
 
 	let {
 		title,
+		titleExtra,
 		children,
 		defaultOpen = true,
 		value
 	}: {
 		title: string;
+		// optional content rendered next to the title (e.g. an info tooltip icon).
+		titleExtra?: Snippet;
 		children?: Snippet;
 		defaultOpen?: boolean;
 		value?: string;
@@ -34,7 +37,10 @@
 
 <Collapsible {...grouped ? { open: group!.open === value, onOpenChange } : { defaultOpen }}>
 	<div class="preset-tonal flex w-full items-center justify-between rounded-sm p-1">
-		<p class="font-bold">{title}</p>
+		<span class="flex items-center gap-1">
+			<span class="font-bold">{title}</span>
+			{@render titleExtra?.()}
+		</span>
 		<Collapsible.Trigger class="btn-icon hover:preset-tonal">
 			<ArrowUpDownIcon class="size-4" />
 		</Collapsible.Trigger>

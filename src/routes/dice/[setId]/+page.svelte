@@ -1427,18 +1427,23 @@
 								<h3 class="text-surface-600-400 text-sm font-semibold">{group.label}</h3>
 								<div class="grid grid-cols-2 gap-3 sm:grid-cols-4 md:grid-cols-6">
 									{#each group.dice as preview (preview.kind)}
-										<button
-											class="hover:border-primary-500 hover:shadow-primary-500 flex cursor-pointer flex-col items-center gap-1 rounded-md border p-2 text-center hover:shadow-md"
-											onclick={() => {
-												addDie(preview.kind);
-												close();
-											}}
-										>
-											{#if setData}
-												<DiePreview die={preview} legends={setData.legends} />
-											{/if}
-											<span class="text-sm">{m.dice_name({ kind: preview.kind })}</span>
-										</button>
+										<Tooltip content={m.dice_blurb({ kind: preview.kind })}>
+											{#snippet children(tipProps)}
+												<button
+													{...tipProps}
+													class="hover:border-primary-500 hover:shadow-primary-500 flex cursor-pointer flex-col items-center gap-1 rounded-md border p-2 text-center hover:shadow-md"
+													onclick={() => {
+														addDie(preview.kind);
+														close();
+													}}
+												>
+													{#if setData}
+														<DiePreview die={preview} legends={setData.legends} />
+													{/if}
+													<span class="text-sm">{m.dice_name({ kind: preview.kind })}</span>
+												</button>
+											{/snippet}
+										</Tooltip>
 									{/each}
 								</div>
 							</div>
