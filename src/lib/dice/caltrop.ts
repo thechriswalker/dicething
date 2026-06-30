@@ -17,8 +17,8 @@
 
 import type { DiceParameter, DieFaceModel, DieModel } from '$lib/interfaces/dice';
 import { Transform, previewTilt } from '$lib/utils/3d';
-import { Legend, pickForNumber } from '$lib/utils/legends';
-import { centerShapes, getBoundingBox } from '$lib/utils/shapes';
+import { pickForNumber } from '$lib/utils/legends';
+import { centerShapes, getBoundingBox, rotateShapes } from '$lib/utils/shapes';
 import { Shape, Vector2, Vector3 } from 'three';
 
 const defaultCaltropHeight = 16;
@@ -222,21 +222,34 @@ function buildSegmented(H: number, style: 'kite' | 'base') {
 
 function buildCustom(H: number) {
 	const { e, h } = tetrahedronDimensions(H);
-	// the whole equilateral triangle, centroid at the origin, apex up.
-	const { shape, radialOffset } = seatShape(
-		new Shape([
-			new Vector2(0, (2 * h) / 3), // apex
-			new Vector2(-e / 2, -h / 3), // bottom-left
-			new Vector2(e / 2, -h / 3) // bottom-right
-		])
-	);
+	// the whole equilateral triangle, centroid at the origin, apex up. The legend
+	// is engraved at the shape's local origin, so we deliberately keep the
+	// centroid (the triangle's visual centre) there rather than bbox-centering:
+	// an equilateral triangle's bbox centre sits h/6 above the centroid, which
+	// would raise the legend toward the apex. placeOnFace already expects the
+	// centroid on the origin, so no re-seating offset is needed.
+	const shape = equilateralTriangleShape(e, h);
 
 	const faces: Array<DieFaceModel> = Array.from({ length: 4 }).map((_, f) => {
-		const transform = new Transform().translateBy(0, radialOffset, 0);
+		const transform = new Transform();
+		// depending on the face we want a pre-rotation.
+		switch(f) {
+			case 0: // 1 face
+				break;// leave this as baseline..
+			case 1: // 2 face
+				transform.rotateByAxisAngle(zAxis, SEGMENT_STEP);
+				break;
+			case 2: // 3 face
+				transform.rotateByAxisAngle(zAxis, SEGMENT_STEP);
+				break;
+			case 3: // 4 face
+				transform.rotateByAxisAngle(zAxis, -SEGMENT_STEP);
+				break;
+		}
 		placeOnFace(transform, f, h, H);
 		return {
 			isNumberFace: true,
-			defaultLegend: Legend.BLANK, // yes, blank - on a number face. It is supposed to be custom.
+			defaultLegend: pickForNumber(f, 4), // Legend.BLANK, // yes, blank - on a number face. It is supposed to be custom.
 			shape,
 			transform
 		};
