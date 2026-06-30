@@ -274,7 +274,7 @@
 				"kind=d00_trapezohedron": "A trapezohedron d%: the classic ten-kite-faced d10 shape, marked in tens (00–90) for percentile rolls.",
 				"kind=d12_trapezohedron": "A trapezohedron d12: twelve kite faces in two staggered rings meeting at a point top and bottom.",
 				"kind=d4_shard": "A shard d4: a slender three-sided crystal spike, rolled like a pencil to read off one of its long faces.",
-				"kind=d4_infinity": "An infinity d4: an unusual four-sided form with looping, endless geometry — more showpiece than workhorse.",
+				"kind=d4_infinity": "An infinity d4: an unusual two-sided form, which can rest in four orientations.",
 				"kind=d4_barrel": "A wedge-shaped rolling d4 with four long faces. It tumbles like a log and reads off the upward face.",
 				"kind=d6_barrel": "A barrel d6: a six-sided rolling bar with tapered ends so it tumbles smoothly and settles on one of its long faces.",
 				"kind=d8_barrel": "A barrel d8: an eight-sided rolling bar with tapered ends so it tumbles smoothly and settles on one of its long faces.",
