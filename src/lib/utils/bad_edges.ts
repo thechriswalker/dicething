@@ -217,17 +217,30 @@ export function removeDuplicateTriangles(g: BufferGeometry): BufferGeometry {
 // A vertex with its quantised key, used by the T-junction repair below.
 type KeyedVertex = { x: number; y: number; z: number; key: string };
 
-// Remove zero-area ("degenerate") triangles while keeping the mesh closed.
+// Remove truly-degenerate triangles while keeping the mesh closed.
 //
-// The triangulator (libtess) occasionally emits a sliver: a zero-area triangle
-// whose middle vertex M lies exactly on the edge E1-E2 of a neighbouring real
-// triangle - a classic T-junction. The sliver is topologically load-bearing
-// (it's the only thing closing one of E1-E2's sides), so simply deleting it
-// would open a crack. Instead we heal the junction: split every real triangle
-// that has M sitting on one of its edges (turning T into two proper triangles),
-// then drop the slivers. The result is the same closed surface with no
-// degenerate triangles. Triangles with two coincident corners are truly
-// redundant and just dropped.
+// Two kinds of bad triangle can reach here:
+//
+//  1. Coincident-corner triangles (two vertices weld to the same point, i.e. a
+//     zero-length edge). These are genuinely degenerate and just dropped.
+//
+//  2. Thin "slivers": three DISTINCT vertices but near-collinear (perpendicular
+//     height below the weld tolerance). These are NOT automatically degenerate -
+//     a sliver whose three edges are each shared with exactly one other triangle
+//     is a load-bearing part of the closed surface (mesh_check.ts treats such
+//     3-distinct-vertex slivers as sound for exactly this reason). Dropping a
+//     BALANCED sliver orphans its three edges and tears the mesh open - the bug
+//     that left "1 boundary + 2 non-manifold" edges per face on dice like the
+//     tetartoid / trapezohedra. So a balanced sliver is KEPT.
+//
+//     Only an UNbalanced sliver (some edge not shared by exactly two triangles)
+//     signals a real T-junction: libtess emitted it because a neighbour carries
+//     the whole long edge while the sliver's middle vertex M sits on it. There
+//     we drop the sliver and record M, then split every triangle that has M on
+//     one of its edges (T -> two proper triangles) to close the gap.
+//
+// Edge balance is measured BEFORE anything is dropped, over every non-coincident
+// triangle (the slivers included), so a sliver's own edges are counted.
 export function repairDegenerateTriangles(g: BufferGeometry, tolerance = 1e-4): BufferGeometry {
 	g = toNonIndexed(g);
 
@@ -255,41 +268,63 @@ export function repairDegenerateTriangles(g: BufferGeometry, tolerance = 1e-4): 
 		const cz = ux * vy - uy * vx;
 		return Math.hypot(cx, cy, cz);
 	};
+	const edgeKey = (a: KeyedVertex, b: KeyedVertex) =>
+		a.key < b.key ? `${a.key}|${b.key}` : `${b.key}|${a.key}`;
 
-	const good: Array<[KeyedVertex, KeyedVertex, KeyedVertex]> = [];
-	const junctions = new Map<string, KeyedVertex>();
+	type Tri = [KeyedVertex, KeyedVertex, KeyedVertex];
+	type Candidate = {
+		tri: Tri;
+		thin: boolean;
+		mid: KeyedVertex | null;
+		edges: [string, string, string];
+	};
+	const candidates: Array<Candidate> = [];
+	const edgeCount = new Map<string, number>();
 
+	// First pass: drop coincident-corner triangles outright; for everything else,
+	// classify thin vs good and tally edge usage so balance can be judged next.
 	for (let i = 0; i < pos.length; i += 9) {
 		const a = vAt(i),
 			b = vAt(i + 3),
 			c = vAt(i + 6);
 		const distinct = a.key !== b.key && b.key !== c.key && a.key !== c.key;
-		// A sliver is judged by its HEIGHT (the perpendicular distance of the
-		// off-vertex to the longest edge), not its absolute area. Area scales with
-		// the edge lengths, so a long, pencil-thin triangle whose vertices are
-		// collinear to within the weld tolerance can still clear a fixed area
-		// epsilon -- which is exactly how a face-cap triangulator slips a spurious
-		// collinear triangle (e.g. a two-digit "tens" glyph on a trapezohedron
-		// kite) past the old test, leaving 1 boundary + 2 non-manifold edges. The
-		// height test is scale-invariant and consistent with the vertex weld.
+		if (!distinct) {
+			continue; // coincident corner -> zero-length edge -> truly degenerate
+		}
+		// A sliver is judged by its HEIGHT (perpendicular distance of the off-vertex
+		// to the longest edge), not absolute area: area scales with edge length, so
+		// a fixed area epsilon flips above/below threshold with the die's position
+		// in the export grid. The middle vertex (opposite the longest edge) is the
+		// one that would sit on a neighbour's edge in a T-junction.
 		const ab = dist(a, b),
 			bc = dist(b, c),
 			ca = dist(c, a);
 		const longest = Math.max(ab, bc, ca);
 		const height = longest > 0 ? doubleArea(a, b, c) / longest : 0;
-		if (!distinct || height <= tolerance) {
-			// a collinear sliver of three distinct points contributes a T-junction
-			// at its middle vertex (the one opposite the longest edge, i.e. sitting
-			// on it); coincident-corner triangles are just dropped.
-			if (distinct) {
-				const mid = longest === ab ? c : longest === bc ? a : b;
-				if (!junctions.has(mid.key)) {
-					junctions.set(mid.key, mid);
-				}
-			}
-			continue;
+		const thin = height <= tolerance;
+		const mid = thin ? (longest === ab ? c : longest === bc ? a : b) : null;
+		const edges: [string, string, string] = [edgeKey(a, b), edgeKey(b, c), edgeKey(c, a)];
+		for (const e of edges) {
+			edgeCount.set(e, (edgeCount.get(e) ?? 0) + 1);
 		}
-		good.push([a, b, c]);
+		candidates.push({ tri: [a, b, c], thin, mid, edges });
+	}
+
+	// Second pass: keep good triangles and BALANCED slivers; drop UNbalanced
+	// slivers, recording their middle vertex as a T-junction to heal.
+	const good: Array<Tri> = [];
+	const junctions = new Map<string, KeyedVertex>();
+	for (const cand of candidates) {
+		if (cand.thin && cand.mid) {
+			const balanced = cand.edges.every((e) => edgeCount.get(e) === 2);
+			if (!balanced) {
+				if (!junctions.has(cand.mid.key)) {
+					junctions.set(cand.mid.key, cand.mid);
+				}
+				continue;
+			}
+		}
+		good.push(cand.tri);
 	}
 
 	const tPoints = [...junctions.values()];

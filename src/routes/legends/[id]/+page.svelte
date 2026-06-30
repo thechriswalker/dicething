@@ -36,13 +36,10 @@
 	import { shapeToJSON } from '$lib/utils/to_json';
 	import { addUnderline, defaultUnderline } from '$lib/utils/underline';
 	import {
-		auditDiceKinds,
-		checkLegendCandidateAllDice,
+		auditLegendCandidates,
 		gatherLegendCandidates,
-		isBrokenResult,
-		type LegendCheckResult
+		type LegendAuditResult
 	} from '$lib/utils/validate_legends';
-	import { checkMeshInWorker } from '$lib/utils/mesh_check_client';
 	import { getPreferences } from '$lib/interfaces/preferences.svelte';
 	import {
 		AlertTriangle,
@@ -416,18 +413,20 @@
 	});
 
 	// --- print-problem check ------------------------------------------------
-	// Engrave every component character (and every SVG/copied glyph) onto a d6
-	// and structurally check the result, so a "weird broken font" is caught here
-	// rather than at print time.
+	// Engrave every component character (and every SVG/copied glyph) onto every
+	// distinct face shape in the die catalogue and structurally check the result,
+	// so a "weird broken font" is caught here rather than at print time. Driven by
+	// the audit rig: each physical die shape is built once and a glyph is checked
+	// on one representative of each congruent face class.
 	let checking = $state(false);
 	let checkDone = $state(0);
 	let checkTotal = $state(0);
-	let checkResults = $state<Array<LegendCheckResult>>([]);
+	let checkResults = $state<Array<LegendAuditResult>>([]);
 	let hasChecked = $state(false);
 	// invalidate stale results whenever the set changes underneath us.
 	let checkRunId = 0;
 
-	let brokenResults = $derived(checkResults.filter(isBrokenResult));
+	let brokenResults = $derived(checkResults.filter((r) => r.failures.length > 0));
 
 	async function runLegendCheck() {
 		if (!set || checking) {
@@ -437,28 +436,22 @@
 		checking = true;
 		hasChecked = true;
 		checkResults = [];
+		checkDone = 0;
+		checkTotal = 0;
 		// flush any pending regeneration so we check the latest shapes.
 		regenerateDebounced.flush();
 		const candidates = gatherLegendCandidates(set, fontBuffer);
-		// every glyph is engraved on every die model, so the work is the product
-		// of the two.
-		checkTotal = candidates.length * auditDiceKinds.length;
-		checkDone = 0;
-		const collected: Array<LegendCheckResult> = [];
-		for (const candidate of candidates) {
-			const results = await checkLegendCandidateAllDice(
-				candidate,
-				(p) => checkMeshInWorker(p),
-				() => {
-					checkDone += 1;
-				}
-			);
+		const results = await auditLegendCandidates(candidates, (done, total) => {
 			if (runId !== checkRunId) {
 				return; // a newer run (or navigation) superseded this one
 			}
-			collected.push(...results);
+			checkDone = done;
+			checkTotal = total;
+		});
+		if (runId !== checkRunId) {
+			return;
 		}
-		checkResults = collected;
+		checkResults = results;
 		checking = false;
 	}
 
@@ -487,29 +480,16 @@
 		}
 	}
 
-	// human-readable issues for one broken result.
-	function issuesFor(r: LegendCheckResult): Array<string> {
-		if (r.error) {
-			return [m.legends_editor_check_failed()];
+	// the distinct die shapes a broken glyph fails on (deduped by name; congruent
+	// faces share a verdict, so one representative die per shape is reported).
+	function failingDiceFor(r: LegendAuditResult): Array<string> {
+		const names: Array<string> = [];
+		for (const f of r.failures) {
+			if (!names.includes(f.dieName)) {
+				names.push(f.dieName);
+			}
 		}
-		const rep = r.report;
-		if (!rep) {
-			return [];
-		}
-		const out: Array<string> = [];
-		if (rep.boundaryEdgeCount > 0) {
-			out.push(m.mesh_check_not_watertight({ count: rep.boundaryEdgeCount }));
-		}
-		if (rep.nonManifoldEdgeCount > 0) {
-			out.push(m.mesh_check_non_manifold({ count: rep.nonManifoldEdgeCount }));
-		}
-		if (rep.degenerateTriangleCount > 0) {
-			out.push(m.mesh_check_degenerate({ count: rep.degenerateTriangleCount }));
-		}
-		if (rep.duplicateTriangleCount > 0) {
-			out.push(m.mesh_check_duplicate({ count: rep.duplicateTriangleCount }));
-		}
-		return out;
+		return names;
 	}
 </script>
 
@@ -584,13 +564,12 @@
 									{m.legends_editor_check_broken()}
 								</span>
 								<ul class="flex flex-col gap-1">
-									{#each brokenResults as r}
+									{#each brokenResults as r (r.label)}
 										<li class="flex flex-wrap items-baseline gap-x-2">
 											<span class="font-mono font-semibold">{r.label}</span>
-											{#if r.dieName}
-												<span class="text-surface-600-400 text-xs">{r.dieName}</span>
-											{/if}
-											<span class="text-surface-700-300">{issuesFor(r).join(', ')}</span>
+											<span class="text-surface-700-300">
+												{m.legends_editor_check_fails_on({ dice: failingDiceFor(r).join(', ') })}
+											</span>
 										</li>
 									{/each}
 								</ul>
@@ -632,7 +611,11 @@
 					<div class="card preset-filled-surface-100-900 flex flex-col gap-3 p-3">
 						<div class="flex flex-col items-center gap-1">
 							{#key selectedLegend + ':' + version}
-								<LegendPreview legends={set} legend={selectedLegend} class="size-28 preset-filled-primary-500" />
+								<LegendPreview
+									legends={set}
+									legend={selectedLegend}
+									class="preset-filled-primary-500 size-28"
+								/>
 							{/key}
 							<div class="flex items-center gap-2">
 								<span class="font-semibold">{set.getLegendName(selectedLegend)}</span>

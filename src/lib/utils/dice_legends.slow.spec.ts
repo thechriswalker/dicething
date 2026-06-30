@@ -88,27 +88,12 @@ function describeFailures(label: string, failures: Array<GlyphAuditFailure>): st
 	);
 }
 
-// KNOWN OPEN BUG (pending the repairDegenerateTriangles fix). The thorough audit
-// surfaced that certain builtin composite glyphs tear on specific face shapes
-// with the 1-open : 2-non-manifold "unhealed T-junction" signature - the same
-// defect as the regression fixtures below. These are the (font -> glyph slot)
-// pairs known to tear today; they're tolerated so the suite stays green while the
-// bug is open, but any NEW offender (or one of these turning printable, i.e. the
-// fix working) fails the test so the list stays honest. When repair is fixed,
-// every entry here will start passing and the test will tell you to empty it.
-const KNOWN_TEARING_SLOTS: Record<string, ReadonlyArray<number>> = {
-	alice_in_wonderland: [22, 29, 40, 49, 67, 76, 98, 99, 101, 102],
-	josefin_medium: [98]
-};
-
 describe('every builtin font glyph engraves printably on every distinct face shape', () => {
 	for (const [fontName, json] of fonts) {
-		const known = new Set(KNOWN_TEARING_SLOTS[fontName] ?? []);
 		it(
 			fontName,
 			async () => {
-				const unexpected: Array<string> = [];
-				const nowFixed: Array<number> = [];
+				const offenders: Array<string> = [];
 				let processed = 0;
 				for (let slot = 0; slot < json.shapes.length; slot++) {
 					const serialised = json.shapes[slot];
@@ -117,10 +102,8 @@ describe('every builtin font glyph engraves printably on every distinct face sha
 					}
 					const symbols = serialised.map((s) => shapeFromJSON(s));
 					const failures = auditGlyph(symbols, targets);
-					if (failures.length > 0 && !known.has(slot)) {
-						unexpected.push(describeFailures(`${fontName} glyph #${slot}`, failures));
-					} else if (failures.length === 0 && known.has(slot)) {
-						nowFixed.push(slot);
+					if (failures.length > 0) {
+						offenders.push(describeFailures(`${fontName} glyph #${slot}`, failures));
 					}
 					// yield to the event loop periodically so vitest's reporter heartbeat
 					// doesn't time out on this long, otherwise-synchronous test.
@@ -128,12 +111,7 @@ describe('every builtin font glyph engraves printably on every distinct face sha
 						await new Promise((r) => setTimeout(r, 0));
 					}
 				}
-				expect(unexpected.join('\n\n'), unexpected.join('\n\n')).toBe('');
-				expect(
-					nowFixed,
-					`${fontName}: these glyph slots no longer tear - remove them from ` +
-						`KNOWN_TEARING_SLOTS: ${nowFixed.join(', ')}`
-				).toEqual([]);
+				expect(offenders.join('\n\n'), offenders.join('\n\n')).toBe('');
 			},
 			FONT_TIMEOUT
 		);
@@ -206,9 +184,13 @@ describe('audit rig matches real Builder.export verdict', () => {
 	}
 });
 
-describe('regression: previously-reported problem glyphs (known-failing until repair fix)', () => {
+// Regression fixtures: glyphs that once tore on some face shapes (a libtess
+// sliver that repairDegenerateTriangles used to drop without fully healing the
+// T-junction). They must now engrave printably everywhere. Add new offenders to
+// __fixtures__/problem_glyphs.json.
+describe('regression: previously-reported problem glyphs engrave printably everywhere', () => {
 	for (const fixture of problemGlyphs as Array<{ label: string; shapes: Array<SerialisedShape> }>) {
-		it.fails(
+		it(
 			fixture.label,
 			() => {
 				const symbols = fixture.shapes.map((s) => shapeFromJSON(s));

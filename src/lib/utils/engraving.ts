@@ -1,5 +1,5 @@
 import { BufferAttribute, BufferGeometry, Path, Shape, ShapeUtils, Vector2 } from 'three';
-import { shapeGeometry } from './tessellate';
+import { shapeGeometry, unionBoundaryLoops } from './tessellate';
 import {
 	anyOuterContainsInner,
 	isContained,
@@ -64,7 +64,7 @@ export function engrave(
 	// cap holes, the back cap and the walls) derives its points from these same
 	// cleaned loops, so they all agree on the boundary edges and earcut has no
 	// collinear points left to silently drop -> the engraving stays manifold.
-	symbols = symbols.map((s) => cleanShape(s, divisions, RedundantPointEpsilon));
+	symbols = symbols.flatMap((s) => cleanShape(s, divisions, RedundantPointEpsilon));
 
 	const canEngraveSymbol = isContained(surface, symbols, clearance, convex);
 
@@ -156,7 +156,7 @@ export function engrave(
 	// for each "loop", we iterate around all the points and take the "next" one
 	// to create a rectangle for the wall segment.
 	// then we create 2 triangle for that rectangle and add them to the walls array.
-	for (let loop of internalPoints) {
+	for (const loop of internalPoints) {
 		if (loop[0].equals(loop[loop.length - 1])) {
 			loop.pop(); // drop duplicate points at start and end.
 		}
@@ -186,20 +186,129 @@ export function engrave(
 	return [wallGeo, faceBack, faceFront];
 }
 
-// Returns a polygon Shape equivalent to `s` (curves tessellated at `divisions`)
+// Returns polygon Shape(s) equivalent to `s` (curves tessellated at `divisions`)
 // with duplicate and collinear points removed from the outline and every hole.
 // Building a Shape from plain points produces LineCurves, so downstream
 // getPoints()/getPointsHoles() calls return exactly these cleaned points
 // regardless of the division count passed.
-function cleanShape(s: Shape, divisions: number, epsilon: number): Shape {
+//
+// Normally returns a single shape. If any loop self-intersects (a figure-8 /
+// self-overlapping font or SVG contour that resolveShapeBoundaries didn't fully
+// resolve), the caps and the extruded walls would disagree about the boundary -
+// libtess resolves the crossing while the walls would extrude the raw crossing
+// loop, tearing the engraving open. In that case we re-derive the true fill
+// boundary with a nonzero boundary pass (the winding rule fonts fill with) and
+// rebuild clean, non-self-intersecting outer+hole loops that the caps and walls
+// then agree on. This can split one symbol into several shapes.
+function cleanShape(s: Shape, divisions: number, epsilon: number): Array<Shape> {
 	const outer = removeRedundantPoints(s.getPoints(divisions), epsilon);
-	const shape = new Shape(outer);
-	shape.holes = s
+	const holes = s
 		.getPointsHoles(divisions)
 		.map((hole) => removeRedundantPoints(hole, epsilon))
-		.filter((hole) => hole.length >= 3)
-		.map((hole) => new Path(hole));
-	return shape;
+		.filter((hole) => hole.length >= 3);
+
+	if (!anyLoopSelfIntersects([outer, ...holes])) {
+		const shape = new Shape(outer);
+		shape.holes = holes.map((hole) => new Path(hole));
+		return [shape];
+	}
+
+	const loops = unionBoundaryLoops([outer, ...holes])
+		.map((loop) => removeRedundantPoints(loop, epsilon))
+		.filter((loop) => loop.length >= 3);
+	return loopsToShapes(loops);
+}
+
+// Group a flat set of boundary loops into Shapes by containment nesting: a loop
+// at even depth (outside, or inside a hole) is a filled outer; an odd-depth loop
+// is a hole of the nearest enclosing outer.
+function loopsToShapes(loops: Array<Array<Vector2>>): Array<Shape> {
+	const depth = loops.map((loop) => {
+		const p = loop[0];
+		let d = 0;
+		for (const other of loops) {
+			if (other !== loop && pointInPolygon(p, other)) {
+				d++;
+			}
+		}
+		return d;
+	});
+	const shapes: Array<Shape> = [];
+	for (let i = 0; i < loops.length; i++) {
+		if (depth[i] % 2 !== 0) {
+			continue; // a hole, attached below
+		}
+		const shape = new Shape(loops[i]);
+		for (let j = 0; j < loops.length; j++) {
+			// a hole belongs to this outer when it is one nesting level deeper and
+			// sits inside it.
+			if (depth[j] === depth[i] + 1 && pointInPolygon(loops[j][0], loops[i])) {
+				shape.holes.push(new Path(loops[j]));
+			}
+		}
+		shapes.push(shape);
+	}
+	return shapes;
+}
+
+// Standard even-odd ray-cast point-in-polygon test.
+function pointInPolygon(p: Vector2, poly: Array<Vector2>): boolean {
+	let inside = false;
+	for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+		const a = poly[i];
+		const b = poly[j];
+		if (a.y > p.y !== b.y > p.y && p.x < ((b.x - a.x) * (p.y - a.y)) / (b.y - a.y) + a.x) {
+			inside = !inside;
+		}
+	}
+	return inside;
+}
+
+// True if any loop has two non-adjacent edges that properly cross, or two loops
+// cross each other. Proper crossings only (shared endpoints / touching vertices
+// don't count), which is the self-overlap that breaks the cap/wall agreement.
+function anyLoopSelfIntersects(loops: Array<Array<Vector2>>): boolean {
+	for (let li = 0; li < loops.length; li++) {
+		const a = loops[li];
+		const n = a.length;
+		for (let i = 0; i < n; i++) {
+			const a1 = a[i];
+			const a2 = a[(i + 1) % n];
+			// other edges of the same loop, skipping the two adjacent ones.
+			for (let k = i + 2; k < n; k++) {
+				if (i === 0 && k === n - 1) {
+					continue; // edges sharing the wrap-around vertex
+				}
+				if (segmentsCross(a1, a2, a[k], a[(k + 1) % n])) {
+					return true;
+				}
+			}
+			// edges of later loops.
+			for (let lj = li + 1; lj < loops.length; lj++) {
+				const b = loops[lj];
+				for (let k = 0; k < b.length; k++) {
+					if (segmentsCross(a1, a2, b[k], b[(k + 1) % b.length])) {
+						return true;
+					}
+				}
+			}
+		}
+	}
+	return false;
+}
+
+// Orientation of the triplet (a, b, c): >0 ccw, <0 cw, 0 collinear.
+function orient(a: Vector2, b: Vector2, c: Vector2): number {
+	return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+}
+
+// True when segment p1-p2 properly crosses p3-p4 (interiors intersect).
+function segmentsCross(p1: Vector2, p2: Vector2, p3: Vector2, p4: Vector2): boolean {
+	const d1 = orient(p3, p4, p1);
+	const d2 = orient(p3, p4, p2);
+	const d3 = orient(p1, p2, p3);
+	const d4 = orient(p1, p2, p4);
+	return d1 > 0 !== d2 > 0 && d3 > 0 !== d4 > 0 && d1 !== 0 && d2 !== 0 && d3 !== 0 && d4 !== 0;
 }
 
 // Removes a trailing point coincident with the first, then iteratively removes
