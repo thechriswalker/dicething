@@ -145,8 +145,8 @@
 	--color-warning-800: oklch(58.61% 0.17 44.8deg);
 	--color-warning-900: oklch(54.05% 0.16 41.56deg);
 	--color-warning-950: oklch(49.8% 0.16 38.55deg);
-	--color-warning-contrast-dark: var(--color-warning-950);
-	--color-warning-contrast-light: var(--color-warning-50);
+	--color-warning-contrast-dark: #fff; /* var(--color-warning-950); */
+	--color-warning-contrast-light: #fff; /* var(--color-warning-50); */
 	--color-warning-contrast-50: var(--color-warning-contrast-dark);
 	--color-warning-contrast-100: var(--color-warning-contrast-dark);
 	--color-warning-contrast-200: var(--color-warning-contrast-dark);

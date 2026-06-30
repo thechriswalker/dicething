@@ -15,7 +15,7 @@ export const dicethingPreset: Preset = {
 					kind: 'd4_crystal',
 					parameters: {
 						crystal_height: 18,
-						crystal_width: 12,
+						crystal_width: 10.5,
 						crystal_cap: 6,
 						crystal_twist: 0.5
 					} as Record<string, number>,
