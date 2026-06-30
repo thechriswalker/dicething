@@ -13,6 +13,13 @@ export default defineConfig({
 			outdir: './src/lib/paraglide'
 		})
 	],
+	// Emit workers as ES modules. The default "iife" format can't be used once a
+	// worker shares code-split chunks with the main bundle (e.g. box.worker.ts
+	// pulling in common geometry utils), which fails the production build. ES
+	// module workers are supported by all the browsers this app targets.
+	worker: {
+		format: 'es'
+	},
 	test: {
 		workspace: [
 			{
