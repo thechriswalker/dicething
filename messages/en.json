@@ -189,6 +189,29 @@
 			}
 		}
 	],
+	"legend_ordering_option": [
+		{
+			"declarations": ["input key"],
+			"selectors": ["key"],
+			"match": {
+				"key=standard": "Standard",
+				"key=spindown": "Spindown",
+				"key=go_first_a": "Go First (A)",
+				"key=go_first_b": "Go First (B)",
+				"key=go_first_c": "Go First (C)",
+				"key=go_first_d": "Go First (D)",
+				"key=custom": "Custom"
+			}
+		}
+	],
+	"dice_parameters_legend_ordering": "Legend Ordering",
+	"dice_parameters_legend_ordering_help": "How the default numbers are laid out across the faces. Editing a face's legend switches this to Custom.",
+	"dice_parameters_copy_ordering": "Copy ordering",
+	"dice_parameters_copy_ordering_done": "Copied!",
+	"legend_ordering_reset_title": "Drop custom legends?",
+	"legend_ordering_reset_body": "This die uses a custom legend arrangement. Switching ordering will discard your hand-picked legends and replace them with the chosen ordering's defaults.",
+	"legend_ordering_reset_cancel": "Cancel",
+	"legend_ordering_reset_confirm": "Switch ordering",
 	"dice_parameters_approx_volume": "Approximate Volume",
 	"dice_parameters_mode_controls": "Controls",
 	"dice_parameters_mode_raw": "Raw",
@@ -755,8 +778,9 @@
 	"boxes_chamfer_hint": "Truncates the corners into an octagon, leaving room for the magnets.",
 	"boxes_bevel": "Outer bevel",
 	"boxes_bevel_hint": "Truncates the bottom outer edge of the base and lid inward (a 45° chamfer) for the EDDC profile.",
-	"boxes_tray_depth": "Tray recess",
-	"boxes_tray_depth_hint": "Sinks the interior slightly below the seam, leaving a flat rim (corners stay solid for magnets).",
+	"boxes_tray_depth_base": "Base tray recess",
+	"boxes_tray_depth_lid": "Lid tray recess",
+	"boxes_tray_depth_hint": "Sinks the interior slightly below the seam on each half, leaving a flat rim (corners stay solid for magnets).",
 	"boxes_gap": "Gap between dice",
 	"boxes_margin_x": "Inner margin (width)",
 	"boxes_margin_y": "Inner margin (depth)",

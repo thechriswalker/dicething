@@ -102,10 +102,11 @@ export type BoxParams = {
 	// clearance added around every die to form its cavity (so the real die drops
 	// in/out easily).
 	cavityTolerance: number;
-	// shallow recess of the interior octagon below the seam, leaving a flat rim
-	// around the perimeter (the corners stay solid for the magnets). Kept small
-	// so the floor under the cavities stays deep.
-	trayDepth: number;
+	// shallow recess of the interior octagon below the seam on each half, leaving
+	// a flat rim around the perimeter (the corners stay solid for the magnets).
+	// Kept small so the floor under the cavities stays deep.
+	trayDepthBase: number;
+	trayDepthLid: number;
 	// how many rows the dice are split across. The dice are filled in order into
 	// this many rows (larger rows first) and each row is centred relative to the
 	// others, so this directly shapes the box (1 row = a long thin box). Only used
@@ -140,7 +141,8 @@ export const defaultBoxParams = (): BoxParams => ({
 	marginX: 3,
 	marginY: 3,
 	cavityTolerance: 0.4,
-	trayDepth: 1.5,
+	trayDepthBase: 1.5,
+	trayDepthLid: 1.5,
 	rows: 2,
 	manual: false,
 	box: { halfX: 0, halfY: 0 },

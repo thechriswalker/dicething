@@ -45,7 +45,7 @@ function fitCamera(camera: PerspectiveCamera, object: import('three').Object3D):
 	const right = new Vector3().crossVectors(dir, camera.up).normalize();
 	const up = new Vector3().crossVectors(right, dir).normalize();
 
-	const tan = Math.tan(((camera.fov * Math.PI) / 180) / 2);
+	const tan = Math.tan((camera.fov * Math.PI) / 180 / 2);
 
 	let distance = 0;
 	let maxDepth = 0;
@@ -111,7 +111,7 @@ function getRenderFunction() {
 					builder.build(
 						d.parameters,
 						d.face_parameters,
-						{ explode: false },
+						{ explode: false, ordering: d.legend_ordering },
 						d.string_parameters ?? {}
 					);
 					scene.add(builder.diceGroup);

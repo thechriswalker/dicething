@@ -11,7 +11,8 @@
 		type Builder,
 		type EngravingError
 	} from '$lib/utils/builder';
-	import { type LegendSet } from '$lib/utils/legends';
+	import { Legend, type LegendSet } from '$lib/utils/legends';
+	import { getOrderings, CUSTOM_ORDERING, STANDARD_ORDERING } from '$lib/dice/legend_orderings';
 	import { Vector2 } from 'three';
 	import { degToRad, radToDeg } from 'three/src/math/MathUtils.js';
 	import {
@@ -39,6 +40,7 @@
 		dparams: Dice['parameters'];
 		sparams: Record<string, string> | undefined;
 		fparams: Dice['face_parameters'];
+		ordering: string | undefined;
 		legends: LegendSet;
 		selectMode: SelectMode;
 		selectedFace: number;
@@ -74,6 +76,7 @@
 		dparams = $bindable(),
 		sparams = $bindable(),
 		fparams = $bindable(),
+		ordering = $bindable(),
 		selectMode = $bindable(),
 		selectedFace = $bindable(),
 		selectedFaces = $bindable(),
@@ -206,6 +209,93 @@
 			const params = fparams[i] ?? {};
 			mutate(params);
 			fparams[i] = params;
+		}
+	}
+
+	// ---- legend ordering ----
+	// the orderings this die kind offers (Standard always, plus Spindown / Go
+	// First where applicable). 'custom' isn't listed here; it's surfaced only
+	// while it's the active ordering.
+	let availableOrderings = $derived(getOrderings(kind));
+	let currentOrdering = $derived(ordering ?? STANDARD_ORDERING);
+	let isCustomOrdering = $derived(currentOrdering === CUSTOM_ORDERING);
+	// pending ordering id awaiting confirmation while leaving the custom ordering.
+	let pendingOrdering = $state<string | null>(null);
+
+	// materialise every (non-hidden) face's effective legend into face_parameters,
+	// then mark the die "custom". done before a manual legend edit so the rest of
+	// the faces keep the legends the previous ordering gave them.
+	function bakeToCustom() {
+		const built = builder.getFaces();
+		for (let i = 0; i < built.length; i++) {
+			if (built[i].hidden) {
+				continue;
+			}
+			const params = fparams[i] ?? {};
+			if (params.legend === undefined) {
+				params.legend = built[i].defaultLegend;
+			}
+			fparams[i] = params;
+		}
+		ordering = CUSTOM_ORDERING;
+	}
+
+	// switch to a (non-custom) ordering: drop every per-face legend override so the
+	// ordering's defaults take over, keeping the other face params (scale/offset/…).
+	function switchOrdering(id: string) {
+		const built = builder.getFaces();
+		for (let i = 0; i < built.length; i++) {
+			const params = fparams[i];
+			if (params && 'legend' in params) {
+				const rest = { ...params };
+				delete rest.legend;
+				fparams[i] = rest;
+			}
+		}
+		ordering = id;
+	}
+
+	// the dropdown changed. leaving the custom ordering drops the hand-edited
+	// legends, so confirm first via the interstitial; every other switch is direct.
+	function onOrderingSelect(id: string) {
+		if (id === currentOrdering) {
+			return;
+		}
+		if (isCustomOrdering) {
+			pendingOrdering = id;
+			return;
+		}
+		switchOrdering(id);
+	}
+
+	// set the legend on the targeted face(s). a manual legend edit on a
+	// non-custom ordering first bakes the current arrangement into custom.
+	function setFaceLegend(next: Legend) {
+		if (!isCustomOrdering) {
+			bakeToCustom();
+		}
+		updateTargetFaces((p) => (p.legend = next));
+	}
+
+	// dev tool: copy the current per-number-face legends as a paste-ready line for
+	// src/lib/dice/spindown_orders.ts, so a visually-arranged order can be saved.
+	let orderingCopied = $state(false);
+	async function copyOrdering() {
+		const built = builder.getFaces();
+		const values: Array<number> = [];
+		for (let i = 0; i < built.length; i++) {
+			if (!built[i].isNumberFace) {
+				continue;
+			}
+			values.push(fparams[i]?.legend ?? built[i].defaultLegend);
+		}
+		const line = `\t${kind}: [${values.join(', ')}],`;
+		try {
+			await navigator.clipboard.writeText(line);
+			orderingCopied = true;
+			setTimeout(() => (orderingCopied = false), 2000);
+		} catch (e) {
+			console.warn('clipboard write failed', e);
 		}
 	}
 
@@ -479,6 +569,38 @@
 				<p class="flex justify-between">
 					<span>{m.dice_parameters_face_to_face_distance()}:</span> <span>{numberFormat(f2f)}</span>
 				</p>
+				<label class="flex flex-col gap-1">
+					<span class="flex items-center gap-1">
+						{m.dice_parameters_legend_ordering()}:
+						{@render helpIcon(m.dice_parameters_legend_ordering_help())}
+					</span>
+					<select
+						class="select"
+						value={currentOrdering}
+						onchange={(e) => onOrderingSelect((e.target as HTMLSelectElement).value)}
+					>
+						{#each availableOrderings as o (o.id)}
+							<option value={o.id}>{m.legend_ordering_option({ key: o.labelKey })}</option>
+						{/each}
+						{#if isCustomOrdering}
+							<option value={CUSTOM_ORDERING}>
+								{m.legend_ordering_option({ key: CUSTOM_ORDERING })}
+							</option>
+						{/if}
+					</select>
+				</label>
+				{#if devMode}
+					<button
+						type="button"
+						class="btn btn-sm preset-tonal-secondary justify-center"
+						onclick={copyOrdering}
+					>
+						<CopyIcon class="size-4" />
+						{orderingCopied
+							? m.dice_parameters_copy_ordering_done()
+							: m.dice_parameters_copy_ordering()}
+					</button>
+				{/if}
 				{#if devMode && paramMode === 'raw'}
 					<div class="flex flex-col gap-3">
 						{#each allDieParams as p (p.id)}
@@ -789,7 +911,7 @@
 										{legends}
 										selectedLegend={faceLegend}
 										onSelectedLegend={(next) => {
-											updateTargetFaces((p) => (p.legend = next));
+											setFaceLegend(next);
 											close();
 										}}
 									/>
@@ -901,3 +1023,37 @@
 		</CollapsibleGroup>
 	{/if}
 </div>
+
+<!-- interstitial: leaving the custom ordering drops the hand-edited legends.
+     rendered as a controlled overlay (the shared Modal is trigger-based, but
+     this opens programmatically from the ordering <select>). -->
+{#if pendingOrdering !== null}
+	<div class="bg-surface-50-950/50 fixed inset-0 z-50 flex items-center justify-center p-4">
+		<div class="card bg-surface-100-900 max-w-sm space-y-4 p-4 shadow-xl">
+			<h3 class="text-lg font-bold">{m.legend_ordering_reset_title()}</h3>
+			<p>{m.legend_ordering_reset_body()}</p>
+			<div class="flex justify-end gap-2">
+				<button
+					type="button"
+					class="btn preset-tonal-surface"
+					onclick={() => (pendingOrdering = null)}
+				>
+					{m.legend_ordering_reset_cancel()}
+				</button>
+				<button
+					type="button"
+					class="btn preset-filled-primary-500"
+					onclick={() => {
+						const id = pendingOrdering;
+						pendingOrdering = null;
+						if (id !== null) {
+							switchOrdering(id);
+						}
+					}}
+				>
+					{m.legend_ordering_reset_confirm()}
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}

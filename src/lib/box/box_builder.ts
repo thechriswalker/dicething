@@ -260,10 +260,15 @@ function octagonCSPerCorner(
 	return new wasm.CrossSection(octagonPointsPerCorner(hx, hy, cpp, cmp, cmm, cpm), 'Positive');
 }
 
-// Uniform scale relating the body octagon to one shrunk in by ~`bevel` on its
-// perimeter. Used to size the truncated bottom face of the bevelled slab.
-function bevelScale(outerHalf: Vector2, bevel: number): number {
-	return Math.max((outerHalf.x + bevel) / outerHalf.x, (outerHalf.y + bevel) / outerHalf.y);
+// Per-axis scale relating the body octagon to one shrunk in by ~`bevel` on each
+// edge. A single uniform scale over-shrinks the longer half-extent relative to
+// the shorter one; independent x/y factors keep the bevel even on rectangular
+// footprints.
+function bevelScale(outerHalf: Vector2, bevel: number): [number, number] {
+	return [
+		(outerHalf.x + bevel) / outerHalf.x,
+		(outerHalf.y + bevel) / outerHalf.y
+	];
 }
 
 // The solid octagonal slab for one half (rests on z = 0, extends to +height).
@@ -280,10 +285,10 @@ function bevelScale(outerHalf: Vector2, bevel: number): number {
 // truncation reads cleanly at the corners.
 function octagonSlab(
 	outerHalf: Vector2,
-	chamfer: number,
+	chamfer: number, // truncation of the rectangle box outline into an octagon.
 	height: number,
-	bevel = 0,
-	topChamfer = 0
+	bevel = 0, // the bevel at the bottom edge of the box.
+	topChamfer = 0 // the chamfer at the top edge of the box.
 ): Manifold {
 	const wasm = manifold();
 	const full = octagonCS(outerHalf.x, outerHalf.y, chamfer);
@@ -296,19 +301,17 @@ function octagonSlab(
 	}
 	const parts: Array<Manifold> = [];
 	if (b > 0) {
-		// exterior octagon (z = 0) = body shrunk in by the bevel, growing back out
-		// to the body octagon at z = b (self-similar). exterior -> body.
-		const s = bevelScale(outerHalf, b);
-		const exteriorCS = octagonCS(outerHalf.x / s, outerHalf.y / s, chamfer / s);
-		parts.push(exteriorCS.extrude(b, 0, 0, [s, s]));
-		exteriorCS.delete();
+		// it's easier to extrude the octagon DOWN, shrinking it, than to work out the correct scale up.
+		const [sx, sy] = bevelScale(outerHalf, b);
+		parts.push(full.extrude(b, 0, 0, [1 / sx, 1 / sy]).rotate([0, 180,0]).translate([0, 0, b]));
+
 	}
 	// straight body prism between the two chamfers.
 	parts.push(full.extrude(height - b - tc).translate([0, 0, b]));
 	if (tc > 0) {
 		// body shrinking inward to a smaller octagon at the seam (self-similar).
-		const st = 1 / bevelScale(outerHalf, tc);
-		parts.push(full.extrude(tc, 0, 0, [st, st]).translate([0, 0, height - tc]));
+		const [sx, sy] = bevelScale(outerHalf, tc);
+		parts.push(full.extrude(tc, 0, 0, [1 / sx, 1 / sy]).translate([0, 0, height - tc]));
 	}
 	full.delete();
 	let slab = parts[0];
@@ -429,7 +432,7 @@ export function recessChamfer(
 	let c = Math.max(0, base);
 	if (corners.length > 0) {
 		const c0 = corners[0];
-		c = Math.max(c, innerX + innerY - (Math.abs(c0.x) + Math.abs(c0.y)) + bossRadius * Math.SQRT2);
+		c = Math.max(c, innerX + innerY - (Math.abs(c0.x) + Math.abs(c0.y)) + (bossRadius) * Math.SQRT2) + wall*2
 	}
 	return c;
 }
@@ -983,7 +986,7 @@ export function deriveAutoLayout(
 
 	// grow the footprint if the effective truncation cuts in past where the dice
 	// reach (see the long-form note this was extracted from).
-	if (p.trayDepth > 0) {
+	if (p.trayDepthBase > 0 || p.trayDepthLid > 0) {
 		const cEff = recessChamfer(outerHalf, p.wall, recessBase, cornersFor(outerHalf), trayBossR);
 		const g = Math.max(0, (cEff - cDice) / 2);
 		outerHalf.x += g;
@@ -1267,9 +1270,9 @@ export async function buildBox(
 		placeCentredAtZ(die, pos.x, pos.y, seam);
 		placedDice.push({ dieId: prep.dieId, half: 'base', geometry: die });
 	}
-	if (p.trayDepth > 0) {
+	if (p.trayDepthBase > 0) {
 		baseCutters.push(
-			trayCutter(outerHalf, p.wall, recessBase, p.trayDepth, seam, corners, trayBossR)
+			trayCutter(outerHalf, p.wall, recessBase, p.trayDepthBase, seam, corners, trayBossR)
 		);
 	}
 	baseCutters.push(...magnetBores(p, corners, seam));
@@ -1332,9 +1335,9 @@ export async function buildBox(
 		placeCentredAtZ(die, pos.x, -pos.y, seam);
 		placedDice.push({ dieId: prep.dieId, half: 'lid', geometry: die });
 	}
-	if (p.trayDepth > 0) {
+	if (p.trayDepthLid > 0) {
 		lidCutters.push(
-			trayCutter(outerHalf, p.wall, recessBase, p.trayDepth, seam, lidCorners, trayBossR)
+			trayCutter(outerHalf, p.wall, recessBase, p.trayDepthLid, seam, lidCorners, trayBossR)
 		);
 	}
 	lidCutters.push(...magnetBores(p, lidCorners, seam));

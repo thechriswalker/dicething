@@ -99,15 +99,15 @@ function crystal(
 
 function crystalBlankParams(
 	sides: number,
-	parameters: Record<string, number>
+	defaultParameters: Record<string, number>
 ): (params: Record<string, number>, offset: number) => Record<string, number> {
 	// we want to reduce face-2-face distance by offset*2.
 	const alpha = (2 * Math.PI) / sides;
 	const tanHalfAlpha = Math.tan(alpha / 2);
 	return (params, offset) => {
-		const x = parameters['crystal_width'] ?? defaultWidth;
-		const y = parameters['crystal_height'] ?? defaultHeight;
-		const cap = parameters['crystal_cap'] ?? defaultCapHeight;
+		const x = params['crystal_width'] ?? defaultParameters['crystal_width'] ?? defaultWidth;
+		const y = params['crystal_height'] ?? defaultParameters['crystal_height'] ?? defaultHeight;
+		const cap = params['crystal_cap'] ?? defaultParameters['crystal_cap'] ?? defaultCapHeight;
 		const d = x / (2 * tanHalfAlpha);
 		// this is the current center to face distance.
 		// we want to find x so that d is reduced by offset.
@@ -116,7 +116,7 @@ function crystalBlankParams(
 		// and the cap height is reduced by offset.
 		return {
 			...params,
-			crystal_height: y - offset * 2,
+			crystal_height: y - (offset * 2),
 			crystal_cap: cap - offset,
 			crystal_width: xb
 		};

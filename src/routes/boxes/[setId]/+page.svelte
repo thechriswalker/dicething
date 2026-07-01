@@ -904,8 +904,21 @@
 							setParam('bevel', v)
 						)}
 						<p class="text-surface-600-400 text-xs">{m.boxes_bevel_hint()}</p>
-						{@render sliderRow(m.boxes_tray_depth(), config.params.trayDepth, 0, 6, 0.25, (v) =>
-							setParam('trayDepth', v)
+						{@render sliderRow(
+							m.boxes_tray_depth_base(),
+							config.params.trayDepthBase,
+							0,
+							6,
+							0.25,
+							(v) => setParam('trayDepthBase', v)
+						)}
+						{@render sliderRow(
+							m.boxes_tray_depth_lid(),
+							config.params.trayDepthLid,
+							0,
+							6,
+							0.25,
+							(v) => setParam('trayDepthLid', v)
 						)}
 						<p class="text-surface-600-400 text-xs">{m.boxes_tray_depth_hint()}</p>
 					</div>

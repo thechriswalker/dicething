@@ -41,6 +41,13 @@ export function loadBoxConfig(setId: string): BoxConfig | undefined {
 		if (!parsed || parsed.setId !== setId || !Array.isArray(parsed.placements)) {
 			return undefined;
 		}
+		// migrate a legacy single `trayDepth` to the per-half tray depths.
+		const legacyTray = parsed.params as Partial<{ trayDepth: number }> | undefined;
+		if (legacyTray && typeof legacyTray.trayDepth === 'number') {
+			parsed.params.trayDepthBase ??= legacyTray.trayDepth;
+			parsed.params.trayDepthLid ??= legacyTray.trayDepth;
+			delete legacyTray.trayDepth;
+		}
 		// migrate a legacy single `margin` to the split x/y margins before merging
 		// defaults (so an old config keeps its chosen margin on both axes).
 		const legacy = parsed.params as Partial<{ margin: number }> | undefined;

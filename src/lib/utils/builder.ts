@@ -25,6 +25,7 @@ import {
 } from 'three';
 import { DefaultDivisions, engrave, Part } from './engraving';
 import { debugLegendName, Legend, type LegendSet } from './legends';
+import { applyOrderingToFaces, STANDARD_ORDERING } from '$lib/dice/legend_orderings';
 
 // A single face whose legend cannot be engraved (i.e. would cause export to
 // produce a blank/broken face). `reason` distinguishes a symbol that is simply
@@ -146,6 +147,10 @@ export class Builder {
 	private forceRerenderFaces = true;
 	private lastDieParams: Record<string, number> = {};
 	private lastStringParams: Record<string, string> = {};
+	// the legend ordering applied to the last build/export. tracked so a change
+	// of ordering (with otherwise-unchanged die params) still re-derives the
+	// per-face default legends and forces the faces to re-engrave.
+	private lastOrdering: string = STANDARD_ORDERING;
 	private face2face: number = 0;
 	private individualLegendScaling = false;
 	public currentSmallestLegendScaling: number = 1;
@@ -440,14 +445,20 @@ export class Builder {
 	build(
 		dieParams: Record<string, number>,
 		faceParams: Array<FaceParams>,
-		opts: { explode: boolean } = { explode: true },
+		opts: { explode: boolean; ordering?: string } = { explode: true },
 		stringParams: Record<string, string> = {}
 	): number {
 		dieParams = simplifyDieParams(dieParams, this.model.parameters);
 		stringParams = simplifyStringParams(stringParams, this.model.stringParameters);
+		const ordering = opts.ordering ?? STANDARD_ORDERING;
 		this.currentTolerance = dieParams.engraving_tolerance;
+		// an ordering change is treated like a die change: the model is rebuilt so
+		// the number faces start from their standard defaults, and the new ordering
+		// is then re-applied on top (applyOrderingToFaces only overrides, it can't
+		// undo a previous ordering's overrides on its own).
 		const dieChanged =
 			this.forceRerenderBlank ||
+			ordering !== this.lastOrdering ||
 			!dieParamsEqual(this.lastDieParams, dieParams) ||
 			!stringParamsEqual(this.lastStringParams, stringParams);
 		if (dieChanged) {
@@ -461,10 +472,14 @@ export class Builder {
 			// with the SAME params, so export()'s dieChanged guard would otherwise
 			// skip recomputing this and the artifact would export un-oriented.
 			this.printingTransform = x.printingTransform ?? new Transform();
+			// the ordering rewrites the number faces' default legends, and the
+			// legend scaling reads those, so apply it before recalculating.
+			applyOrderingToFaces(this.model.id, ordering, this.faces, dieParams);
 			this.recalculateLegendScaling();
 			this.computeFaceTransforms();
 			this.lastDieParams = dieParams;
 			this.lastStringParams = stringParams;
+			this.lastOrdering = ordering;
 			// the new blank may have fewer faces than the last one (e.g. lowering
 			// the coin's segment count). drop any leftover face groups so their
 			// stale geometry doesn't linger in the scene.
@@ -770,15 +785,18 @@ export class Builder {
 	public export(
 		dieParams: Record<string, number>,
 		faceParams: Array<FaceParams>,
-		stringParams: Record<string, string> = {}
+		stringParams: Record<string, string> = {},
+		ordering: string = STANDARD_ORDERING
 	) {
 		// we will rebuild everything at high quality for export, we also merge the geometries and use merge vertcies
 		// to ensure everything is tight.
 		dieParams = simplifyDieParams(dieParams, this.model.parameters);
 		stringParams = simplifyStringParams(stringParams, this.model.stringParameters);
 		this.currentTolerance = dieParams.engraving_tolerance;
+		const orderingChanged = ordering !== this.lastOrdering;
 		const dieChanged =
 			this.forceRerenderBlank ||
+			orderingChanged ||
 			!dieParamsEqual(this.lastDieParams, dieParams) ||
 			!stringParamsEqual(this.lastStringParams, stringParams);
 		if (dieChanged) {
@@ -790,6 +808,10 @@ export class Builder {
 			// engrave -> they silently fall back to blank (notably on the d20).
 			this.faces = x.faces;
 			this.individualLegendScaling = !!x.sizeLegendsIndividually;
+			// the ordering rewrites the number faces' default legends; apply it
+			// before scaling (which reads those defaults).
+			applyOrderingToFaces(this.model.id, ordering, this.faces, dieParams);
+			this.lastOrdering = ordering;
 			this.recalculateLegendScaling();
 			// most dice omit this today; default to identity so export still works.
 			this.printingTransform = x.printingTransform ?? new Transform();
@@ -917,6 +939,7 @@ type EngravingCheckDie = {
 	parameters: Record<string, number>;
 	face_parameters: Array<FaceParams>;
 	string_parameters?: Record<string, string>;
+	legend_ordering?: string;
 };
 
 // Discover a die's engraving errors using an EXISTING builder. Callers that keep
@@ -931,7 +954,7 @@ export function engravingErrorsForBuilder(
 		builder.build(
 			die.parameters,
 			die.face_parameters,
-			{ explode: false },
+			{ explode: false, ordering: die.legend_ordering },
 			die.string_parameters ?? {}
 		);
 		return builder.getEngravingErrors();

@@ -247,7 +247,7 @@ describe('box builder produces printable solids', () => {
 		// halves must stay closed/manifold. Use a tray recess so the coin sits over
 		// a depression (the case the prop is for).
 		const set = makeSet(['d2_coin']);
-		const config = makeConfig(set, { trayDepth: 1 });
+		const config = makeConfig(set, { trayDepthBase: 1, trayDepthLid: 1 });
 		const built = await buildBox(set, config);
 		expectPrintable(built.base);
 		expectPrintable(built.lid);

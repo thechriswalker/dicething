@@ -182,7 +182,8 @@
 				engraving_tolerance: prefs.defaultEngravingTolerance
 			},
 			string_parameters: {},
-			face_parameters: []
+			face_parameters: [],
+			legend_ordering: 'standard'
 		});
 		// mirror the init effect: dice need a builder before they can be rendered.
 		diceBuilders.set(id, new Builder(dice[kind], setData.legends, id));
@@ -642,7 +643,7 @@
 					renderPass = builder.build(
 						{ ...d.parameters },
 						d.face_parameters.slice(),
-						{ explode: explodeMode },
+						{ explode: explodeMode, ordering: d.legend_ordering },
 						{ ...d.string_parameters }
 					);
 					ctx.scene.add(builder.diceGroup);
@@ -680,7 +681,7 @@
 					renderPass = builder.build(
 						{ ...d.parameters },
 						d.face_parameters.slice(),
-						{ explode: explodeMode },
+						{ explode: explodeMode, ordering: d.legend_ordering },
 						{ ...d.string_parameters }
 					);
 					save(setData); // ensure we save!
@@ -722,7 +723,7 @@
 					renderPass = currentBuilder.build(
 						{ ...d.parameters },
 						d.face_parameters.slice(),
-						{ explode: explodeMode },
+						{ explode: explodeMode, ordering: d.legend_ordering },
 						{ ...d.string_parameters }
 					);
 				}
@@ -1584,6 +1585,7 @@
 							bind:dparams={die.parameters}
 							bind:sparams={die.string_parameters}
 							bind:fparams={die.face_parameters}
+							bind:ordering={die.legend_ordering}
 							kind={die.kind}
 							builder={currentBuilder}
 							legends={setData.legends}

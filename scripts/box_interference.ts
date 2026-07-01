@@ -48,7 +48,10 @@ function makeConfig(set: DiceSet, overrides: Partial<BoxConfig['params']> = {}):
 
 async function report(label: string, kinds: Array<keyof typeof dice>, trayDepth: number) {
 	const set = makeSet(kinds);
-	const built = await buildBox(set, makeConfig(set, { trayDepth }));
+	const built = await buildBox(
+		set,
+		makeConfig(set, { trayDepthBase: trayDepth, trayDepthLid: trayDepth })
+	);
 	const wasm = manifold();
 	const seam = built.baseHeight;
 

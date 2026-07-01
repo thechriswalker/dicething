@@ -5,6 +5,7 @@ import dice from '$lib/dice';
 import type { DieFaceModel } from '$lib/interfaces/dice';
 import type { Dice, DiceSet } from '$lib/interfaces/storage.svelte';
 import { Builder } from './builder';
+import { applyOrderingToFaces } from '$lib/dice/legend_orderings';
 import { Legend, loadMutableLegends, type LegendSet, type SerialisedLegendSet } from './legends';
 import { extraBuildOptions, type OptionValues } from './build_options';
 import { blanks, isBuiltin, loadBuiltinById } from '$lib/fonts';
@@ -67,7 +68,8 @@ export function buildExportMeshes(
 			const mainMesh = mainBuilder.export(
 				die.parameters,
 				die.face_parameters,
-				die.string_parameters ?? {}
+				die.string_parameters ?? {},
+				die.legend_ordering
 			);
 			out.push({ name: baseName, mesh: mainMesh, dieId: die.id, group: 'dice' });
 		}
@@ -84,7 +86,7 @@ export function buildExportMeshes(
 			builder.build(
 				die.parameters,
 				die.face_parameters,
-				{ explode: false },
+				{ explode: false, ordering: die.legend_ordering },
 				die.string_parameters ?? {}
 			);
 			const artifacts = option.generate({
@@ -432,6 +434,9 @@ function collectUsedLegends(set: DiceSet): Set<Legend> {
 		let faces: Array<DieFaceModel>;
 		try {
 			faces = model.build(die.parameters, die.string_parameters ?? {}).faces;
+			// the chosen ordering rewrites the number faces' default legends, so
+			// apply it before collecting which legends the die actually uses.
+			applyOrderingToFaces(die.kind, die.legend_ordering, faces, die.parameters);
 		} catch {
 			faces = [];
 		}

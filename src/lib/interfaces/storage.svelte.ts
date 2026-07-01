@@ -50,6 +50,12 @@ export type Dice = {
 	// saved sets (without it) still load.
 	string_parameters?: Record<string, string>;
 	face_parameters: Array<FaceParams>;
+	// which legend ordering drives this die's per-face default legends. a known
+	// ordering id ('standard' | 'spindown' | 'go_first_a'..'d') has the ordering
+	// supply the defaults; 'custom' materialises every legend into
+	// `face_parameters`. optional so older saved sets (undefined == 'standard')
+	// still load. see $lib/dice/legend_orderings.
+	legend_ordering?: string;
 };
 
 export function dieToJSON(die: Dice): string {
