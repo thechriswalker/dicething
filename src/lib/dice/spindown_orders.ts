@@ -28,5 +28,9 @@ export const spindownOrders: Record<string, Array<Legend>> = {
 	d8_crystal: [1, 7, 2, 4, 8, 6, 3, 5],
 	d10_crystal: [1, 4, 2, 8, 0, 5, 3, 7, 22, 21],
 	d00_crystal: [10, 24, 20, 28, 30, 25, 23, 27, 29, 26],
-	d12_dodecahedron: [1, 2, 8, 4, 11, 21, 22, 3, 7, 5, 10, 12]
+	d12_dodecahedron: [1, 2, 8, 4, 11, 21, 22, 3, 7, 5, 10, 12],
+	d12_rhombic: [1, 7, 10, 22, 11, 21, 2, 3, 5, 4, 12, 8],
+	d20_icosahedron: [1, 19, 4, 17, 9, 15, 2, 13, 21, 12, 7, 11, 8, 16, 10, 14, 3, 18, 5, 20],
+
+	// trapezohedrons, barrels. Might have to write a generator for the d24+ shapes.
 };
