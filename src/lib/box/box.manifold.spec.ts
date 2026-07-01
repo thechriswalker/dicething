@@ -4,7 +4,7 @@ import dice from '$lib/dice';
 import type { Dice, DiceSet } from '$lib/interfaces/storage.svelte';
 import { getManifold, manifold, geometryToManifold, toFlatPositions } from '$lib/utils/manifold';
 import { checkMesh } from '$lib/utils/mesh_check';
-import { buildBox, chooseHingeClusters, magnetCorners, prepareLayout } from './box_builder';
+import { buildBox, chooseHingeClusters, isLayoutValid, magnetCorners, prepareLayout } from './box_builder';
 import { defaultBoxParams, type BoxConfig } from './types';
 
 // build a Dice using a model's parameter defaults (no legends needed: the box
@@ -23,7 +23,7 @@ function makeSet(kinds: Array<keyof typeof dice>): DiceSet {
 		id: 'test',
 		name: 'test',
 		updated: 0,
-		dice: kinds.map(makeDie),
+		dice: kinds.map((kind, i) => ({ ...makeDie(kind), id: `${kind}_${i}` })),
 		// the box builder never reads legends.
 		legends: {} as DiceSet['legends']
 	};
@@ -175,6 +175,31 @@ describe('box builder produces printable solids', () => {
 		}
 		expect(magnetCorners(outerHalf, 12, 3.15, 2.4, 4).length).toBe(4);
 		expect(magnetCorners(outerHalf, 12, 3.15, 2.4, 0).length).toBe(0);
+	});
+
+	it('auto-layout shrinks to the tightest valid box for a long thin row', async () => {
+		const set = makeSet([
+			'd6_cube',
+			'd6_cube',
+			'd6_cube',
+			'd6_cube',
+			'd6_cube',
+			'd6_cube',
+			'd6_cube'
+		]);
+		const config = makeConfig(set, { rows: 1 });
+		const prep = await prepareLayout(set, config);
+		const hull: Array<Vector2> = [];
+		for (const d of prep.dice) {
+			for (const h of d.hull0) {
+				hull.push(new Vector2(h.x + d.autoPos.x, h.y + d.autoPos.y));
+			}
+		}
+		const outer = new Vector2(prep.box.halfX, prep.box.halfY);
+		expect(isLayoutValid(config.params, outer, hull)).toBe(true);
+		// one more millimetre on either axis must fail.
+		expect(isLayoutValid(config.params, new Vector2(outer.x - 1, outer.y), hull)).toBe(false);
+		expect(isLayoutValid(config.params, new Vector2(outer.x, outer.y - 1), hull)).toBe(false);
 	});
 
 	it('cuts two magnet bores (opening side) and stays printable', async () => {

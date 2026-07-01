@@ -1,4 +1,5 @@
 // Types shared between the box layout editor component and its host page.
+import type { BoxLayoutParams, BoxLayoutShape } from '$lib/box/types';
 import type { Vector2, Vector3 } from 'three';
 
 // One die in the 2D layout editor: its rotation-0 hull (rotated live as the user
@@ -20,13 +21,6 @@ export type EditorItem = {
 export type LayoutResult = {
 	placements: Array<{ dieId: string; x: number; y: number; rotation: number; include: boolean }>;
 	box: { halfX: number; halfY: number };
-	layoutParams: { rows: number; gap: number; marginX: number; marginY: number };
-	shape: {
-		chamfer: number;
-		wall: number;
-		magnetsEnabled: boolean;
-		magnetCount: number;
-		magnetDiameter: number;
-		magnetTolerance: number;
-	};
+	layoutParams: BoxLayoutParams;
+	shape: BoxLayoutShape;
 };

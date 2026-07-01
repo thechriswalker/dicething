@@ -74,6 +74,9 @@ export type HingeConfig = {
 	clearance: number;
 	// knuckles per hinge cluster (alternating base/lid along the edge).
 	knuckles: number;
+	// axial length of each knuckle barrel along the hinge (mm). 0 = use the
+	// built-in default (4 mm).
+	knuckleWidth: number;
 	// 45-degree clearance chamfer (mm) on each half's inner-wall/seam edge behind
 	// the knuckles, so the opposing barrel can swing through and the lid opens
 	// flat. 0 = off.
@@ -95,10 +98,6 @@ export type BoxParams = {
 	bevel: number;
 	// spacing between adjacent die cavities.
 	gap: number;
-	// clearance from the dice field to the inner wall, set independently for the
-	// horizontal (x) and vertical (y) directions.
-	marginX: number;
-	marginY: number;
 	// clearance added around every die to form its cavity (so the real die drops
 	// in/out easily).
 	cavityTolerance: number;
@@ -132,34 +131,139 @@ export type BoxConfig = {
 	placements: Array<BoxDiePlacement>;
 };
 
-export const defaultBoxParams = (): BoxParams => ({
-	wall: 2.4,
+/** Single source of truth for new box configs and param migration fallbacks. */
+export const BOX_PARAM_DEFAULTS: BoxParams = {
+	wall: 4,
 	floor: 1.6,
 	chamfer: 12,
 	bevel: 3,
 	gap: 2,
-	marginX: 3,
-	marginY: 3,
 	cavityTolerance: 0.4,
-	trayDepthBase: 1.5,
-	trayDepthLid: 1.5,
+	trayDepthBase: 3,
+	trayDepthLid: 6,
 	rows: 2,
 	manual: false,
 	box: { halfX: 0, halfY: 0 },
 	magnets: {
 		enabled: true,
-		count: 4,
+		count: 2,
 		diameter: 6,
 		thickness: 3,
 		tolerance: 0.15,
 		mode: 'pushin'
 	},
 	hinge: {
-		enabled: false,
-		pinRadius: 1.6,
-		barrelRadius: 3.4,
+		enabled: true,
+		pinRadius: 2.6,
+		barrelRadius: 6,
 		clearance: 0.35,
 		knuckles: 3,
+		knuckleWidth: 8,
 		indent: 0
+	}
+};
+
+export const defaultBoxParams = (): BoxParams => ({
+	...BOX_PARAM_DEFAULTS,
+	box: { ...BOX_PARAM_DEFAULTS.box },
+	magnets: { ...BOX_PARAM_DEFAULTS.magnets },
+	hinge: { ...BOX_PARAM_DEFAULTS.hinge }
+});
+
+export type ParamSliderBounds = { min: number; max: number; step: number };
+
+/** Slider min/max/step for every tunable box parameter (UI only). */
+export const BOX_PARAM_SLIDER_BOUNDS = {
+	wall: { min: 1, max: 6, step: 0.1 },
+	floor: { min: 0.6, max: 5, step: 0.1 },
+	chamfer: { min: 0, max: 30, step: 0.5 },
+	bevel: { min: 0, max: 8, step: 0.25 },
+	trayDepthBase: { min: 0, max: 12, step: 0.25 },
+	trayDepthLid: { min: 0, max: 12, step: 0.25 },
+	cavityTolerance: { min: 0, max: 2, step: 0.05 },
+	gap: { min: 0, max: 12, step: 0.5 },
+	// rows.max is capped by die count in the layout editor.
+	rows: { min: 1, max: 99, step: 1 },
+	magnets: {
+		count: { min: 0, max: 4, step: 2 },
+		diameter: { min: 2, max: 12, step: 1 },
+		thickness: { min: 1, max: 6, step: 1 },
+		tolerance: { min: 0, max: 1, step: 0.05 }
+	},
+	hinge: {
+		pinRadius: { min: 1, max: 8, step: 0.1 },
+		barrelRadius: { min: 4, max: 16, step: 0.1 },
+		clearance: { min: 0, max: 2, step: 0.05 },
+		knuckles: { min: 3, max: 5, step: 2 },
+		knuckleWidth: { min: 4, max: 20, step: 0.1 },
+		indent: { min: 0, max: 10, step: 0.1 }
+	}
+} as const satisfies {
+	wall: ParamSliderBounds;
+	floor: ParamSliderBounds;
+	chamfer: ParamSliderBounds;
+	bevel: ParamSliderBounds;
+	trayDepthBase: ParamSliderBounds;
+	trayDepthLid: ParamSliderBounds;
+	cavityTolerance: ParamSliderBounds;
+	gap: ParamSliderBounds;
+	rows: ParamSliderBounds;
+	magnets: {
+		count: ParamSliderBounds;
+		diameter: ParamSliderBounds;
+		thickness: ParamSliderBounds;
+		tolerance: ParamSliderBounds;
+	};
+	hinge: {
+		pinRadius: ParamSliderBounds;
+		barrelRadius: ParamSliderBounds;
+		clearance: ParamSliderBounds;
+		knuckles: ParamSliderBounds;
+		knuckleWidth: ParamSliderBounds;
+		indent: ParamSliderBounds;
+	};
+};
+
+// Subsets edited in the 2D layout editor (auto-arrange rows/gap + live shape preview).
+export type BoxLayoutParams = Pick<BoxParams, 'rows' | 'gap'>;
+export type BoxLayoutShape = {
+	chamfer: number;
+	wall: number;
+	magnetsEnabled: boolean;
+	magnetCount: number;
+	magnetDiameter: number;
+	magnetTolerance: number;
+};
+
+export const layoutParamsFrom = (p: BoxParams): BoxLayoutParams => ({
+	rows: p.rows,
+	gap: p.gap
+});
+
+export const layoutShapeFrom = (p: BoxParams): BoxLayoutShape => ({
+	chamfer: p.chamfer,
+	wall: p.wall,
+	magnetsEnabled: p.magnets.enabled,
+	magnetCount: p.magnets.count,
+	magnetDiameter: p.magnets.diameter,
+	magnetTolerance: p.magnets.tolerance
+});
+
+export const applyLayoutEditorParams = (
+	p: BoxParams,
+	layout: BoxLayoutParams,
+	shape: BoxLayoutShape
+): BoxParams => ({
+	...p,
+	rows: layout.rows,
+	gap: layout.gap,
+	chamfer: shape.chamfer,
+	wall: shape.wall,
+	magnets: {
+		...p.magnets,
+		enabled: shape.magnetsEnabled,
+		count: shape.magnetCount,
+		diameter: shape.magnetDiameter,
+		tolerance: shape.magnetTolerance
 	}
 });

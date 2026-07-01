@@ -542,9 +542,8 @@ function magnetBores(params: BoxParams, corners: Array<Vector2>, topZ: number): 
 //     behind the knuckles, relieving the corner the opposing barrel sweeps so the
 //     lid can open all the way flat.
 
-// nominal axial length budget per knuckle; the print-in-place gap is taken out
-// of this so neighbouring base/lid knuckles don't touch.
-const HINGE_KNUCKLE_PITCH = 4;
+// nominal axial length per knuckle when hinge.knuckleWidth is 0.
+const HINGE_KNUCKLE_WIDTH_DEFAULT = 4;
 // the smallest a knuckle band may shrink to (when the flat edge is short) before
 // we drop the knuckle count instead.
 const HINGE_MIN_PITCH = 1.4;
@@ -566,6 +565,7 @@ type ResolvedHinge = {
 	barrelR: number;
 	pinR: number;
 	knuckles: number;
+	knuckleWidth: number;
 	// 45-degree opening-clearance chamfer leg on each half's inner-wall/seam edge.
 	indent: number;
 };
@@ -579,11 +579,15 @@ function resolveHinge(h: HingeConfig, seam: number): ResolvedHinge {
 	let pinR = h.pinRadius > 0 ? h.pinRadius : 1.6;
 	// at least 3 knuckles so the pin is captured by >= 2 base barrels.
 	const knuckles = Math.max(3, Math.round(h.knuckles > 0 ? h.knuckles : 3));
+	const knuckleWidth = Math.max(
+		HINGE_MIN_PITCH,
+		h.knuckleWidth > 0 ? h.knuckleWidth : HINGE_KNUCKLE_WIDTH_DEFAULT
+	);
 	barrelR = Math.max(1.5, Math.min(barrelR, seam - HINGE_BODY_OVERLAP - 0.5));
 	pinR = Math.max(0.8, Math.min(pinR, barrelR - clearance - 0.8));
 	const indentReq = h.indent >= 0 ? h.indent : 1.2;
 	const indent = Math.max(0, Math.min(indentReq, seam - 0.5));
-	return { clearance, barrelR, pinR, knuckles, indent };
+	return { clearance, barrelR, pinR, knuckles, knuckleWidth, indent };
 }
 
 export type HingeCluster = { centerX: number; length: number };
@@ -594,12 +598,13 @@ export type HingeCluster = { centerX: number; length: number };
 export function chooseHingeClusters(
 	outerHalf: Vector2,
 	bodyChamfer: number,
-	knuckles: number
+	knuckles: number,
+	knuckleWidth = HINGE_KNUCKLE_WIDTH_DEFAULT
 ): Array<HingeCluster> {
 	const flatHalf = Math.max(0, outerHalf.x - bodyChamfer);
 	// usable straight run, keeping a margin off each chamfered corner.
 	const avail = flatHalf * 2 - 2 * HINGE_END_MARGIN;
-	const targetLen = Math.max(3, Math.round(knuckles)) * HINGE_KNUCKLE_PITCH;
+	const targetLen = Math.max(3, Math.round(knuckles)) * knuckleWidth;
 	if (avail >= 2 * targetLen + HINGE_CLUSTER_GAP) {
 		// centre the two clusters on the quarter / three-quarter points of the
 		// straight run, so they sit well apart near the box's shoulders.
@@ -742,12 +747,12 @@ function buildHinge(
 	bevel: number
 ): HingeSolids {
 	const wasm = manifold();
-	const { clearance, barrelR, pinR, knuckles, indent } = resolveHinge(h, seam);
+	const { clearance, barrelR, pinR, knuckles, knuckleWidth, indent } = resolveHinge(h, seam);
 	// the support tail dies into the foot of the vertical wall - i.e. the height
 	// where the body's bottom bevel begins - so it never pokes past the bevelled
 	// bottom footprint. (The bevel itself then carries the body down to the bed.)
 	const tailZ = Math.max(0, Math.min(bevel, seam - 0.5));
-	const clusters = chooseHingeClusters(outerHalf, bodyChamfer, knuckles);
+	const clusters = chooseHingeClusters(outerHalf, bodyChamfer, knuckles, knuckleWidth);
 	// the barrel axis sits half a parting gap beyond the back edge; choosing the
 	// gap = 2*(barrelR - wall) lands the barrel's inner surface flush on the inner
 	// wall (tangent, so the wall flows smoothly up into the barrel) and gives a
@@ -799,7 +804,7 @@ function buildHinge(
 		// drop the knuckle count if the cluster is too short to hold them all at a
 		// printable pitch, and keep it ODD so both end knuckles are base (solid,
 		// closed ends) with the lid knuckle(s) on the inside.
-		let n = Math.max(3, Math.min(knuckles, Math.floor(cl.length / HINGE_MIN_PITCH)));
+		let n = Math.max(3, Math.min(knuckles, Math.floor(cl.length / knuckleWidth)));
 		if (n % 2 === 0) {
 			n -= 1;
 		}
@@ -819,7 +824,7 @@ function buildHinge(
 
 		for (let i = 0; i < n; i++) {
 			const c = center(i);
-			const knuckleW = Math.max(0.6, bw - clearance);
+			const knuckleW = Math.max(0.6, Math.min(knuckleWidth, bw - clearance));
 			const reliefW = bw + clearance;
 			if (i % 2 === 0) {
 				// outer / base knuckle: a SOLID round barrel fused to the bar, braced
@@ -911,6 +916,103 @@ function hullExtent(hull: Array<Vector2>): Vector2 {
 	return new Vector2(maxX - minX, maxY - minY);
 }
 
+export const LAYOUT_MIN_HALF = 6;
+const LAYOUT_SHRINK_STEP = 0.5;
+
+function pointInPolygon(poly: Array<Vector2>, p: Vector2): boolean {
+	let inside = false;
+	for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+		const a = poly[i];
+		const b = poly[j];
+		const hit = a.y > p.y !== b.y > p.y && p.x < ((b.x - a.x) * (p.y - a.y)) / (b.y - a.y) + a.x;
+		if (hit) {
+			inside = !inside;
+		}
+	}
+	return inside;
+}
+
+function distToPolygon(poly: Array<Vector2>, p: Vector2): number {
+	if (poly.length < 2) {
+		return Infinity;
+	}
+	let min = Infinity;
+	for (let i = 0; i < poly.length; i++) {
+		const a = poly[i];
+		const b = poly[(i + 1) % poly.length];
+		const dx = b.x - a.x;
+		const dy = b.y - a.y;
+		const len2 = dx * dx + dy * dy;
+		let t = len2 > 0 ? ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2 : 0;
+		t = Math.max(0, Math.min(1, t));
+		min = Math.min(min, Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy)));
+	}
+	return min;
+}
+
+// Same validity rules as the 2D layout editor: dice inside the interior recess,
+// magnet bores inside the body wall and clear of the recess.
+export function isLayoutValid(
+	p: BoxParams,
+	outerHalf: Vector2,
+	placedHull: Array<Vector2>
+): boolean {
+	if (placedHull.length === 0) {
+		return true;
+	}
+	const o = boxOutline(p, outerHalf, placedHull);
+	if (o.inner.length >= 3) {
+		for (const v of placedHull) {
+			if (!pointInPolygon(o.inner, v)) {
+				return false;
+			}
+		}
+	}
+	const r = o.magRadius;
+	for (const c of o.corners) {
+		if (!pointInPolygon(o.body, c) || distToPolygon(o.body, c) < r) {
+			return false;
+		}
+		if (pointInPolygon(o.inner, c) || distToPolygon(o.inner, c) < r) {
+			return false;
+		}
+	}
+	return true;
+}
+
+// Tighten an oversized footprint using the same validity check as the editor.
+function shrinkOuterHalfToFit(
+	outerHalf: Vector2,
+	p: BoxParams,
+	placedHull: Array<Vector2>
+): void {
+	let guard = 0;
+	while (!isLayoutValid(p, outerHalf, placedHull) && guard++ < 400) {
+		outerHalf.x += 0.5;
+		outerHalf.y += 0.5;
+	}
+	for (const shrinkY of [true, false]) {
+		while (true) {
+			const half = shrinkY ? outerHalf.y : outerHalf.x;
+			if (half - LAYOUT_SHRINK_STEP < LAYOUT_MIN_HALF) {
+				break;
+			}
+			const trial = new Vector2(
+				shrinkY ? outerHalf.x : outerHalf.x - LAYOUT_SHRINK_STEP,
+				shrinkY ? outerHalf.y - LAYOUT_SHRINK_STEP : outerHalf.y
+			);
+			if (!isLayoutValid(p, trial, placedHull)) {
+				break;
+			}
+			if (shrinkY) {
+				outerHalf.y -= LAYOUT_SHRINK_STEP;
+			} else {
+				outerHalf.x -= LAYOUT_SHRINK_STEP;
+			}
+		}
+	}
+}
+
 // The parametric auto-layout: arrange the dice in rows, centre the field, and fit
 // the box (outerHalf) tightly around the combined hull with the user margins,
 // growing it only as much as the chamfer/magnet corners require. `items` carry
@@ -980,9 +1082,7 @@ export function deriveAutoLayout(
 	const cornersFor = (oh: Vector2): Array<Vector2> =>
 		p.magnets.enabled ? magnetCorners(oh, bodyChamfer, magRadius, p.wall, p.magnets.count) : [];
 
-	const rx = Math.max(sx + p.marginX, 8);
-	const ry = Math.max(sy + p.marginY, 8);
-	const outerHalf = new Vector2(rx + p.wall, ry + p.wall);
+	const outerHalf = new Vector2(sx + p.wall, sy + p.wall);
 
 	// grow the footprint if the effective truncation cuts in past where the dice
 	// reach (see the long-form note this was extracted from).
@@ -996,6 +1096,8 @@ export function deriveAutoLayout(
 		outerHalf.x += g;
 		outerHalf.y += g;
 	}
+	const centeredHull = placedHull.map((pt) => new Vector2(pt.x - cxField, pt.y - cyField));
+	shrinkOuterHalfToFit(outerHalf, p, centeredHull);
 	return { positions, outerHalf };
 }
 

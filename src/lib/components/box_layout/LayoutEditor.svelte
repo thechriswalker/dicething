@@ -1,7 +1,13 @@
 <script lang="ts">
 	import { Vector2 } from 'three';
-	import { boxOutline, deriveAutoLayout, rotateHull } from '$lib/box/box_builder';
-	import type { BoxParams } from '$lib/box/types';
+	import { boxOutline, deriveAutoLayout, isLayoutValid, LAYOUT_MIN_HALF, rotateHull } from '$lib/box/box_builder';
+	import {
+		defaultBoxParams,
+		layoutParamsFrom,
+		layoutShapeFrom,
+		BOX_PARAM_SLIDER_BOUNDS,
+		type BoxParams
+	} from '$lib/box/types';
 	import type { EditorItem, LayoutResult } from './types';
 	import Slider from '$lib/components/slider/Slider.svelte';
 	import { m } from '$lib/paraglide/messages';
@@ -32,16 +38,9 @@
 	// off-centre (cx,cy) so a dragged wall follows the cursor 1:1 without the dice
 	// jumping; apply() recentres it.
 	let box = $state({ cx: 0, cy: 0, halfX: 0, halfY: 0 });
-	let lp = $state({ rows: 1, gap: 2, marginX: 3, marginY: 3 });
+	let lp = $state(layoutParamsFrom(defaultBoxParams()));
 	// box-shape params that affect the 2D outline (so the preview reflects them).
-	let shape = $state({
-		chamfer: 12,
-		wall: 2.4,
-		magnetsEnabled: true,
-		magnetCount: 4,
-		magnetDiameter: 6,
-		magnetTolerance: 0.15
-	});
+	let shape = $state(layoutShapeFrom(defaultBoxParams()));
 	let selected = $state<string | null>(null);
 	// the view is a fixed "fit" extent (set when the modal opens / on Fit) scaled
 	// by a manual zoom factor - it never auto-zooms while you drag the box.
@@ -49,6 +48,12 @@
 	let baseY = $state(50);
 	let zoom = $state(1);
 	let initialSnapshot = '';
+	// die x/y/rotation are mutated in place; bump this after each change so hull
+	// outlines and overlap highlighting stay in sync during drags.
+	let layoutVersion = $state(0);
+	function touchLayout() {
+		layoutVersion++;
+	}
 
 	function seed() {
 		items = initialItems.map((it) => ({
@@ -57,26 +62,15 @@
 			size: it.size.clone()
 		}));
 		box = { cx: 0, cy: 0, halfX: initialBox.halfX, halfY: initialBox.halfY };
-		lp = {
-			rows: params.rows,
-			gap: params.gap,
-			marginX: params.marginX,
-			marginY: params.marginY
-		};
-		shape = {
-			chamfer: params.chamfer,
-			wall: params.wall,
-			magnetsEnabled: params.magnets.enabled,
-			magnetCount: params.magnets.count,
-			magnetDiameter: params.magnets.diameter,
-			magnetTolerance: params.magnets.tolerance
-		};
+		lp = layoutParamsFrom(params);
+		shape = layoutShapeFrom(params);
 		selected = null;
 		// a previously-saved box may be too small for its magnets/chamfer; open in a
 		// valid state so the preview is correct from the start.
 		ensureValid();
 		fitView();
 		initialSnapshot = snapshot();
+		touchLayout();
 	}
 
 	function snapshot(): string {
@@ -109,8 +103,6 @@
 		...params,
 		rows: lp.rows,
 		gap: lp.gap,
-		marginX: lp.marginX,
-		marginY: lp.marginY,
 		chamfer: shape.chamfer,
 		wall: shape.wall,
 		magnets: {
@@ -141,10 +133,14 @@
 		return out;
 	}
 
-	let outline = $derived(
-		boxOutline(effParams, new Vector2(box.halfX, box.halfY), centeredPlaced())
-	);
-	let placedHulls = $derived(items.map((it) => placedOf(it)));
+	let outline = $derived.by(() => {
+		layoutVersion;
+		return boxOutline(effParams, new Vector2(box.halfX, box.halfY), centeredPlaced());
+	});
+	let placedHulls = $derived.by(() => {
+		layoutVersion;
+		return items.map((it) => placedOf(it));
+	});
 
 	// frame the view to the current content (box + included dice + padding) and
 	// reset the zoom. Called when the modal opens and from the Fit button.
@@ -190,35 +186,6 @@
 		return poly.map((p) => `${p.x + box.cx},${-(p.y + box.cy)}`).join(' ');
 	}
 
-	function inPoly(poly: Array<Vector2>, p: Vector2): boolean {
-		let inside = false;
-		for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
-			const a = poly[i];
-			const b = poly[j];
-			const hit = a.y > p.y !== b.y > p.y && p.x < ((b.x - a.x) * (p.y - a.y)) / (b.y - a.y) + a.x;
-			if (hit) {
-				inside = !inside;
-			}
-		}
-		return inside;
-	}
-
-	function distToSeg(p: Vector2, a: Vector2, b: Vector2): number {
-		const dx = b.x - a.x;
-		const dy = b.y - a.y;
-		const len2 = dx * dx + dy * dy || 1;
-		let t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2;
-		t = Math.max(0, Math.min(1, t));
-		return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy));
-	}
-	function distToPoly(poly: Array<Vector2>, p: Vector2): number {
-		let d = Infinity;
-		for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
-			d = Math.min(d, distToSeg(p, poly[j], poly[i]));
-		}
-		return d;
-	}
-
 	// convex-polygon overlap (separating-axis test). The die hulls are convex, so a
 	// gap along any edge normal of either means they don't overlap. A tiny epsilon
 	// keeps merely-touching dice from reading as overlapping.
@@ -253,6 +220,7 @@
 	// dice whose hulls intersect another die's: allowed (you may be reordering) but
 	// flagged red so the overlap is obvious.
 	let overlapIds = $derived.by(() => {
+		layoutVersion;
 		const s = new Set<string>();
 		const inc = includedItems();
 		const hulls = inc.map((it) => placedOf(it));
@@ -274,31 +242,10 @@
 	//    clear of the recess (so shrinking can't let the recess swallow a magnet).
 	// The outline depends on the dice + params, so recompute it for the trial.
 	function valid(): boolean {
-		// nothing to contain yet (no dice included) -> any box is fine.
 		if (includedItems().length === 0) {
 			return true;
 		}
-		const o = boxOutline(effParams, new Vector2(box.halfX, box.halfY), centeredPlaced());
-		if (o.inner.length >= 3) {
-			for (const it of includedItems()) {
-				for (const v of centeredHullOf(it)) {
-					if (!inPoly(o.inner, v)) {
-						return false;
-					}
-				}
-			}
-		}
-		const r = o.magRadius;
-		for (const c of o.corners) {
-			// bore must be inside the body wall and entirely outside the recess.
-			if (!inPoly(o.body, c) || distToPoly(o.body, c) < r) {
-				return false;
-			}
-			if (inPoly(o.inner, c) || distToPoly(o.inner, c) < r) {
-				return false;
-			}
-		}
-		return true;
+		return isLayoutValid(effParams, new Vector2(box.halfX, box.halfY), centeredPlaced());
 	}
 
 	// grow the box uniformly until the layout is valid (recovery for a too-small
@@ -317,6 +264,7 @@
 		it.x = nx;
 		it.y = ny;
 		if (valid()) {
+			touchLayout();
 			return true;
 		}
 		it.x = ox;
@@ -324,7 +272,7 @@
 		return false;
 	}
 
-	const MIN_HALF = 6;
+	const MIN_HALF = LAYOUT_MIN_HALF;
 	// Move one wall (sign sx = +1 right / -1 left) to world x `target`, keeping the
 	// opposite wall fixed. The box stays a centred rectangle by also shifting its
 	// centre (cx); the dice don't move, so the wall tracks the cursor 1:1. Reverts
@@ -374,6 +322,7 @@
 		const o = it.rotation;
 		it.rotation = rot;
 		if (valid()) {
+			touchLayout();
 			return true;
 		}
 		it.rotation = o;
@@ -476,9 +425,11 @@
 				ny = gy;
 			}
 			if (!tryDie(it, nx, ny)) {
-				// fall back to whichever single axis still fits.
-				tryDie(it, nx, it.y);
-				tryDie(it, it.x, ny);
+				// fall back to whichever single axis still fits (anchor the other
+				// axis at drag-start so a partial move isn't undone by the 2nd try).
+				if (!tryDie(it, nx, d.orig.y)) {
+					tryDie(it, d.orig.x, ny);
+				}
 			}
 			// only show a guide for an axis the die actually landed on.
 			guides = {
@@ -521,6 +472,7 @@
 			}
 		}
 		box = { cx: 0, cy: 0, halfX: auto.outerHalf.x, halfY: auto.outerHalf.y };
+		touchLayout();
 	}
 
 	// Toggle a die in/out of the layout. Newly included dice land at the origin;
@@ -534,6 +486,7 @@
 		} else if (selected === it.dieId) {
 			selected = null;
 		}
+		touchLayout();
 	}
 
 	function reset() {
@@ -557,6 +510,7 @@
 		lp = { ...snap.lp };
 		shape = { ...snap.shape };
 		selected = null;
+		touchLayout();
 	}
 
 	function apply() {
@@ -616,9 +570,9 @@
 					<Slider
 						class="py-1"
 						value={lp.rows}
-						min={1}
-						max={Math.max(1, items.length)}
-						step={1}
+						min={BOX_PARAM_SLIDER_BOUNDS.rows.min}
+						max={Math.max(BOX_PARAM_SLIDER_BOUNDS.rows.min, items.length)}
+						step={BOX_PARAM_SLIDER_BOUNDS.rows.step}
 						onChange={(v) => (lp.rows = v)}
 					/>
 				</div>
@@ -629,36 +583,8 @@
 					<Slider
 						class="py-1"
 						value={lp.gap}
-						min={0}
-						max={12}
-						step={0.5}
+						{...BOX_PARAM_SLIDER_BOUNDS.gap}
 						onChange={(v) => (lp.gap = v)}
-					/>
-				</div>
-				<div class="flex w-40 flex-col">
-					<span class="flex justify-between text-xs"
-						><span>{m.boxes_margin_x()}</span><span>{lp.marginX}</span></span
-					>
-					<Slider
-						class="py-1"
-						value={lp.marginX}
-						min={0}
-						max={12}
-						step={0.5}
-						onChange={(v) => (lp.marginX = v)}
-					/>
-				</div>
-				<div class="flex w-40 flex-col">
-					<span class="flex justify-between text-xs"
-						><span>{m.boxes_margin_y()}</span><span>{lp.marginY}</span></span
-					>
-					<Slider
-						class="py-1"
-						value={lp.marginY}
-						min={0}
-						max={12}
-						step={0.5}
-						onChange={(v) => (lp.marginY = v)}
 					/>
 				</div>
 				<button class="btn btn-sm preset-tonal-primary" onclick={autoArrange}>
@@ -679,9 +605,7 @@
 					<Slider
 						class="py-1"
 						value={shape.chamfer}
-						min={0}
-						max={30}
-						step={0.5}
+						{...BOX_PARAM_SLIDER_BOUNDS.chamfer}
 						onChange={(v) => {
 							shape.chamfer = v;
 							onShapeChange();
@@ -695,9 +619,7 @@
 					<Slider
 						class="py-1"
 						value={shape.wall}
-						min={1}
-						max={6}
-						step={0.1}
+						{...BOX_PARAM_SLIDER_BOUNDS.wall}
 						onChange={(v) => {
 							shape.wall = v;
 							onShapeChange();
@@ -724,9 +646,7 @@
 						<Slider
 							class="py-1"
 							value={shape.magnetCount}
-							min={0}
-							max={4}
-							step={2}
+							{...BOX_PARAM_SLIDER_BOUNDS.magnets.count}
 							onChange={(v) => {
 								shape.magnetCount = v;
 								onShapeChange();
@@ -740,9 +660,7 @@
 						<Slider
 							class="py-1"
 							value={shape.magnetDiameter}
-							min={2}
-							max={12}
-							step={0.5}
+							{...BOX_PARAM_SLIDER_BOUNDS.magnets.diameter}
 							onChange={(v) => {
 								shape.magnetDiameter = v;
 								onShapeChange();
@@ -756,9 +674,7 @@
 						<Slider
 							class="py-1"
 							value={shape.magnetTolerance}
-							min={0}
-							max={0.6}
-							step={0.05}
+							{...BOX_PARAM_SLIDER_BOUNDS.magnets.tolerance}
 							onChange={(v) => {
 								shape.magnetTolerance = v;
 								onShapeChange();

@@ -48,19 +48,21 @@ export function loadBoxConfig(setId: string): BoxConfig | undefined {
 			parsed.params.trayDepthLid ??= legacyTray.trayDepth;
 			delete legacyTray.trayDepth;
 		}
-		// migrate a legacy single `margin` to the split x/y margins before merging
-		// defaults (so an old config keeps its chosen margin on both axes).
-		const legacy = parsed.params as Partial<{ margin: number }> | undefined;
-		if (legacy && typeof legacy.margin === 'number') {
-			parsed.params.marginX ??= legacy.margin;
-			parsed.params.marginY ??= legacy.margin;
-			delete legacy.margin;
-		}
+		// drop removed inner-margin params (tight auto-fit replaced these).
+		const legacyMargins = parsed.params as Partial<{
+			margin: number;
+			marginX: number;
+			marginY: number;
+		}>;
+		delete legacyMargins.margin;
+		delete legacyMargins.marginX;
+		delete legacyMargins.marginY;
 		// merge over defaults so configs saved before a param was added still load.
-		parsed.params = { ...defaultBoxParams(), ...parsed.params };
-		parsed.params.magnets = { ...defaultBoxParams().magnets, ...parsed.params.magnets };
-		parsed.params.hinge = { ...defaultBoxParams().hinge, ...parsed.params.hinge };
-		parsed.params.box = { ...defaultBoxParams().box, ...parsed.params.box };
+		const defaults = defaultBoxParams();
+		parsed.params = { ...defaults, ...parsed.params };
+		parsed.params.magnets = { ...defaults.magnets, ...parsed.params.magnets };
+		parsed.params.hinge = { ...defaults.hinge, ...parsed.params.hinge };
+		parsed.params.box = { ...defaults.box, ...parsed.params.box };
 		// default per-placement manual position (added with the 2D layout editor).
 		for (const pl of parsed.placements) {
 			pl.x ??= 0;

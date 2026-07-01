@@ -22,7 +22,12 @@
 		reconcileBoxConfig,
 		saveBoxConfig
 	} from '$lib/box/store';
-	import type { BoxConfig } from '$lib/box/types';
+	import {
+		applyLayoutEditorParams,
+		BOX_PARAM_SLIDER_BOUNDS,
+		type BoxConfig,
+		type ParamSliderBounds
+	} from '$lib/box/types';
 	import {
 		download,
 		exportStlSingle,
@@ -231,7 +236,6 @@
 
 	const sceneReady = (_ctx: SceneRenderer) => {
 		ctx = _ctx;
-		_ctx.scene.add(gridHelper);
 		// top-down view: look straight down the box's height axis. up = -Z so the
 		// footprint depth reads as screen vertical (lid above base).
 		_ctx.camera.up.set(0, 0, -1);
@@ -239,7 +243,6 @@
 		_ctx.camera.lookAt(0, 0, 0);
 		fancyRender = createFancyRender(_ctx);
 		fancyRender.setEnabled(fancy);
-		gridHelper.visible = !fancy;
 		_ctx.onBeforeRender(stepLidAnim);
 		_ctx.render();
 	};
@@ -663,16 +666,7 @@
 		}
 		config.params.box = { halfX: result.box.halfX, halfY: result.box.halfY };
 		config.params.manual = true;
-		config.params.rows = result.layoutParams.rows;
-		config.params.gap = result.layoutParams.gap;
-		config.params.marginX = result.layoutParams.marginX;
-		config.params.marginY = result.layoutParams.marginY;
-		config.params.chamfer = result.shape.chamfer;
-		config.params.wall = result.shape.wall;
-		config.params.magnets.enabled = result.shape.magnetsEnabled;
-		config.params.magnets.count = result.shape.magnetCount;
-		config.params.magnets.diameter = result.shape.magnetDiameter;
-		config.params.magnets.tolerance = result.shape.magnetTolerance;
+		config.params = applyLayoutEditorParams(config.params, result.layoutParams, result.shape);
 		layoutOpen = false;
 	}
 
@@ -851,9 +845,7 @@
 				{#snippet sliderRow(
 					label: string,
 					value: number,
-					min: number,
-					max: number,
-					step: number,
+					bounds: ParamSliderBounds,
 					set: (v: number) => void,
 					unit = m.boxes_unit_mm()
 				)}
@@ -862,7 +854,7 @@
 							<span>{label}</span>
 							<span>{value}{unit ? ' ' + unit : ''}</span>
 						</span>
-						<Slider class="py-1" {value} {min} {max} {step} onChange={set} />
+						<Slider class="py-1" {value} {...bounds} onChange={set} />
 					</div>
 				{/snippet}
 
@@ -890,34 +882,39 @@
 
 				<Collapsible title={m.boxes_section_dimensions()}>
 					<div class="flex flex-col gap-2 pt-2">
-						{@render sliderRow(m.boxes_wall(), config.params.wall, 1, 6, 0.1, (v) =>
+						{@render sliderRow(m.boxes_wall(), config.params.wall, BOX_PARAM_SLIDER_BOUNDS.wall, (v) =>
 							setParam('wall', v)
 						)}
-						{@render sliderRow(m.boxes_floor(), config.params.floor, 0.6, 5, 0.1, (v) =>
-							setParam('floor', v)
+						{@render sliderRow(
+							m.boxes_floor(),
+							config.params.floor,
+							BOX_PARAM_SLIDER_BOUNDS.floor,
+							(v) => setParam('floor', v)
 						)}
-						{@render sliderRow(m.boxes_chamfer(), config.params.chamfer, 0, 30, 0.5, (v) =>
-							setParam('chamfer', v)
+						{@render sliderRow(
+							m.boxes_chamfer(),
+							config.params.chamfer,
+							BOX_PARAM_SLIDER_BOUNDS.chamfer,
+							(v) => setParam('chamfer', v)
 						)}
 						<p class="text-surface-600-400 text-xs">{m.boxes_chamfer_hint()}</p>
-						{@render sliderRow(m.boxes_bevel(), config.params.bevel, 0, 8, 0.25, (v) =>
-							setParam('bevel', v)
+						{@render sliderRow(
+							m.boxes_bevel(),
+							config.params.bevel,
+							BOX_PARAM_SLIDER_BOUNDS.bevel,
+							(v) => setParam('bevel', v)
 						)}
 						<p class="text-surface-600-400 text-xs">{m.boxes_bevel_hint()}</p>
 						{@render sliderRow(
 							m.boxes_tray_depth_base(),
 							config.params.trayDepthBase,
-							0,
-							6,
-							0.25,
+							BOX_PARAM_SLIDER_BOUNDS.trayDepthBase,
 							(v) => setParam('trayDepthBase', v)
 						)}
 						{@render sliderRow(
 							m.boxes_tray_depth_lid(),
 							config.params.trayDepthLid,
-							0,
-							6,
-							0.25,
+							BOX_PARAM_SLIDER_BOUNDS.trayDepthLid,
 							(v) => setParam('trayDepthLid', v)
 						)}
 						<p class="text-surface-600-400 text-xs">{m.boxes_tray_depth_hint()}</p>
@@ -929,9 +926,7 @@
 						{@render sliderRow(
 							m.boxes_cavity_tolerance(),
 							config.params.cavityTolerance,
-							0,
-							2,
-							0.05,
+							BOX_PARAM_SLIDER_BOUNDS.cavityTolerance,
 							(v) => setParam('cavityTolerance', v)
 						)}
 					</div>
@@ -958,9 +953,7 @@
 								<Slider
 									class="py-1"
 									value={config.params.magnets.count}
-									min={0}
-									max={4}
-									step={2}
+									{...BOX_PARAM_SLIDER_BOUNDS.magnets.count}
 									onChange={(v) => setMagnet('count', v)}
 								/>
 							</div>
@@ -990,25 +983,19 @@
 							{@render sliderRow(
 								m.boxes_magnet_diameter(),
 								config.params.magnets.diameter,
-								2,
-								12,
-								0.5,
+								BOX_PARAM_SLIDER_BOUNDS.magnets.diameter,
 								(v) => setMagnet('diameter', v)
 							)}
 							{@render sliderRow(
 								m.boxes_magnet_thickness(),
 								config.params.magnets.thickness,
-								1,
-								6,
-								0.5,
+								BOX_PARAM_SLIDER_BOUNDS.magnets.thickness,
 								(v) => setMagnet('thickness', v)
 							)}
 							{@render sliderRow(
 								m.boxes_magnet_tolerance(),
 								config.params.magnets.tolerance,
-								0,
-								0.6,
-								0.05,
+								BOX_PARAM_SLIDER_BOUNDS.magnets.tolerance,
 								(v) => setMagnet('tolerance', v)
 							)}
 						{/if}
@@ -1028,42 +1015,38 @@
 							{@render sliderRow(
 								m.boxes_hinge_pin_radius(),
 								config.params.hinge.pinRadius,
-								0.8,
-								4,
-								0.1,
+								BOX_PARAM_SLIDER_BOUNDS.hinge.pinRadius,
 								(v) => setHingeParam('pinRadius', v)
 							)}
 							{@render sliderRow(
 								m.boxes_hinge_barrel_radius(),
 								config.params.hinge.barrelRadius,
-								1.5,
-								8,
-								0.1,
+								BOX_PARAM_SLIDER_BOUNDS.hinge.barrelRadius,
 								(v) => setHingeParam('barrelRadius', v)
 							)}
 							{@render sliderRow(
 								m.boxes_hinge_clearance(),
 								config.params.hinge.clearance,
-								0.1,
-								0.8,
-								0.05,
+								BOX_PARAM_SLIDER_BOUNDS.hinge.clearance,
 								(v) => setHingeParam('clearance', v)
 							)}
 							{@render sliderRow(
 								m.boxes_hinge_knuckles(),
 								config.params.hinge.knuckles,
-								3,
-								9,
-								1,
+								BOX_PARAM_SLIDER_BOUNDS.hinge.knuckles,
 								(v) => setHingeParam('knuckles', v),
 								''
 							)}
 							{@render sliderRow(
+								m.boxes_hinge_knuckle_width(),
+								config.params.hinge.knuckleWidth,
+								BOX_PARAM_SLIDER_BOUNDS.hinge.knuckleWidth,
+								(v) => setHingeParam('knuckleWidth', v)
+							)}
+							{@render sliderRow(
 								m.boxes_hinge_indent(),
 								config.params.hinge.indent,
-								0,
-								3,
-								0.1,
+								BOX_PARAM_SLIDER_BOUNDS.hinge.indent,
 								(v) => setHingeParam('indent', v)
 							)}
 						{/if}
