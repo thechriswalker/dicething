@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { ArrowUpDownIcon } from '@lucide/svelte';
+	import { ArrowUpDown } from '@lucide/svelte';
 	import { Collapsible } from '@skeletonlabs/skeleton-svelte';
 	import { getContext } from 'svelte';
 	import type { Snippet } from 'svelte';
@@ -42,7 +42,7 @@
 			{@render titleExtra?.()}
 		</span>
 		<Collapsible.Trigger class="btn-icon hover:preset-tonal">
-			<ArrowUpDownIcon class="size-4" />
+			<ArrowUpDown class="size-4" />
 		</Collapsible.Trigger>
 	</div>
 	<Collapsible.Content class="w-full">

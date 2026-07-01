@@ -50,14 +50,14 @@
 		Vector3
 	} from 'three';
 	import {
-		ArrowLeftIcon,
-		DownloadIcon,
+		ArrowLeft,
+		Download,
 		Frame,
-		BoxSelect,
-		LayoutGridIcon,
-		SparklesIcon,
-		CopyIcon,
-		PlayIcon,
+		SquareDashed,
+		LayoutGrid,
+		Sparkles,
+		Copy,
+		Play,
 		Package,
 		PackageOpen
 	} from '@lucide/svelte';
@@ -115,16 +115,28 @@
 
 	// --- lid fold animation -------------------------------------------------
 	// the lid is parented to a pivot on the seam/hinge line so it can swing up
-	// and over onto the base ("closing the box"). `lidAngle` is the live angle
-	// (0 = open flat, PI = closed); `boxClosed` is the target the rAF loop eases
-	// towards. The pivot is rebuilt with the preview, so the current angle is
-	// re-applied to keep the animation continuous across rebuilds.
+	// and over onto the base ("closing the box"). `lidClosedT` is 0 = open flat,
+	// 1 = closed; the toggle animates toward 0/1, the slider sets it directly.
 	let lidPivot: Group | undefined;
-	let lidAngle = 0;
+	let lidClosedT = $state(0);
 	let lidAnimFrom = 0;
 	let lidAnimStart = 0;
+	let lidAnimTarget: number | undefined;
 	let boxClosed = $state(false);
 	const LID_ANIM_MS = 900;
+
+	function applyLidT(t: number) {
+		lidClosedT = t;
+		if (lidPivot) {
+			lidPivot.rotation.x = t * Math.PI;
+		}
+	}
+
+	function setLidClosedT(t: number) {
+		lidAnimTarget = undefined;
+		applyLidT(t);
+		boxClosed = t > 0.5;
+	}
 
 	// developer boundary overlay: per-die footprint, the combined hull, and the
 	// box interior outline. Drawn as flat line loops above the seam plane.
@@ -250,28 +262,32 @@
 	// ease the lid pivot towards its target each frame (the scene runs a
 	// continuous rAF loop, so this is all the animation needs).
 	function stepLidAnim() {
-		if (!lidPivot) {
+		if (!lidPivot || lidAnimTarget === undefined) {
 			return;
 		}
-		const target = boxClosed ? Math.PI : 0;
-		if (Math.abs(lidAngle - target) < 1e-4) {
-			if (lidAngle !== target) {
-				lidAngle = target;
-				lidPivot.rotation.x = lidAngle;
-			}
+		const target = lidAnimTarget;
+		if (Math.abs(lidClosedT - target) < 1e-4) {
+			applyLidT(target);
+			lidAnimTarget = undefined;
+			boxClosed = target > 0.5;
 			return;
 		}
 		const t = Math.min(1, (performance.now() - lidAnimStart) / LID_ANIM_MS);
 		// easeInOutQuad
 		const e = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
-		lidAngle = lidAnimFrom + (target - lidAnimFrom) * e;
-		lidPivot.rotation.x = lidAngle;
+		applyLidT(lidAnimFrom + (target - lidAnimFrom) * e);
+		if (t >= 1) {
+			applyLidT(target);
+			lidAnimTarget = undefined;
+			boxClosed = target > 0.5;
+		}
 	}
 
 	function toggleClosed() {
-		lidAnimFrom = lidAngle;
+		lidAnimFrom = lidClosedT;
+		lidAnimTarget = lidClosedT < 0.5 ? 1 : 0;
+		boxClosed = lidAnimTarget > 0.5;
 		lidAnimStart = performance.now();
-		boxClosed = !boxClosed;
 	}
 
 	function toggleFancy() {
@@ -483,7 +499,7 @@
 				}
 			}
 			pivot.add(g);
-			pivot.rotation.x = lidAngle;
+			pivot.rotation.x = lidClosedT * Math.PI;
 			root.add(pivot);
 			lidPivot = pivot;
 		}
@@ -738,7 +754,7 @@
 <Layout>
 	{#snippet header()}
 		<a class="btn preset-tonal-surface" href="/boxes" aria-label={m.boxes_back_to_sets()}>
-			<ArrowLeftIcon class="size-4" />
+			<ArrowLeft class="size-4" />
 		</a>
 		<p class="text-primary-500 h4">{m.boxes_title()} — {setData?.name}</p>
 	{/snippet}
@@ -768,20 +784,7 @@
 								class={'btn-icon ' + (fancy ? 'preset-filled-primary-500' : 'preset-tonal-primary')}
 								aria-label={m.controls_toggle_fancy_render()}
 								aria-pressed={fancy}
-								onclick={toggleFancy}><SparklesIcon /></Button.Root
-							>
-						{/snippet}
-					</Tooltip>
-					<Tooltip content={boxClosed ? m.boxes_open_box() : m.boxes_close_box()} side="right">
-						{#snippet children(props)}
-							<Button.Root
-								{...props}
-								class={'btn-icon ' +
-									(boxClosed ? 'preset-filled-primary-500' : 'preset-tonal-primary')}
-								aria-label={boxClosed ? m.boxes_open_box() : m.boxes_close_box()}
-								aria-pressed={boxClosed}
-								onclick={toggleClosed}
-								>{#if boxClosed}<Package />{:else}<PackageOpen />{/if}</Button.Root
+								onclick={toggleFancy}><Sparkles /></Button.Root
 							>
 						{/snippet}
 					</Tooltip>
@@ -810,7 +813,7 @@
 									aria-pressed={showBounds}
 									onclick={() => {
 										showBounds = !showBounds;
-									}}><BoxSelect /></Button.Root
+									}}><SquareDashed /></Button.Root
 								>
 							{/snippet}
 						</Tooltip>
@@ -820,12 +823,43 @@
 									{...props}
 									class="btn-icon preset-tonal-primary"
 									aria-label={m.boxes_preview_loading()}
-									onclick={previewLoading}><PlayIcon /></Button.Root
+									onclick={previewLoading}><Play /></Button.Root
 								>
 							{/snippet}
 						</Tooltip>
 					{/if}
 				</li>
+				{#if built}
+					<li class="card preset-filled-surface-100-900 flex w-56 flex-col gap-1 p-2 text-sm">
+						<span class="flex justify-between" title={m.boxes_lid_position_hint()}>
+							<span>{m.boxes_hinge_position()}</span>
+							<span class="text-surface-600-400 tabular-nums">{Math.round(lidClosedT * 100)}%</span>
+						</span>
+						<div class="flex items-center gap-2">
+							<Tooltip content={boxClosed ? m.boxes_open_box() : m.boxes_close_box()} side="right">
+								{#snippet children(props)}
+									<Button.Root
+										{...props}
+										class={'btn-icon shrink-0 ' +
+											(boxClosed ? 'preset-filled-primary-500' : 'preset-tonal-primary')}
+										aria-label={boxClosed ? m.boxes_open_box() : m.boxes_close_box()}
+										aria-pressed={boxClosed}
+										onclick={toggleClosed}
+										>{#if boxClosed}<Package />{:else}<PackageOpen />{/if}</Button.Root
+									>
+								{/snippet}
+							</Tooltip>
+							<Slider
+								class="min-w-0 flex-1 py-1"
+								value={lidClosedT}
+								min={0}
+								max={1}
+								step={0.01}
+								onChange={setLidClosedT}
+							/>
+						</div>
+					</li>
+				{/if}
 				{#if building}
 					<li>
 						<BoxProgressDie
@@ -842,6 +876,9 @@
 
 		<div class="card preset-tonal-surface flex w-80 shrink-0 flex-col gap-3 overflow-y-auto p-4">
 			{#if config}
+				{#if built && !built.closure.ok}
+					<p class="text-warning-500 text-sm">{m.boxes_closure_warning()}</p>
+				{/if}
 				{#snippet sliderRow(
 					label: string,
 					value: number,
@@ -929,6 +966,13 @@
 							BOX_PARAM_SLIDER_BOUNDS.cavityTolerance,
 							(v) => setParam('cavityTolerance', v)
 						)}
+						{@render sliderRow(
+							m.boxes_cavity_bevel(),
+							config.params.cavityBevel,
+							BOX_PARAM_SLIDER_BOUNDS.cavityBevel,
+							(v) => setParam('cavityBevel', v)
+						)}
+						<p class="text-surface-600-400 text-xs">{m.boxes_cavity_bevel_hint()}</p>
 					</div>
 				</Collapsible>
 
@@ -1066,7 +1110,7 @@
 							disabled={orderedPlacements.length === 0 || layoutLoading}
 							onclick={openLayout}
 						>
-							<LayoutGridIcon class="size-4" />
+							<LayoutGrid class="size-4" />
 							<span>{layoutLoading ? m.boxes_layout_loading() : m.boxes_layout_edit()}</span>
 						</button>
 					</div>
@@ -1101,7 +1145,7 @@
 							disabled={!built || building}
 							onclick={exportBox}
 						>
-							<DownloadIcon class="size-4" />
+							<Download class="size-4" />
 							{m.boxes_export_button()}
 						</button>
 					</div>
@@ -1112,7 +1156,7 @@
 						<div class="flex flex-col gap-2 pt-2">
 							<p class="text-surface-600-400 text-xs">{m.export_render_tuning_hint()}</p>
 							<button type="button" class="btn btn-sm preset-tonal-primary" onclick={copyTuning}>
-								<CopyIcon class="size-4" />
+								<Copy class="size-4" />
 								<span>{copiedTuning ? m.boxes_tuning_copied() : m.boxes_tuning_copy()}</span>
 							</button>
 							<span class="text-sm font-semibold">{m.export_render_tuning_base_colour()}</span>

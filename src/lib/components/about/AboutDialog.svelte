@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { MessageCircleQuestion, XIcon } from '@lucide/svelte';
+	import { MessageCircleQuestionMark, X } from '@lucide/svelte';
 	import { Dialog, Portal, useDialog } from '@skeletonlabs/skeleton-svelte';
 	import About from './About.svelte';
 	import type { Snippet } from 'svelte';
@@ -42,11 +42,11 @@
 			>
 				<header class="flex items-start justify-between gap-4">
 					<Dialog.Title class="h1 flex items-center gap-4">
-						<MessageCircleQuestion class="icon-text" />
+						<MessageCircleQuestionMark class="icon-text" />
 						About
 					</Dialog.Title>
 					<Dialog.CloseTrigger class="btn-icon hover:preset-tonal shrink-0">
-						<XIcon class="size-4" />
+						<X class="size-4" />
 					</Dialog.CloseTrigger>
 				</header>
 				<Dialog.Description class="max-h-[calc(85vh-5rem)] overflow-y-auto">

@@ -43,6 +43,7 @@ export type SerialisedBuiltBox = {
 	boundaries: SerialisedBoundaries;
 	// plain-data hinge metadata (no three.js objects), passes through untouched.
 	hinge?: BuiltBox['hinge'];
+	closure: BuiltBox['closure'];
 };
 
 type SerialisedLayoutDie = {
@@ -104,7 +105,8 @@ export function serializeBuiltBox(box: BuiltBox): SerialisedBuiltBox {
 			combined: box.boundaries.combined.map(vec2),
 			inner: box.boundaries.inner.map(vec2)
 		},
-		hinge: box.hinge
+		hinge: box.hinge,
+		closure: box.closure
 	};
 }
 
@@ -126,7 +128,8 @@ export function rehydrateBuiltBox(s: SerialisedBuiltBox): BuiltBox {
 		baseHeight: s.baseHeight,
 		lidHeight: s.lidHeight,
 		boundaries,
-		hinge: s.hinge
+		hinge: s.hinge,
+		closure: s.closure
 	};
 }
 

@@ -41,17 +41,17 @@
 	} from '$lib/utils/validate_legends';
 	import { getPreferences } from '$lib/interfaces/preferences.svelte';
 	import {
-		AlertTriangle,
-		ArrowLeftIcon,
-		CheckCircle2,
-		ImageIcon,
-		InfoIcon,
-		PlusIcon,
-		SaveIcon,
-		ShieldCheckIcon,
-		SquareIcon,
-		Trash2Icon,
-		TypeIcon
+		TriangleAlert,
+		ArrowLeft,
+		CircleCheck,
+		Image,
+		Info,
+		Plus,
+		Save,
+		ShieldCheck,
+		Square,
+		Trash2,
+		Type
 	} from '@lucide/svelte';
 
 	let id = $derived(page.params.id ?? '');
@@ -493,12 +493,12 @@
 <Layout>
 	{#snippet header()}
 		<a class="btn btn-sm preset-tonal-surface" href={returnTo}>
-			<ArrowLeftIcon class="size-4" />
+			<ArrowLeft class="size-4" />
 			{m.legends_back()}
 		</a>
 		<h1 class="h4 text-primary-500">{set?.name ?? m.legends_title()}</h1>
 		{#if saving}
-			<SaveIcon class="text-surface-500 size-4 animate-pulse" />
+			<Save class="text-surface-500 size-4 animate-pulse" />
 		{/if}
 	{/snippet}
 
@@ -506,7 +506,7 @@
 		{#if !set}
 			<p class="card preset-filled-error-500 px-3 py-2">{m.legends_editor_not_found()}</p>
 			<button class="btn preset-tonal-primary mt-4" onclick={() => goto('/legends')}>
-				<ArrowLeftIcon class="size-4" />
+				<ArrowLeft class="size-4" />
 				{m.legends_back()}
 			</button>
 		{:else}
@@ -526,7 +526,7 @@
 							disabled={checking}
 							onclick={runLegendCheck}
 						>
-							<ShieldCheckIcon class="size-4" />
+							<ShieldCheck class="size-4" />
 							{m.legends_editor_check_button()}
 						</button>
 						<Tooltip content={m.legends_editor_check_info()}>
@@ -537,7 +537,7 @@
 									class="btn-icon btn-icon-sm preset-tonal-surface"
 									aria-label={m.legends_editor_check_info()}
 								>
-									<InfoIcon class="size-4" />
+									<Info class="size-4" />
 								</button>
 							{/snippet}
 						</Tooltip>
@@ -551,13 +551,13 @@
 					{#if hasChecked && !checking}
 						{#if brokenResults.length === 0}
 							<div class="card preset-tonal-success flex items-center gap-2 p-2 text-sm">
-								<CheckCircle2 class="size-4 shrink-0" />
+								<CircleCheck class="size-4 shrink-0" />
 								<span>{m.legends_editor_check_ok({ count: checkResults.length })}</span>
 							</div>
 						{:else}
 							<div class="card preset-tonal-error flex flex-col gap-2 p-3 text-sm">
 								<span class="flex items-center gap-2 font-semibold">
-									<AlertTriangle class="size-4 shrink-0" />
+									<TriangleAlert class="size-4 shrink-0" />
 									{m.legends_editor_check_broken()}
 								</span>
 								<ul class="flex flex-col gap-1">
@@ -595,7 +595,7 @@
 												aria-label={m.legends_editor_add_legend()}
 												onclick={addLegend}
 											>
-												<PlusIcon class="size-6" />
+												<Plus class="size-6" />
 											</button>
 										{/snippet}
 									</Tooltip>
@@ -626,7 +626,7 @@
 												aria-label={m.legends_editor_delete_legend()}
 												onclick={() => deleteLegend(selectedLegend)}
 											>
-												<Trash2Icon class="size-4" />
+													<Trash2 class="size-4" />
 											</button>
 										{/snippet}
 									</Tooltip>
@@ -730,7 +730,7 @@
 								class="btn preset-tonal-surface w-full justify-start"
 								onclick={makeBlank}
 							>
-								<SquareIcon class="size-4" />
+								<Square class="size-4" />
 								{m.legends_editor_make_blank()}
 							</button>
 							<!-- import SVG: border first, complex (per-piece) on demand -->
@@ -744,7 +744,7 @@
 										type="button"
 										class="btn preset-tonal-surface w-full justify-start"
 									>
-										<ImageIcon class="size-4" />
+										<Image class="size-4" />
 										{m.legends_editor_import_svg()}
 									</button>
 								{/snippet}
@@ -911,7 +911,7 @@
 										type="button"
 										class="btn preset-tonal-surface w-full justify-start"
 									>
-										<TypeIcon class="size-4" />
+										<Type class="size-4" />
 										{m.legends_editor_copy_from_set()}
 									</button>
 								{/snippet}
@@ -954,7 +954,7 @@
 										type="button"
 										class="btn preset-tonal-surface w-full justify-start"
 									>
-										<TypeIcon class="size-4" />
+										<Type class="size-4" />
 										{m.legends_editor_from_other_font()}
 									</button>
 								{/snippet}

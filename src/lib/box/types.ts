@@ -101,6 +101,10 @@ export type BoxParams = {
 	// clearance added around every die to form its cavity (so the real die drops
 	// in/out easily).
 	cavityTolerance: number;
+	// 45-degree chamfer (mm) around each cavity opening at the inner tray floor,
+	// flaring the pocket outward so vertical walls clear more easily when the lid
+	// closes. At the recess floor (= seam - trayDepth on each half).
+	cavityBevel: number;
 	// shallow recess of the interior octagon below the seam on each half, leaving
 	// a flat rim around the perimeter (the corners stay solid for the magnets).
 	// Kept small so the floor under the cavities stays deep.
@@ -137,10 +141,11 @@ export const BOX_PARAM_DEFAULTS: BoxParams = {
 	floor: 1.6,
 	chamfer: 12,
 	bevel: 3,
-	gap: 2,
-	cavityTolerance: 0.4,
-	trayDepthBase: 3,
-	trayDepthLid: 6,
+	gap: 1,
+	cavityTolerance: 1.4,
+	cavityBevel: 0.5,
+	trayDepthBase: 6,
+	trayDepthLid: 8,
 	rows: 2,
 	manual: false,
 	box: { halfX: 0, halfY: 0 },
@@ -181,6 +186,7 @@ export const BOX_PARAM_SLIDER_BOUNDS = {
 	trayDepthBase: { min: 0, max: 12, step: 0.25 },
 	trayDepthLid: { min: 0, max: 12, step: 0.25 },
 	cavityTolerance: { min: 0, max: 2, step: 0.05 },
+	cavityBevel: { min: 0, max: 2, step: 0.05 },
 	gap: { min: 0, max: 12, step: 0.5 },
 	// rows.max is capped by die count in the layout editor.
 	rows: { min: 1, max: 99, step: 1 },
@@ -206,6 +212,7 @@ export const BOX_PARAM_SLIDER_BOUNDS = {
 	trayDepthBase: ParamSliderBounds;
 	trayDepthLid: ParamSliderBounds;
 	cavityTolerance: ParamSliderBounds;
+	cavityBevel: ParamSliderBounds;
 	gap: ParamSliderBounds;
 	rows: ParamSliderBounds;
 	magnets: {

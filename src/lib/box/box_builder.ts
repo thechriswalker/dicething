@@ -18,8 +18,8 @@
 import type { DiceSet } from '$lib/interfaces/storage.svelte';
 import type { DieModel } from '$lib/interfaces/dice';
 import dice from '$lib/dice';
-import { Box3, BufferGeometry, Vector2, Vector3 } from 'three';
-import type { CrossSection, Manifold } from 'manifold-3d';
+import { Box3, BufferGeometry, Matrix4, Vector2, Vector3 } from 'three';
+import type { CrossSection, Manifold, Mat4 } from 'manifold-3d';
 import {
 	getManifold,
 	manifold,
@@ -63,6 +63,17 @@ export type BuiltHinge = {
 	partingGap: number;
 };
 
+// Result of checking that the lid can close over the base dice without clipping.
+export type BoxClosure = {
+	ok: boolean;
+	// intersection volume (mm³) between the closed lid shell and the base shell.
+	shellOverlap: number;
+	// worst intersection (mm³) between the closing lid shell and the base dice.
+	maxDiceClip: number;
+	// for hinged boxes: the rotation angle (rad) where maxDiceClip occurred.
+	worstAngle?: number;
+};
+
 export type BuiltBox = {
 	base: BufferGeometry;
 	lid: BufferGeometry;
@@ -73,6 +84,7 @@ export type BuiltBox = {
 	lidHeight: number;
 	boundaries: BoxBoundaries;
 	hinge?: BuiltHinge;
+	closure: BoxClosure;
 };
 
 // Which stage of a build a progress tick belongs to. `prepare` is the per-die
@@ -109,12 +121,49 @@ type PreparedDie = {
 };
 
 // Convex hull (CCW) of 2D points via Andrew's monotone chain. Returns the input
-// (deduped) when there are fewer than 3 points.
+// (deduped) when there are fewer than 3 points. Near-coincident input vertices
+// are welded first so symmetric meshes don't leave zero-length hull edges (which
+// break the layout editor's SAT overlap test).
+const HULL_WELD_EPS = 1e-4;
+
+function weldSortedPoints2D(points: Array<[number, number]>, eps: number): Array<[number, number]> {
+	const sorted = points.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+	const pts: Array<[number, number]> = [];
+	for (const p of sorted) {
+		if (
+			pts.length === 0 ||
+			Math.hypot(p[0] - pts[pts.length - 1][0], p[1] - pts[pts.length - 1][1]) > eps
+		) {
+			pts.push(p);
+		}
+	}
+	return pts;
+}
+
+function dedupeHullLoop2D(hull: Array<[number, number]>, eps: number): Array<[number, number]> {
+	if (hull.length < 2) {
+		return hull;
+	}
+	const out: Array<[number, number]> = [];
+	for (const p of hull) {
+		if (
+			out.length === 0 ||
+			Math.hypot(p[0] - out[out.length - 1][0], p[1] - out[out.length - 1][1]) > eps
+		) {
+			out.push(p);
+		}
+	}
+	if (
+		out.length > 1 &&
+		Math.hypot(out[0][0] - out[out.length - 1][0], out[0][1] - out[out.length - 1][1]) <= eps
+	) {
+		out.pop();
+	}
+	return out;
+}
+
 function convexHull2D(points: Array<[number, number]>): Array<[number, number]> {
-	const pts = points
-		.slice()
-		.sort((a, b) => a[0] - b[0] || a[1] - b[1])
-		.filter((p, i, a) => i === 0 || p[0] !== a[i - 1][0] || p[1] !== a[i - 1][1]);
+	const pts = weldSortedPoints2D(points, HULL_WELD_EPS);
 	if (pts.length < 3) {
 		return pts;
 	}
@@ -137,7 +186,7 @@ function convexHull2D(points: Array<[number, number]>): Array<[number, number]> 
 	}
 	lower.pop();
 	upper.pop();
-	return lower.concat(upper);
+	return dedupeHullLoop2D(lower.concat(upper), HULL_WELD_EPS);
 }
 
 // The convex hull of a geometry's vertices projected onto the xy plane.
@@ -358,15 +407,80 @@ function sweepUp(die: Manifold): Manifold {
 	return swept;
 }
 
+// Layer height when lofting the opening chamfer (smaller = smoother 45° faces).
+const CAVITY_BEVEL_LAYER = 0.1;
+
+// A 45-degree flare at the cavity opening (the inner tray floor). Each layer
+// offsets the swept cavity profile outward by a little more (Round joins so
+// reflex corners on d8/d10 don't spike), giving a true chamfer rather than a
+// single scaled extrude that reads as a square step on complex outlines.
+function seamChamferCut(swept: Manifold, openingZ: number, bevel: number): Manifold | undefined {
+	if (bevel <= 0) {
+		return undefined;
+	}
+	const bb = swept.boundingBox();
+	if (openingZ - bevel < bb.min[2] - 0.01) {
+		return undefined;
+	}
+	const wall = swept.slice(openingZ - bevel);
+	if (wall.isEmpty()) {
+		return undefined;
+	}
+
+	const steps = Math.max(2, Math.ceil(bevel / CAVITY_BEVEL_LAYER));
+	const layerH = bevel / steps;
+	const wasm = manifold();
+	const parts: Array<Manifold> = [];
+
+	for (let i = 0; i < steps; i++) {
+		const oBot = (bevel * i) / steps;
+		const oTop = (bevel * (i + 1)) / steps;
+		const csBot = wall.offset(oBot, 'Round');
+		const csTop = wall.offset(oTop, 'Round');
+		if (csTop.isEmpty()) {
+			csBot.delete();
+			continue;
+		}
+		const tb = csTop.bounds();
+		const bb2 = csBot.bounds();
+		const wx = tb.max[0] - tb.min[0];
+		const wy = tb.max[1] - tb.min[1];
+		const bx = bb2.max[0] - bb2.min[0];
+		const by = bb2.max[1] - bb2.min[1];
+		const sx = bx > 1e-6 && wx > 1e-6 ? wx / bx : 1;
+		const sy = by > 1e-6 && wy > 1e-6 ? wy / by : 1;
+		parts.push(
+			csBot.extrude(layerH, 0, 0, [sx, sy]).translate([0, 0, openingZ - bevel + i * layerH])
+		);
+		csBot.delete();
+		csTop.delete();
+	}
+	wall.delete();
+
+	if (parts.length === 0) {
+		return undefined;
+	}
+	let acc = parts[0];
+	for (let i = 1; i < parts.length; i++) {
+		const u = wasm.Manifold.union(acc, parts[i]);
+		deleteAll(acc, parts[i]);
+		acc = u;
+	}
+	return acc;
+}
+
 // Build the up-swept (draft-free) cavity manifold for one die, placed with its
 // mid-point on the seam. `mirror` flips the die about X for the lid so the half
 // that lands in the lid is its top, mating with the base when the lid is closed.
+// `openingZ` is where the tray floor meets the cavity (seam - trayDepth).
 function sweptCavity(
 	cavityGeo: BufferGeometry,
 	mirror: boolean,
 	x: number,
 	y: number,
-	seam: number
+	seam: number,
+	cavityBevel: number,
+	openingZ: number
 ): Manifold {
 	const geo = cavityGeo.clone();
 	if (mirror) {
@@ -376,8 +490,17 @@ function sweptCavity(
 	const die = geometryToManifold(geo);
 	geo.dispose();
 	const swept = sweepUp(die);
+	let cutter = swept;
+	if (cavityBevel > 0) {
+		const chamfer = seamChamferCut(swept, openingZ, cavityBevel);
+		if (chamfer) {
+			const wasm = manifold();
+			cutter = wasm.Manifold.union(swept, chamfer);
+			deleteAll(swept, chamfer);
+		}
+	}
 	die.delete();
-	return swept;
+	return cutter;
 }
 
 // Magnet centres (x,y): just inside each truncated corner, in the solid corner
@@ -887,6 +1010,131 @@ function cutToGeometry(
 	return repairDegenerateTriangles(geo);
 }
 
+const CLOSURE_CLIP_EPS = 0.5; // mm³ - float/coincident noise budget
+const HINGE_CLOSURE_SAMPLES = 24;
+
+function threeMatrixToManifold(m: Matrix4): Mat4 {
+	return m.elements as Mat4;
+}
+
+// Transform the lid into its closed pose (unhinged: folded straight over the base).
+function closedLidManifold(lid: Manifold, seam: number): Manifold {
+	return lid.rotate([180, 0, 0]).translate([0, 0, 2 * seam]);
+}
+
+// Transform the lid for a hinged close animation step (matches the preview pivot).
+function hingedLidManifold(lid: Manifold, seam: number, offset: number, angleRad: number): Manifold {
+	const m = new Matrix4()
+		.makeTranslation(0, 0, seam)
+		.multiply(new Matrix4().makeRotationX(angleRad))
+		.multiply(new Matrix4().makeTranslation(0, offset, -seam));
+	return lid.transform(threeMatrixToManifold(m));
+}
+
+function unionManifolds(parts: Array<Manifold>): Manifold | undefined {
+	if (parts.length === 0) {
+		return undefined;
+	}
+	const wasm = manifold();
+	let acc = parts[0];
+	for (let i = 1; i < parts.length; i++) {
+		const u = wasm.Manifold.union(acc, parts[i]);
+		deleteAll(acc, parts[i]);
+		acc = u;
+	}
+	return acc;
+}
+
+// Verify the box can shut with the base dice treated as solid obstacles: the
+// unhinged case folds the lid straight over; the hinged case samples the full
+// rotation arc about the back edge.
+export function checkBoxClosure(built: BuiltBox): BoxClosure {
+	const wasm = manifold();
+	const seam = built.baseHeight;
+
+	if (built.hinge) {
+		// Hinged: match the preview layout (base at -offset, lid pivots from +offset)
+		// so the open print pose and the fold arc are both in frame.
+		const offset = (built.outer.y + built.hinge.partingGap) / 2;
+		const baseShift = new Matrix4().makeTranslation(0, -offset, 0);
+		const baseShiftArr = threeMatrixToManifold(baseShift);
+
+		const baseShell = geometryToManifold(built.base).transform(baseShiftArr);
+		const closedLid = hingedLidManifold(
+			geometryToManifold(built.lid),
+			seam,
+			offset,
+			Math.PI
+		);
+		const shellInter = wasm.Manifold.intersection(baseShell, closedLid);
+		const shellOverlap = shellInter.volume();
+		shellInter.delete();
+		closedLid.delete();
+
+		const baseDice = built.placedDice
+			.filter((d) => d.half === 'base')
+			.map((d) => geometryToManifold(d.geometry).transform(baseShiftArr));
+		const diceUnion = unionManifolds(baseDice);
+		let maxDiceClip = 0;
+		let worstAngle: number | undefined;
+
+		if (diceUnion) {
+			for (let i = 0; i <= HINGE_CLOSURE_SAMPLES; i++) {
+				const angle = (Math.PI * i) / HINGE_CLOSURE_SAMPLES;
+				const posed = hingedLidManifold(geometryToManifold(built.lid), seam, offset, angle);
+				const inter = wasm.Manifold.intersection(posed, diceUnion);
+				const v = inter.volume();
+				inter.delete();
+				posed.delete();
+				if (v > maxDiceClip) {
+					maxDiceClip = v;
+					worstAngle = angle;
+				}
+			}
+			diceUnion.delete();
+		}
+
+		baseShell.delete();
+
+		return {
+			ok: shellOverlap < CLOSURE_CLIP_EPS && maxDiceClip < CLOSURE_CLIP_EPS,
+			shellOverlap,
+			maxDiceClip,
+			worstAngle
+		};
+	}
+
+	const baseShell = geometryToManifold(built.base);
+	const closedLid = closedLidManifold(geometryToManifold(built.lid), seam);
+	const shellInter = wasm.Manifold.intersection(baseShell, closedLid);
+	const shellOverlap = shellInter.volume();
+	shellInter.delete();
+	closedLid.delete();
+
+	const baseDice = built.placedDice
+		.filter((d) => d.half === 'base')
+		.map((d) => geometryToManifold(d.geometry));
+	const diceUnion = unionManifolds(baseDice);
+	let maxDiceClip = 0;
+
+	if (diceUnion) {
+		const posed = closedLidManifold(geometryToManifold(built.lid), seam);
+		const inter = wasm.Manifold.intersection(posed, diceUnion);
+		maxDiceClip = inter.volume();
+		inter.delete();
+		posed.delete();
+		diceUnion.delete();
+	}
+
+	baseShell.delete();
+
+	return {
+		ok: shellOverlap < CLOSURE_CLIP_EPS && maxDiceClip < CLOSURE_CLIP_EPS,
+		shellOverlap,
+		maxDiceClip
+	};
+}
+
 // Rotate a 2D hull (about the origin) by `angle` radians. The die's in-plane
 // rotation is a spin about the vertical axis (see orientDieSolid), so rotating
 // its projected hull in 2D matches re-preparing the die at that rotation.
@@ -1367,7 +1615,9 @@ export async function buildBox(
 	const baseCutters: Array<Manifold> = [];
 	for (const prep of prepared) {
 		const pos = positions.get(prep.dieId) ?? new Vector2(0, 0);
-		baseCutters.push(sweptCavity(prep.cavity, false, pos.x, pos.y, seam));
+		baseCutters.push(
+			sweptCavity(prep.cavity, false, pos.x, pos.y, seam, p.cavityBevel, seam - p.trayDepthBase)
+		);
 		const die = prep.solid.clone();
 		placeCentredAtZ(die, pos.x, pos.y, seam);
 		placedDice.push({ dieId: prep.dieId, half: 'base', geometry: die });
@@ -1431,7 +1681,17 @@ export async function buildBox(
 	const lidCutters: Array<Manifold> = [];
 	for (const prep of prepared) {
 		const pos = positions.get(prep.dieId) ?? new Vector2(0, 0);
-		lidCutters.push(sweptCavity(prep.lidCavity ?? prep.cavity, true, pos.x, -pos.y, seam));
+		lidCutters.push(
+			sweptCavity(
+				prep.lidCavity ?? prep.cavity,
+				true,
+				pos.x,
+				-pos.y,
+				seam,
+				p.cavityBevel,
+				seam - p.trayDepthLid
+			)
+		);
 		const die = prep.solid.clone();
 		die.rotateX(Math.PI);
 		placeCentredAtZ(die, pos.x, -pos.y, seam);
@@ -1479,7 +1739,7 @@ export async function buildBox(
 		d.solid.dispose();
 	});
 
-	return {
+	const result: BuiltBox = {
 		base,
 		lid,
 		placedDice,
@@ -1489,6 +1749,9 @@ export async function buildBox(
 		boundaries,
 		hinge: hinge
 			? { axisZ: seam, clusters: hinge.clusters, partingGap: hinge.partingGap }
-			: undefined
+			: undefined,
+		closure: { ok: true, shellOverlap: 0, maxDiceClip: 0 }
 	};
+	result.closure = checkBoxClosure(result);
+	return result;
 }

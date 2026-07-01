@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Menu, Portal } from '@skeletonlabs/skeleton-svelte';
 	import type { MenuData, MenuItem } from './menu.ts';
-	import { CheckIcon, ChevronLeft, ChevronRight } from '@lucide/svelte';
+	import { Check, ChevronLeft, ChevronRight } from '@lucide/svelte';
 	import type { Snippet } from 'svelte';
 	import MenuLightSwitch from './MenuLightSwitch.svelte';
 
@@ -147,7 +147,7 @@
 				{@render titleContent(item.title)}
 			</Menu.ItemText>
 			<Menu.ItemIndicator class="hidden data-[state=checked]:block">
-				<CheckIcon class="size-4" />
+				<Check class="size-4" />
 			</Menu.ItemIndicator>
 		</Menu.OptionItem>
 	{/if}

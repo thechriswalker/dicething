@@ -6,7 +6,7 @@
 	import { m } from '$lib/paraglide/messages';
 	import {
 		Box,
-		MessageCircleQuestion,
+		MessageCircleQuestionMark,
 		Package,
 		Settings,
 		SlidersHorizontal,
@@ -50,7 +50,7 @@
 			{
 				type: 'action',
 				title: m.splash_about(),
-				icon: MessageCircleQuestion,
+				icon: MessageCircleQuestionMark,
 				action: () => {
 					aboutOpen = true;
 				}

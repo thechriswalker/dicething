@@ -7,7 +7,7 @@
 		Switch,
 		Tabs
 	} from '@skeletonlabs/skeleton-svelte';
-	import { Moon, Settings, Sun, SunMoon, XIcon } from '@lucide/svelte';
+	import { Moon, Settings, Sun, SunMoon, X } from '@lucide/svelte';
 	import type { Snippet } from 'svelte';
 	import type { HTMLButtonAttributes } from 'svelte/elements';
 	import { m } from '$lib/paraglide/messages';
@@ -70,7 +70,7 @@
 						{m.preferences_title()}
 					</Dialog.Title>
 					<Dialog.CloseTrigger class="btn-icon hover:preset-tonal shrink-0">
-						<XIcon class="size-4" />
+						<X class="size-4" />
 					</Dialog.CloseTrigger>
 				</header>
 				<Dialog.Description class="max-h-[calc(85vh-5rem)] overflow-y-auto">

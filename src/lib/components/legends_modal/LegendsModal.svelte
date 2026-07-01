@@ -4,7 +4,7 @@
 	import { m } from '$lib/paraglide/messages';
 	import { legendSetPreview } from '$lib/utils/create_legends';
 	import type { LegendSet } from '$lib/utils/legends';
-	import { PencilIcon, TypeOutline } from '@lucide/svelte';
+	import { Pencil, TypeOutline } from '@lucide/svelte';
 
 	let {
 		current,
@@ -91,7 +91,7 @@
 						close();
 					}}
 				>
-					<PencilIcon class="size-4" />
+					<Pencil class="size-4" />
 					{currentIsBuiltin ? m.legends_clone_builtin_edit() : m.legends_edit_legends()}
 				</button>
 			</section>

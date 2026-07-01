@@ -17,13 +17,13 @@
 	import { defaultStrings } from '$lib/utils/font';
 	import { type LegendSet } from '$lib/utils/legends';
 	import {
-		CopyIcon,
-		DownloadIcon,
-		FileTextIcon,
-		PencilIcon,
-		PlusIcon,
-		Trash2Icon,
-		UploadIcon
+		Copy,
+		Download,
+		FileText,
+		Pencil,
+		Plus,
+		Trash2,
+		Upload
 	} from '@lucide/svelte';
 
 	const savedLegends = getSavedLegends();
@@ -146,7 +146,7 @@
 				disabled={busy}
 				onclick={() => importInput?.click()}
 			>
-				<UploadIcon class="size-4" />
+				<Upload class="size-4" />
 				{m.legends_import()}
 			</button>
 			<Modal>
@@ -155,7 +155,7 @@
 				{/snippet}
 				{#snippet trigger(props)}
 					<button {...props} class="btn preset-filled-primary-500" disabled={busy}>
-						<PlusIcon class="size-4" />
+						<Plus class="size-4" />
 						{m.legends_create_from_font()}
 					</button>
 				{/snippet}
@@ -226,7 +226,7 @@
 								class="btn btn-sm preset-tonal-primary"
 								onclick={() => goto('/legends/' + set.id)}
 							>
-								<PencilIcon class="size-4" />
+								<Pencil class="size-4" />
 								{m.legends_edit()}
 							</button>
 							<button
@@ -234,17 +234,17 @@
 								disabled={busy}
 								onclick={() => cloneCustom(set)}
 							>
-								<CopyIcon class="size-4" />
+								<Copy class="size-4" />
 								{m.legends_clone()}
 							</button>
 							<button class="btn btn-sm preset-tonal-surface" onclick={() => exportCustom(set)}>
-								<DownloadIcon class="size-4" />
+								<Download class="size-4" />
 								{m.legends_export()}
 							</button>
 							<DeleteLegendSetDialog legendId={set.id} legendName={set.name}>
 								{#snippet trigger(props)}
 									<button {...props} type="button" class="btn btn-sm preset-tonal-error">
-										<Trash2Icon class="size-4" />
+										<Trash2 class="size-4" />
 										{m.legends_delete()}
 									</button>
 								{/snippet}
@@ -269,7 +269,7 @@
 							disabled={busy}
 							onclick={() => cloneBuiltin(b)}
 						>
-							<CopyIcon class="size-4" />
+							<Copy class="size-4" />
 							{m.legends_clone()}
 						</button>
 						{#if b.license}
@@ -279,7 +279,7 @@
 								{/snippet}
 								{#snippet trigger(props)}
 									<button {...props} type="button" class="btn btn-sm preset-tonal-surface">
-										<FileTextIcon class="size-4" />
+										<FileText class="size-4" />
 										{m.legends_license()}
 									</button>
 								{/snippet}

@@ -47,24 +47,24 @@
 	import { download, exportSetJson } from '$lib/utils/export';
 	import { event } from '$lib/utils/use_event';
 	import {
-		AlertTriangle,
+		TriangleAlert,
 		Box,
-		DownloadIcon,
-		FileBoxIcon,
-		FileCode2,
+		Download,
+		FileBox,
+		FileCode,
 		Focus,
 		Frame,
-		Grid3X3,
+		Grid3x3,
 		LayoutGrid,
-		PlusIcon,
-		SaveIcon,
+		Plus,
+		Save,
 		Shapes,
-		SparklesIcon,
+		Sparkles,
 		SquareDashed,
 		Squircle,
-		Trash2Icon,
+		Trash2,
 		WandSparkles,
-		XIcon
+		X
 	} from '@lucide/svelte';
 	import { Button } from 'bits-ui';
 	import { mergeProps } from 'svelte-toolbelt';
@@ -1208,17 +1208,17 @@
 	const exportMenu: MenuItemSubmenu = {
 		type: 'submenu',
 		title: m.menu_export(),
-		icon: DownloadIcon,
+		icon: Download,
 		children: [
 			{
 				title: m.menu_export_as_json(),
-				icon: FileCode2,
+				icon: FileCode,
 				type: 'action',
 				action: exportJson
 			},
 			{
 				title: m.menu_export_as_stl(),
-				icon: FileBoxIcon,
+				icon: FileBox,
 				type: 'action',
 				action: () => {
 					goto('/dice/' + setId + '/export');
@@ -1231,7 +1231,7 @@
 <Layout>
 	{#snippet header()}
 		{#if saving}
-			<SaveIcon class="size-4" />
+			<Save class="size-4" />
 		{/if}
 		{#if editingName}
 			<input
@@ -1283,7 +1283,7 @@
 						{#snippet children(tipProps)}
 							{@const merged = mergeTriggerProps(props, tipProps)}
 							<button {...merged} type="button" class="btn preset-filled-error-500">
-								<Trash2Icon class="size-4" />
+								<Trash2 class="size-4" />
 								{m.delete_set_button()}
 							</button>
 						{/snippet}
@@ -1343,7 +1343,7 @@
 								}}
 								class="absolute top-[-8px] right-[-8px] hidden rounded-lg bg-red-500 text-white group-hover:block"
 							>
-								<XIcon size={16} />
+								<X size={16} />
 							</button>
 							<!-- engraving-error badge: this die would export with one or more
 							     broken faces. details are in the tooltip. -->
@@ -1352,7 +1352,7 @@
 									class="text-error-500 absolute bottom-[-6px] left-[-6px] rounded-full bg-white"
 									aria-hidden="true"
 								>
-									<AlertTriangle size={16} />
+									<TriangleAlert size={16} />
 								</div>
 							{/if}
 							<!-- land warning badge: this die can come to rest on an
@@ -1363,7 +1363,7 @@
 									class="absolute right-[-6px] bottom-[-6px] rounded-full bg-white text-amber-500"
 									aria-hidden="true"
 								>
-									<AlertTriangle size={16} />
+									<TriangleAlert size={16} />
 								</div>
 							{/if}
 							<DiePreview {die} legends={setData?.legends!} />
@@ -1384,7 +1384,7 @@
 								class="hover:border-primary-500 hover:shadow-primary-500 flex size-16 cursor-pointer items-center justify-center overflow-hidden rounded-md border text-center hover:shadow-md"
 								aria-label={m.controls_add_new_die()}
 							>
-								<PlusIcon size={32} />
+								<Plus size={32} />
 							</button>
 						{/snippet}
 					</Tooltip>
@@ -1478,7 +1478,7 @@
 								aria-label={m.controls_toggle_gridlines()}
 								onclick={() => {
 									toggleGridHelper();
-								}}><Grid3X3 /></Button.Root
+									}}><Grid3x3 /></Button.Root
 							>
 						{/snippet}
 					</Tooltip>
@@ -1552,7 +1552,7 @@
 								class={'btn-icon ' + (fancy ? 'preset-filled-primary-500' : 'preset-tonal-primary')}
 								aria-label={m.controls_toggle_fancy_render()}
 								aria-pressed={fancy}
-								onclick={toggleFancy}><SparklesIcon /></Button.Root
+								onclick={toggleFancy}><Sparkles /></Button.Root
 							>
 						{/snippet}
 					</Tooltip>
@@ -1568,7 +1568,7 @@
 						class="btn btn-sm preset-filled flex items-center gap-1"
 						onclick={exitFormatPaint}
 					>
-						<XIcon size={16} />
+							<X size={16} />
 						{m.format_painter_exit()}
 					</button>
 				</div>

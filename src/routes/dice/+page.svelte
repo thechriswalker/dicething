@@ -19,7 +19,7 @@
 	import { m } from '$lib/paraglide/messages';
 	import { fromPreset, presets } from '$lib/presets';
 	import { importSetJson } from '$lib/utils/export';
-	import { XIcon } from '@lucide/svelte';
+	import { X } from '@lucide/svelte';
 	import { Progress } from '@skeletonlabs/skeleton-svelte';
 	import { onMount } from 'svelte';
 
@@ -210,7 +210,7 @@
 													class="btn-icon absolute top-2 right-2 rounded-lg bg-red-500 text-white hover:bg-red-600"
 													aria-label={m.delete_set_button()}
 												>
-													<XIcon class="size-4" />
+													<X class="size-4" />
 												</button>
 											{/snippet}
 										</Tooltip>

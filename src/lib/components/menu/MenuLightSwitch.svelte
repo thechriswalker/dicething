@@ -2,12 +2,12 @@
 	import { Menu, Portal } from '@skeletonlabs/skeleton-svelte';
 	import { getLightDarkContext } from '../light_switch/light_dark_context';
 	import {
-		CheckIcon,
+		Check,
 		ChevronLeft,
 		ChevronRight,
-		MoonIcon,
-		SunIcon,
-		SunMoonIcon
+		Moon,
+		Sun,
+		SunMoon
 	} from '@lucide/svelte';
 	import { m } from '$lib/paraglide/messages';
 
@@ -31,9 +31,9 @@
 			</Menu.ItemIndicator>
 		{/if}
 		{#if lightdark.isLight}
-			<SunIcon class="icon-text" />
+			<Sun class="icon-text" />
 		{:else}
-			<MoonIcon class="icon-text" />
+			<Moon class="icon-text" />
 		{/if}
 		<Menu.ItemText>
 			{m.menu_theme()}
@@ -58,11 +58,11 @@
 					value={'dark'}
 				>
 					<Menu.ItemText class={textClass}>
-						<MoonIcon class="icon-text" />
+						<Moon class="icon-text" />
 						{m.menu_theme_dark()}
 					</Menu.ItemText>
 					<Menu.ItemIndicator class={indicatorClass}>
-						<CheckIcon class="size-4" />
+						<Check class="size-4" />
 					</Menu.ItemIndicator>
 				</Menu.OptionItem>
 				<Menu.OptionItem
@@ -76,11 +76,11 @@
 					value={'system'}
 				>
 					<Menu.ItemText class={textClass}>
-						<SunMoonIcon class="icon-text" />
+						<SunMoon class="icon-text" />
 						{m.menu_theme_system()}
 					</Menu.ItemText>
 					<Menu.ItemIndicator class={indicatorClass}>
-						<CheckIcon class="size-4" />
+						<Check class="size-4" />
 					</Menu.ItemIndicator>
 				</Menu.OptionItem>
 				<Menu.OptionItem
@@ -94,11 +94,11 @@
 					value={'light'}
 				>
 					<Menu.ItemText class={textClass}>
-						<SunIcon class="icon-text" />
+						<Sun class="icon-text" />
 						{m.menu_theme_light()}
 					</Menu.ItemText>
 					<Menu.ItemIndicator class={indicatorClass}>
-						<CheckIcon class="size-4" />
+						<Check class="size-4" />
 					</Menu.ItemIndicator>
 				</Menu.OptionItem>
 			</Menu.Content>

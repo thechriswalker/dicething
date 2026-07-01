@@ -45,7 +45,7 @@
 		Mesh,
 		MeshBasicMaterial
 	} from 'three';
-	import { AlertTriangle, ArrowLeftIcon, DownloadIcon, Frame, SparklesIcon } from '@lucide/svelte';
+	import { TriangleAlert, ArrowLeft, Download, Frame, Sparkles } from '@lucide/svelte';
 	import { Button } from 'bits-ui';
 
 	const setId = page.params.setId ?? '';
@@ -547,7 +547,7 @@
 <Layout>
 	{#snippet header()}
 		<a class="btn preset-tonal-surface" href={'/dice/' + setId}>
-			<ArrowLeftIcon class="size-4" />
+			<ArrowLeft class="size-4" />
 		</a>
 		<p class="text-primary-500 h4">{setData?.name}</p>
 	{/snippet}
@@ -563,7 +563,7 @@
 								class={'btn-icon ' + (fancy ? 'preset-filled-primary-500' : 'preset-tonal-primary')}
 								aria-label={m.export_toggle_fancy_render()}
 								aria-pressed={fancy}
-								onclick={toggleFancy}><SparklesIcon /></Button.Root
+								onclick={toggleFancy}><Sparkles /></Button.Root
 							>
 						{/snippet}
 					</Tooltip>
@@ -578,7 +578,7 @@
 										(highlightProblems ? 'preset-filled-warning-500' : 'preset-tonal-warning')}
 									aria-label={m.export_toggle_problem_highlight()}
 									aria-pressed={highlightProblems}
-									onclick={toggleHighlight}><AlertTriangle /></Button.Root
+									onclick={toggleHighlight}><TriangleAlert /></Button.Root
 								>
 							{/snippet}
 						</Tooltip>
@@ -783,7 +783,7 @@
 												class="text-error-500 cursor-help"
 												aria-label={m.engraving_errors_title()}
 											>
-												<AlertTriangle size={16} />
+												<TriangleAlert size={16} />
 											</span>
 										{/snippet}
 									</Tooltip>
@@ -803,7 +803,7 @@
 												class="text-warning-600-400 cursor-help"
 												aria-label={m.mesh_check_title()}
 											>
-												<AlertTriangle size={16} />
+												<TriangleAlert size={16} />
 											</span>
 										{/snippet}
 									</Tooltip>
@@ -964,7 +964,7 @@
 				disabled={nothingToExport || exporting}
 				onclick={exportModel}
 			>
-				<DownloadIcon class="size-4" />
+				<Download class="size-4" />
 				{exporting ? m.export_3d_button_working() : m.export_3d_button()}
 			</button>
 		</div>

@@ -398,9 +398,98 @@ describe('box builder produces printable solids', () => {
 			// disable magnets so the slice test sees only the die cavity.
 			const config = makeConfig(set);
 			config.params.magnets.enabled = false;
+			config.params.cavityBevel = 0;
 			const built = await buildBox(set, config);
 			expectDraftFree(built.base, built.baseHeight, config.params.floor, config.params.bevel);
 			expectDraftFree(built.lid, built.lidHeight, config.params.floor, config.params.bevel);
 		}
+	});
+
+	it('closes cleanly over the base dice (unhinged and hinged)', async () => {
+		const cases: Array<{
+			label: string;
+			kinds: Array<keyof typeof dice>;
+			hinge: boolean;
+			tray?: { trayDepthBase: number; trayDepthLid: number };
+		}> = [
+			{ label: 'mixed unhinged', kinds: ['d6_cube', 'd8_trapezohedron', 'd20_icosahedron'], hinge: false },
+			{
+				label: 'coin with tray',
+				kinds: ['d2_coin'],
+				hinge: false,
+				tray: { trayDepthBase: 1, trayDepthLid: 1 }
+			},
+			{
+				label: 'mixed hinged',
+				kinds: ['d6_cube', 'd8_trapezohedron', 'd20_icosahedron'],
+				hinge: true
+			}
+		];
+		for (const { label, kinds, hinge, tray } of cases) {
+			const set = makeSet(kinds);
+			const config = makeConfig(set, { rows: kinds.length > 1 ? 2 : 1, ...tray });
+			config.params.hinge.enabled = hinge;
+			const built = await buildBox(set, config);
+			expect(built.closure.ok, label).toBe(true);
+			expect(built.closure.shellOverlap, `${label} shell`).toBeLessThan(0.5);
+			expect(built.closure.maxDiceClip, `${label} dice`).toBeLessThan(0.5);
+		}
+	});
+
+	it('applies a seam bevel that widens the cavity opening', async () => {
+		const set = makeSet(['d6_cube']);
+		const plain = await buildBox(set, makeConfig(set, { cavityBevel: 0 }));
+		const bevelled = await buildBox(set, makeConfig(set, { cavityBevel: 1 }));
+		plain.base.computeBoundingBox();
+		bevelled.base.computeBoundingBox();
+		expect(bevelled.base.boundingBox!.max.z).toBeCloseTo(plain.base.boundingBox!.max.z, 6);
+		// the bevel removes more material near the seam, so the solid is lighter.
+		const m0 = geometryToManifold(plain.base);
+		const m1 = geometryToManifold(bevelled.base);
+		expect(m1.volume()).toBeLessThan(m0.volume());
+		m0.delete();
+		m1.delete();
+	});
+
+	it('keeps d8/d10 cavities printable with a bevel', async () => {
+		for (const kind of ['d8_trapezohedron', 'd10_trapezohedron'] as const) {
+			const set = makeSet([kind]);
+			const built = await buildBox(set, makeConfig(set, { cavityBevel: 0.5 }));
+			expectPrintable(built.base);
+			expectPrintable(built.lid);
+		}
+	});
+
+	it('places the cavity bevel at the recess floor, not the seam', async () => {
+		const set = makeSet(['d6_cube']);
+		const trayDepth = 4;
+		const bevel = 1;
+		const noBevel = await buildBox(
+			set,
+			makeConfig(set, { trayDepthBase: trayDepth, cavityBevel: 0 })
+		);
+		const bevelled = await buildBox(
+			set,
+			makeConfig(set, { trayDepthBase: trayDepth, cavityBevel: bevel })
+		);
+		const seam = noBevel.baseHeight;
+		const solidSliceArea = (geo: BufferGeometry, z: number) => {
+			const man = geometryToManifold(geo);
+			const slice = man.slice(z);
+			const area = slice.area();
+			slice.delete();
+			man.delete();
+			return area;
+		};
+		// at the seam rim the cross-section should match (bevel is not here).
+		expect(solidSliceArea(bevelled.base, seam - 0.2)).toBeCloseTo(
+			solidSliceArea(noBevel.base, seam - 0.2),
+			0
+		);
+		// inside the chamfer band (just below the recess floor) the bevel cuts extra.
+		const chamferZ = seam - trayDepth - bevel / 2;
+		expect(solidSliceArea(bevelled.base, chamferZ)).toBeLessThan(
+			solidSliceArea(noBevel.base, chamferZ) - 1
+		);
 	});
 });

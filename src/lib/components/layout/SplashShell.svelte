@@ -1,7 +1,7 @@
 <script lang="ts">
 	import Layout from '$lib/components/layout/Layout.svelte';
 	import { m } from '$lib/paraglide/messages';
-	import { BoxIcon, TypeOutlineIcon, GithubIcon, GitBranchIcon, PackageIcon } from '@lucide/svelte';
+	import { Box, TypeOutline, GitBranch, Package } from '@lucide/svelte';
 	import BouncyDice from '$lib/components/bouncy_dice/BouncyDice.svelte';
 	import { PUBLIC_APP_REPO_URL, PUBLIC_APP_VERSION } from '$env/static/public';
 	import type { Snippet } from 'svelte';
@@ -19,21 +19,21 @@
 
 			<div class="sm:flex-row1 flex w-full flex-col justify-center gap-4">
 				<a href="/dice" class="btn btn-lg preset-filled-primary-500 flex-1 rounded-xl text-2xl">
-					<BoxIcon class="inline-block size-[1em]" />
+					<Box class="inline-block size-[1em]" />
 					{m.home_create_dice()}
 				</a>
 				<a
 					href="/legends"
 					class="btn btn-lg preset-filled-secondary-500 flex-1 rounded-xl text-2xl"
 				>
-					<TypeOutlineIcon class="inline-block size-[1em]" />
+					<TypeOutline class="inline-block size-[1em]" />
 					{m.home_create_legends()}
 				</a>
 				<a
 					href="/boxes"
 					class="btn btn-lg preset-filled-tertiary-500 relative flex-1 rounded-xl text-2xl"
 				>
-					<PackageIcon class="inline-block size-[1em]" />
+					<Package class="inline-block size-[1em]" />
 					{m.home_create_boxes()}
 					<span
 						class="badge preset-filled-warning-500 absolute -top-2 -right-2 rounded-full px-2 py-0.5 text-xs uppercase"
@@ -46,10 +46,10 @@
 				<span>{PUBLIC_APP_VERSION}</span>
 				<a href={PUBLIC_APP_REPO_URL} class="inline-flex items-center gap-1 hover:underline">
 					{#if PUBLIC_APP_REPO_URL.includes('github.com')}
-						<GithubIcon class="size-4" />
+						<GitBranch class="size-4" />
 						Source on GitHub
 					{:else}
-						<GitBranchIcon class="size-4" />
+						<GitBranch class="size-4" />
 						Source Code
 					{/if}
 				</a>

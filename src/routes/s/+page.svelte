@@ -6,7 +6,7 @@
 	import { m } from '$lib/paraglide/messages';
 	import { importSetJson } from '$lib/utils/export';
 	import { decodeShareData } from '$lib/utils/share';
-	import { AlertTriangle } from '@lucide/svelte';
+	import { TriangleAlert } from '@lucide/svelte';
 	import { onMount } from 'svelte';
 
 	type View =
@@ -64,7 +64,7 @@
 				<p class="text-surface-600-400">{m.share_import_loading()}</p>
 			{:else if view.kind === 'error'}
 				<h1 class="h3 flex items-center gap-2">
-					<AlertTriangle class="text-error-500 size-6" />
+					<TriangleAlert class="text-error-500 size-6" />
 					{m.share_import_error_title()}
 				</h1>
 				<p class="text-surface-600-400 max-w-prose">{view.message}</p>

@@ -12,12 +12,13 @@
 	import Slider from '$lib/components/slider/Slider.svelte';
 	import { m } from '$lib/paraglide/messages';
 	import {
-		XIcon,
-		RotateCcwIcon,
-		WandSparklesIcon,
-		ZoomInIcon,
-		ZoomOutIcon,
-		MaximizeIcon
+		X,
+		RotateCcw,
+		WandSparkles,
+		ZoomIn,
+		ZoomOut,
+		Maximize,
+		SquareCenterlineDashedHorizontal
 	} from '@lucide/svelte';
 
 	type Props = {
@@ -47,6 +48,7 @@
 	let baseX = $state(50);
 	let baseY = $state(50);
 	let zoom = $state(1);
+	let snapToCenter = $state(true);
 	let initialSnapshot = '';
 	// die x/y/rotation are mutated in place; bump this after each change so hull
 	// outlines and overlap highlighting stay in sync during drags.
@@ -65,6 +67,7 @@
 		lp = layoutParamsFrom(params);
 		shape = layoutShapeFrom(params);
 		selected = null;
+		snapToCenter = true;
 		// a previously-saved box may be too small for its magnets/chamfer; open in a
 		// valid state so the preview is correct from the start.
 		ensureValid();
@@ -195,6 +198,10 @@
 			for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
 				const nx = -(poly[i].y - poly[j].y);
 				const ny = poly[i].x - poly[j].x;
+				// skip zero-length edges (near-duplicate hull vertices).
+				if (nx * nx + ny * ny < 1e-12) {
+					continue;
+				}
 				let minA = Infinity;
 				let maxA = -Infinity;
 				let minB = Infinity;
@@ -336,7 +343,7 @@
 		| { kind: 'rotate'; dieId: string; startAngle: number; startRot: number }
 		| { kind: 'resize'; sx: number; sy: number };
 	let drag: Drag | null = null;
-	// active alignment guides while dragging a die (snapped to another die's centre).
+	// active alignment guides while dragging a die (another die's centre line).
 	let guides = $state<{ x: number | null; y: number | null }>({ x: null, y: null });
 
 	function clientToWorld(e: PointerEvent): Vector2 {
@@ -418,11 +425,13 @@
 					gy = o.y;
 				}
 			}
-			if (gx !== null) {
-				nx = gx;
-			}
-			if (gy !== null) {
-				ny = gy;
+			if (snapToCenter) {
+				if (gx !== null) {
+					nx = gx;
+				}
+				if (gy !== null) {
+					ny = gy;
+				}
 			}
 			if (!tryDie(it, nx, ny)) {
 				// fall back to whichever single axis still fits (anchor the other
@@ -431,11 +440,7 @@
 					tryDie(it, d.orig.x, ny);
 				}
 			}
-			// only show a guide for an axis the die actually landed on.
-			guides = {
-				x: gx !== null && Math.abs(it.x - gx) < 1e-6 ? gx : null,
-				y: gy !== null && Math.abs(it.y - gy) < 1e-6 ? gy : null
-			};
+			guides = { x: gx, y: gy };
 		} else if (d.kind === 'rotate') {
 			const it = items.find((i) => i.dieId === d.dieId);
 			if (!it) {
@@ -558,7 +563,7 @@
 					aria-label={m.boxes_layout_cancel()}
 					onclick={onClose}
 				>
-					<XIcon class="size-4" />
+					<X class="size-4" />
 				</button>
 			</header>
 
@@ -588,11 +593,11 @@
 					/>
 				</div>
 				<button class="btn btn-sm preset-tonal-primary" onclick={autoArrange}>
-					<WandSparklesIcon class="size-4" />
+					<WandSparkles class="size-4" />
 					<span>{m.boxes_layout_auto_arrange()}</span>
 				</button>
 				<button class="btn btn-sm preset-tonal" onclick={reset}>
-					<RotateCcwIcon class="size-4" />
+					<RotateCcw class="size-4" />
 					<span>{m.boxes_layout_reset()}</span>
 				</button>
 			</div>
@@ -711,21 +716,26 @@
 					</p>
 				{:else}
 					<div class="absolute top-2 right-2 z-10 flex flex-col gap-1">
-						<button
-							class="btn-icon btn-icon-sm preset-filled-surface-100-900"
-							aria-label={m.boxes_layout_zoom_in()}
-							onclick={() => zoomBy(ZOOM_STEP)}><ZoomInIcon class="size-4" /></button
-						>
-						<button
-							class="btn-icon btn-icon-sm preset-filled-surface-100-900"
-							aria-label={m.boxes_layout_zoom_out()}
-							onclick={() => zoomBy(1 / ZOOM_STEP)}><ZoomOutIcon class="size-4" /></button
-						>
-						<button
-							class="btn-icon btn-icon-sm preset-filled-surface-100-900"
-							aria-label={m.boxes_layout_zoom_fit()}
-							onclick={fitView}><MaximizeIcon class="size-4" /></button
-						>
+							<button
+								class="btn-icon btn-icon-sm preset-filled-surface-100-900"
+								aria-label={m.boxes_layout_zoom_in()}
+								onclick={() => zoomBy(ZOOM_STEP)}><ZoomIn class="size-4" /></button
+							>
+							<button
+								class="btn-icon btn-icon-sm preset-filled-surface-100-900"
+								aria-label={m.boxes_layout_zoom_out()}
+								onclick={() => zoomBy(1 / ZOOM_STEP)}><ZoomOut class="size-4" /></button
+							>
+							<button
+								class="btn-icon btn-icon-sm preset-filled-surface-100-900"
+								aria-label={m.boxes_layout_zoom_fit()}
+								onclick={fitView}><Maximize class="size-4" /></button
+							>
+							<button 
+								class="btn-icon btn-icon-sm preset-filled-surface-100-900"
+								aria-label={m.boxes_layout_snap_to_center()}
+								onclick={() => snapToCenter = !snapToCenter}><SquareCenterlineDashedHorizontal class="size-4" /></button
+							>
 					</div>
 					<svg
 						bind:this={svgEl}

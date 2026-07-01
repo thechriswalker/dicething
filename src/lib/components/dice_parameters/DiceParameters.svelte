@@ -16,11 +16,11 @@
 	import { Vector2 } from 'three';
 	import { degToRad, radToDeg } from 'three/src/math/MathUtils.js';
 	import {
-		AlertTriangle,
+		TriangleAlert,
 		ChevronDown,
-		CopyIcon,
-		InfoIcon,
-		PencilIcon,
+		Copy,
+		Info,
+		Pencil,
 		Redo2,
 		Undo2
 	} from '@lucide/svelte';
@@ -437,7 +437,7 @@
 				class="text-surface-500 hover:text-primary-500 inline-flex items-center"
 				aria-label={text}
 			>
-				<InfoIcon class="size-3.5" />
+				<Info class="size-3.5" />
 			</span>
 		{/snippet}
 	</Tooltip>
@@ -472,7 +472,7 @@
 				class="text-error-500 flex cursor-pointer list-none items-center justify-between gap-2 p-3 font-semibold [&::-webkit-details-marker]:hidden"
 			>
 				<span class="flex items-center gap-2">
-					<AlertTriangle class="size-4 shrink-0" />
+					<TriangleAlert class="size-4 shrink-0" />
 					{m.engraving_errors_title()}
 				</span>
 				<ChevronDown class="size-4 shrink-0 transition-transform group-open:rotate-180" />
@@ -486,7 +486,7 @@
 				class="flex cursor-pointer list-none items-center justify-between gap-2 p-3 font-semibold text-amber-500 [&::-webkit-details-marker]:hidden"
 			>
 				<span class="flex items-center gap-2">
-					<AlertTriangle class="size-4 shrink-0" />
+					<TriangleAlert class="size-4 shrink-0" />
 					{m.dice_land_warning_title()}
 				</span>
 				<ChevronDown class="size-4 shrink-0 transition-transform group-open:rotate-180" />
@@ -529,7 +529,7 @@
 			<div class="flex items-center justify-between">
 				<span class="font-semibold">{m.dice_parameters_json_title()}</span>
 				<button type="button" class="btn btn-sm preset-tonal-primary" onclick={copyJson}>
-					<CopyIcon class="size-4" />
+					<Copy class="size-4" />
 					{m.dice_parameters_json_copy()}
 				</button>
 			</div>
@@ -595,7 +595,7 @@
 						class="btn btn-sm preset-tonal-secondary justify-center"
 						onclick={copyOrdering}
 					>
-						<CopyIcon class="size-4" />
+						<Copy class="size-4" />
 						{orderingCopied
 							? m.dice_parameters_copy_ordering_done()
 							: m.dice_parameters_copy_ordering()}
@@ -900,7 +900,7 @@
 													onEditLegends?.();
 												}}
 											>
-												<PencilIcon class="size-4" />
+												<Pencil class="size-4" />
 												{isBuiltin(legends.id)
 													? m.legends_clone_builtin_edit()
 													: m.legends_edit_legends()}

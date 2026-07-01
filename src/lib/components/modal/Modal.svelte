@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { XIcon } from '@lucide/svelte';
+	import { X } from '@lucide/svelte';
 	import { Dialog, Portal, useDialog } from '@skeletonlabs/skeleton-svelte';
 	import type { Snippet } from 'svelte';
 	import type { HTMLButtonAttributes } from 'svelte/elements';
@@ -40,7 +40,7 @@
 				<header class="flex items-start justify-between">
 					{#if title}<Dialog.Title class="text-lg font-bold">{@render title()}</Dialog.Title>{/if}
 					<Dialog.CloseTrigger class="btn-icon hover:preset-tonal">
-						<XIcon class="size-4" />
+						<X class="size-4" />
 					</Dialog.CloseTrigger>
 				</header>
 				<Dialog.Description>
