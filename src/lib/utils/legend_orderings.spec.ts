@@ -1,14 +1,14 @@
 import { describe, it, expect } from 'vitest';
-import dice from './index';
+import dice from '$lib/dice';
 import {
 	getOrderings,
 	applyOrderingToFaces,
 	resolveOrdering,
 	STANDARD_ORDERING,
 	CUSTOM_ORDERING
-} from './legend_orderings';
+} from '$lib/utils/legend_orderings';
 import { legendForValue } from '$lib/utils/legends';
-import { spindownOrders } from './spindown_orders';
+import { spindownOrders } from '$lib/utils/spindown_orders';
 import type { DieFaceModel } from '$lib/interfaces/dice';
 
 function buildFaces(kind: keyof typeof dice): Array<DieFaceModel> {

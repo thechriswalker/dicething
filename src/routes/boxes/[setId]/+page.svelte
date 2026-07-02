@@ -776,7 +776,38 @@
 						onChange={(v) => (dieOpacity = v)}
 					/>
 				</li>
-				<li class="card preset-filled-surface-100-900 flex gap-2 p-2">
+				{#if built}
+					<li class="card preset-filled-surface-100-900 flex w-56 flex-col gap-1 p-2 text-sm">
+						<span class="flex justify-between" title={m.boxes_lid_position_hint()}>
+							<span>{m.boxes_hinge_position()}</span>
+							<span class="text-surface-600-400 tabular-nums">{Math.round(lidClosedT * 100)}%</span>
+						</span>
+						<div class="flex items-center gap-2">
+							<Tooltip content={boxClosed ? m.boxes_open_box() : m.boxes_close_box()} side="right">
+								{#snippet children(props)}
+									<Button.Root
+										{...props}
+										class={'btn-icon shrink-0 ' +
+											(boxClosed ? 'preset-filled-primary-500' : 'preset-tonal-primary')}
+										aria-label={boxClosed ? m.boxes_open_box() : m.boxes_close_box()}
+										aria-pressed={boxClosed}
+										onclick={toggleClosed}
+										>{#if boxClosed}<Package />{:else}<PackageOpen />{/if}</Button.Root
+									>
+								{/snippet}
+							</Tooltip>
+							<Slider
+								class="min-w-0 flex-1 py-1"
+								value={lidClosedT}
+								min={0}
+								max={1}
+								step={0.01}
+								onChange={setLidClosedT}
+							/>
+						</div>
+					</li>
+				{/if}
+				<li><div class="card preset-filled-surface-100-900 inline-flex gap-2 p-2">
 					<Tooltip content={m.controls_toggle_fancy_render()} side="right">
 						{#snippet children(props)}
 							<Button.Root
@@ -828,38 +859,7 @@
 							{/snippet}
 						</Tooltip>
 					{/if}
-				</li>
-				{#if built}
-					<li class="card preset-filled-surface-100-900 flex w-56 flex-col gap-1 p-2 text-sm">
-						<span class="flex justify-between" title={m.boxes_lid_position_hint()}>
-							<span>{m.boxes_hinge_position()}</span>
-							<span class="text-surface-600-400 tabular-nums">{Math.round(lidClosedT * 100)}%</span>
-						</span>
-						<div class="flex items-center gap-2">
-							<Tooltip content={boxClosed ? m.boxes_open_box() : m.boxes_close_box()} side="right">
-								{#snippet children(props)}
-									<Button.Root
-										{...props}
-										class={'btn-icon shrink-0 ' +
-											(boxClosed ? 'preset-filled-primary-500' : 'preset-tonal-primary')}
-										aria-label={boxClosed ? m.boxes_open_box() : m.boxes_close_box()}
-										aria-pressed={boxClosed}
-										onclick={toggleClosed}
-										>{#if boxClosed}<Package />{:else}<PackageOpen />{/if}</Button.Root
-									>
-								{/snippet}
-							</Tooltip>
-							<Slider
-								class="min-w-0 flex-1 py-1"
-								value={lidClosedT}
-								min={0}
-								max={1}
-								step={0.01}
-								onChange={setLidClosedT}
-							/>
-						</div>
-					</li>
-				{/if}
+				</div></li>
 				{#if building}
 					<li>
 						<BoxProgressDie

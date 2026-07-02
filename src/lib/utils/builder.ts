@@ -25,7 +25,7 @@ import {
 } from 'three';
 import { DefaultDivisions, engrave, Part } from './engraving';
 import { debugLegendName, Legend, type LegendSet } from './legends';
-import { applyOrderingToFaces, STANDARD_ORDERING } from '$lib/dice/legend_orderings';
+import { applyOrderingToFaces, STANDARD_ORDERING } from '$lib/utils/legend_orderings';
 
 // A single face whose legend cannot be engraved (i.e. would cause export to
 // produce a blank/broken face). `reason` distinguishes a symbol that is simply

@@ -40,13 +40,13 @@ const defaultTwist = 0;
 
 function barrelParameters(sides: number): Array<DiceParameter> {
 	const params: Array<DiceParameter> = [
-		{ id: 'barrel_height', defaultValue: defaultHeight, min: 6, max: 60, step: 1 },
-		{ id: 'barrel_radius', defaultValue: sides === 4 ? defaultD4Radius : defaultRadius, min: 4, max: 40, step: 0.5 }
+		{ id: 'barrel_height', defaultValue: defaultHeight, min: 6, max: 60, step: 0.1 },
+		{ id: 'barrel_radius', defaultValue: sides === 4 ? defaultD4Radius : defaultRadius, min: 4, max: 40, step: 0.1 }
 	];
 	// the D4 (m = 2) has no caps, so neither the cap height nor the twist apply.
 	if (sides / 2 >= 3) {
 		params.push(
-			{ id: 'barrel_cap', defaultValue: defaultCapHeight, min: 1, max: 30, step: 0.2 },
+			{ id: 'barrel_cap', defaultValue: defaultCapHeight, min: 1, max: 30, step: 0.1 },
 			{ id: 'barrel_twist', defaultValue: defaultTwist, min: 0, max: 0.95, step: 0.01 }
 		);
 	}

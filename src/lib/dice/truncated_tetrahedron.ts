@@ -64,7 +64,7 @@ export const TruncatedTetrahedronD4: DieModel = {
 	id: 'd4_truncated_tetrahedron',
 	name: 'D4 Truncated',
 	parameters: [
-		{ id: 'trunc_tetra_size', defaultValue: defaultEdge, min: 10, max: 60, step: 0.5 },
+		{ id: 'trunc_tetra_size', defaultValue: defaultEdge, min: 10, max: 60, step: 0.1 },
 		{
 			id: 'trunc_tetra_truncation',
 			defaultValue: defaultTruncation,

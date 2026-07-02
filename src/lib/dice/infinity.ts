@@ -35,8 +35,8 @@ const yAxis = new Vector3(0, 1, 0);
 const zAxis = new Vector3(0, 0, 1);
 
 const infinityParameters: Array<DiceParameter> = [
-	{ id: 'infinity_width', defaultValue: defaultWidth, min: 6, max: 40, step: 0.5 },
-	{ id: 'infinity_length', defaultValue: defaultLength, min: 4, max: 60, step: 0.5 }
+	{ id: 'infinity_width', defaultValue: defaultWidth, min: 6, max: 40, step: 0.1 },
+	{ id: 'infinity_length', defaultValue: defaultLength, min: 4, max: 60, step: 0.1 }
 ];
 
 // the flat outline of one number face, centred on its rectangle (so the legend,

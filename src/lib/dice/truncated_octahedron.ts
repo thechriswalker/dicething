@@ -73,8 +73,8 @@ export const TruncatedOctahedronD8: DieModel = {
 	id: 'd8_truncated_octahedron',
 	name: 'D8 Truncated',
 	parameters: [
-		{ id: SIZE_PARAM, defaultValue: defaultSize, min: 12, max: 60, step: 0.5 },
-		{ id: TRUNCATION_PARAM, defaultValue: defaultTruncation, min: 0, max: 10, step: 0.5 }
+		{ id: SIZE_PARAM, defaultValue: defaultSize, min: 12, max: 60, step: 0.1 },
+		{ id: TRUNCATION_PARAM, defaultValue: defaultTruncation, min: 0, max: 10, step: 0.05 }
 	],
 	build(params) {
 		const size = params[SIZE_PARAM] ?? defaultSize;

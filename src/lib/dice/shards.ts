@@ -21,14 +21,14 @@ const shardParameters: Array<DiceParameter> = [
 		defaultValue: defaultHeight,
 		min: 6,
 		max: 60,
-		step: 1
+		step: 0.1
 	},
 	{
 		id: 'shard_radius',
 		defaultValue: defaultRadius,
 		min: 6,
 		max: 60,
-		step: 0.5
+		step: 0.1
 	},
 	{
 		id: 'shard_cap',
@@ -36,14 +36,14 @@ const shardParameters: Array<DiceParameter> = [
 		defaultValue: defaultCapHeight,
 		min: 1,
 		max: 30,
-		step: 0.2
+		step: 0.1
 	},
 	{
 		id: 'shard_twist',
 		defaultValue: defaultCapTwist,
 		min: 0,
-		max: 0.98,
-		step: 0.02
+		max: 0.97,
+		step: 0.01
 	}
 ];
 

@@ -63,14 +63,14 @@ const coinParameters: Array<DiceParameter> = [
 		defaultValue: defaultDiameter,
 		min: 8,
 		max: 60,
-		step: 0.5
+		step: 0.1
 	},
 	{
 		id: 'coin_thickness',
 		defaultValue: defaultThickness,
 		min: 1.5,
 		max: 20,
-		step: 0.1
+		step: 0.05
 	},
 	{
 		id: 'coin_segments',
@@ -89,7 +89,7 @@ const coinParameters: Array<DiceParameter> = [
 		defaultValue: defaultBevelAngle,
 		min: 0,
 		max: 45,
-		step: 1
+		step: 0.1
 	},
 	{
 		id: 'coin_bevel_amount',

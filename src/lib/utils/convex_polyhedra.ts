@@ -12,7 +12,7 @@
 // / antiprism / snub) source. `dualSeedFace` derives one dual face directly from
 // the source vertices without a convex hull.
 
-import { numberingOrders } from '$lib/dice/numbering_orders';
+import { numberingOrders } from '$lib/utils/numbering_orders';
 import type { DiceParameter, DieFaceModel, DieModel } from '$lib/interfaces/dice';
 import { Transform } from '$lib/utils/3d';
 import { gridExplode } from '$lib/utils/explode';
@@ -417,7 +417,7 @@ export function convexPolyhedronDie(opts: ConvexPolyhedronOptions): DieModel {
 			defaultValue: defaultSize,
 			min: opts.minSize ?? 6,
 			max: opts.maxSize ?? 60,
-			step: opts.sizeStep ?? 0.5
+			step: opts.sizeStep ?? 0.1
 		}
 	];
 	if (opts.extraParameters) {

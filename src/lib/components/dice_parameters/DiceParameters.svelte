@@ -12,7 +12,7 @@
 		type EngravingError
 	} from '$lib/utils/builder';
 	import { Legend, type LegendSet } from '$lib/utils/legends';
-	import { getOrderings, CUSTOM_ORDERING, STANDARD_ORDERING } from '$lib/dice/legend_orderings';
+	import { getOrderings, CUSTOM_ORDERING, STANDARD_ORDERING } from '$lib/utils/legend_orderings';
 	import { Vector2 } from 'three';
 	import { degToRad, radToDeg } from 'three/src/math/MathUtils.js';
 	import {
@@ -306,18 +306,18 @@
 	let faceLegendOffset = $derived(fparams[displayFace]?.offset ?? new Vector2(0, 0));
 	let faceRotationDegrees = $derived(radToDeg(fparams[displayFace]?.rotation ?? 0));
 
-	// ---- developer mode: raw + JSON parameter editing ----
+	// ---- parameter editing mode: controls / raw / JSON (JSON is dev-only) ----
 	const prefs = getPreferences();
 	let devMode = $derived(prefs.developerMode);
-	// editing mode for the parameter panel. only meaningful in developer mode.
 	type ParamMode = 'controls' | 'raw' | 'json';
 	let paramMode = $state<ParamMode>('controls');
-	// when developer mode is turned off, snap back to the normal controls.
+	// JSON editing is dev-only; snap back when developer mode is turned off.
 	$effect(() => {
-		if (!devMode && paramMode !== 'controls') {
+		if (!devMode && paramMode === 'json') {
 			paramMode = 'controls';
 		}
 	});
+	let widePanel = $derived(devMode || paramMode !== 'controls');
 
 	// every numeric die parameter (model params + the two engraving params) so the
 	// raw editor can expose each one as a free text field.
@@ -364,6 +364,162 @@
 		}
 		return n < p.min || n > p.max;
 	}
+
+	// raw text drafts for per-face fields (keyed by display face + field name).
+	let rawFaceDrafts = $state<Record<string, string>>({});
+	function rawFaceKey(field: string): string {
+		return `face.${displayFace}.${field}`;
+	}
+	function rawFaceValue(field: string): string {
+		const key = rawFaceKey(field);
+		if (key in rawFaceDrafts) {
+			return rawFaceDrafts[key];
+		}
+		switch (field) {
+			case 'scale':
+				return String(faceLegendScale);
+			case 'offset.x':
+				return String(faceLegendOffset.x);
+			case 'offset.y':
+				return String(faceLegendOffset.y);
+			case 'rotation':
+				return String(fparams[displayFace]?.rotation ?? 0);
+			case 'extraDepth':
+				return String(fparams[displayFace]?.extraDepth ?? 0);
+			default:
+				return '';
+		}
+	}
+	function setRawFace(field: string, text: string) {
+		rawFaceDrafts[rawFaceKey(field)] = text;
+		const n = Number(text);
+		if (text.trim() === '' || !Number.isFinite(n)) {
+			return;
+		}
+		updateTargetFaces((p) => {
+			switch (field) {
+				case 'scale':
+					p.scale = n;
+					break;
+				case 'rotation':
+					p.rotation = n;
+					break;
+				case 'extraDepth':
+					p.extraDepth = n;
+					break;
+				case 'offset.x':
+					p.offset = (p.offset?.clone() ?? new Vector2(0, 0)).setX(n);
+					break;
+				case 'offset.y':
+					p.offset = (p.offset?.clone() ?? new Vector2(0, 0)).setY(n);
+					break;
+			}
+		});
+	}
+	type FaceRawField = 'scale' | 'rotation' | 'extraDepth' | 'offset';
+	function faceFieldIsSet(field: FaceRawField): boolean {
+		if (displayFace < 0) {
+			return false;
+		}
+		const params = fparams[displayFace] ?? {};
+		if (field === 'offset') {
+			return 'offset' in params;
+		}
+		return field in params;
+	}
+	function setFaceFieldUnset(field: FaceRawField, unset: boolean) {
+		for (const i of targetFaces) {
+			const params = { ...(fparams[i] ?? {}) };
+			if (unset) {
+				if (field === 'offset') {
+					delete params.offset;
+				} else {
+					delete params[field];
+				}
+			} else {
+				switch (field) {
+					case 'scale':
+						params.scale =
+							fparams[i]?.scale ?? builder.getDefaultScaleForLegend(params.legend ?? faces[i]?.defaultLegend);
+						break;
+					case 'offset':
+						params.offset = (fparams[i]?.offset?.clone() ?? new Vector2(0, 0)).clone();
+						break;
+					case 'rotation':
+						params.rotation = fparams[i]?.rotation ?? 0;
+						break;
+					case 'extraDepth':
+						params.extraDepth = fparams[i]?.extraDepth ?? 0;
+						break;
+				}
+			}
+			fparams[i] = params;
+		}
+		const prefix = `face.${displayFace}.`;
+		rawFaceDrafts = Object.fromEntries(
+			Object.entries(rawFaceDrafts).filter(([k]) => !k.startsWith(prefix))
+		);
+	}
+	function faceOutOfRange(
+		field: string,
+		text: string,
+		min: number,
+		max: number
+	): boolean {
+		const n = Number(text);
+		if (text.trim() === '' || !Number.isFinite(n)) {
+			return true;
+		}
+		return n < min || n > max;
+	}
+
+	const faceRawFields = [
+		{
+			id: 'scale',
+			label: () => m.face_parameters_scale(),
+			min: 0.1,
+			max: 5,
+			step: 0.01,
+			unsetField: 'scale' as const,
+			showUnset: true
+		},
+		{
+			id: 'offset.x',
+			label: () => m.face_parameters_offset_x(),
+			min: -20,
+			max: 20,
+			step: 0.1,
+			unsetField: 'offset' as const,
+			showUnset: true
+		},
+		{
+			id: 'offset.y',
+			label: () => m.face_parameters_offset_y(),
+			min: -20,
+			max: 20,
+			step: 0.1,
+			unsetField: 'offset' as const,
+			showUnset: false
+		},
+		{
+			id: 'rotation',
+			label: () => m.face_parameters_rotation(),
+			min: -Math.PI,
+			max: Math.PI,
+			step: 0.01,
+			unsetField: 'rotation' as const,
+			showUnset: true
+		},
+		{
+			id: 'extraDepth',
+			label: () => 'extraDepth',
+			min: 0,
+			max: 1,
+			step: 0.01,
+			unsetField: 'extraDepth' as const,
+			showUnset: true
+		}
+	] as const;
 
 	// ---- JSON editor ----
 	function jsonReplacer(_key: string, value: unknown) {
@@ -443,7 +599,7 @@
 	</Tooltip>
 {/snippet}
 
-<div class="card preset-tonal-surface flex flex-col gap-2 p-4 {devMode ? 'w-108' : 'w-72'}">
+<div class="card preset-tonal-surface flex flex-col gap-2 p-4 {widePanel ? 'w-108' : 'w-72'}">
 	<div class="flex gap-2">
 		<button
 			type="button"
@@ -494,36 +650,36 @@
 			<p class="px-3 pb-3">{m.dice_land_warning({ kind })}</p>
 		</details>
 	{/if}
-	{#if devMode}
-		<SegmentedControl
-			value={paramMode}
-			onValueChange={(e) => {
-				if (e.value) paramMode = e.value as ParamMode;
-			}}
-		>
-			<SegmentedControl.Control>
-				<SegmentedControl.Indicator class="bg-primary-500" />
-				<SegmentedControl.Item value="controls">
-					<SegmentedControl.ItemText class="data-[state=checked]:text-primary-contrast-500 px-2">
-						{m.dice_parameters_mode_controls()}
-					</SegmentedControl.ItemText>
-					<SegmentedControl.ItemHiddenInput />
-				</SegmentedControl.Item>
-				<SegmentedControl.Item value="raw">
-					<SegmentedControl.ItemText class="data-[state=checked]:text-primary-contrast-500 px-2">
-						{m.dice_parameters_mode_raw()}
-					</SegmentedControl.ItemText>
-					<SegmentedControl.ItemHiddenInput />
-				</SegmentedControl.Item>
+	<SegmentedControl
+		value={paramMode}
+		onValueChange={(e) => {
+			if (e.value) paramMode = e.value as ParamMode;
+		}}
+	>
+		<SegmentedControl.Control>
+			<SegmentedControl.Indicator class="bg-primary-500" />
+			<SegmentedControl.Item value="controls">
+				<SegmentedControl.ItemText class="data-[state=checked]:text-primary-contrast-500 px-2">
+					{m.dice_parameters_mode_controls()}
+				</SegmentedControl.ItemText>
+				<SegmentedControl.ItemHiddenInput />
+			</SegmentedControl.Item>
+			<SegmentedControl.Item value="raw">
+				<SegmentedControl.ItemText class="data-[state=checked]:text-primary-contrast-500 px-2">
+					{m.dice_parameters_mode_raw()}
+				</SegmentedControl.ItemText>
+				<SegmentedControl.ItemHiddenInput />
+			</SegmentedControl.Item>
+			{#if devMode}
 				<SegmentedControl.Item value="json">
 					<SegmentedControl.ItemText class="data-[state=checked]:text-primary-contrast-500 px-2">
 						{m.dice_parameters_mode_json()}
 					</SegmentedControl.ItemText>
 					<SegmentedControl.ItemHiddenInput />
 				</SegmentedControl.Item>
-			</SegmentedControl.Control>
-		</SegmentedControl>
-	{/if}
+			{/if}
+		</SegmentedControl.Control>
+	</SegmentedControl>
 	{#if devMode && paramMode === 'json'}
 		<div class="flex flex-col gap-2">
 			<div class="flex items-center justify-between">
@@ -601,7 +757,7 @@
 							: m.dice_parameters_copy_ordering()}
 					</button>
 				{/if}
-				{#if devMode && paramMode === 'raw'}
+				{#if paramMode === 'raw'}
 					<div class="flex flex-col gap-3">
 						{#each allDieParams as p (p.id)}
 							{#if paramVisible(p.visibleWhen)}
@@ -874,136 +1030,176 @@
 							class="btn preset-tonal-primary my-2 w-full justify-start"
 							onclick={() => onSyncFaces?.()}>{m.face_parameters_sync()}</button
 						>
-					{:else}
-						<label class="my-2 flex items-center justify-between">
-							<!-- >{
-			//m['face_params.legend']()
-			} -->
-							{m.face_parameters_selected_legend()}
-							<Modal>
-								{#snippet title()}
-									{m.face_parameters_pick_legend()}
-								{/snippet}
-								{#snippet trigger(props)}
-									<button {...props} class="btn preset-filled-primary-500 p-0">
-										<LegendPreview {legends} legend={faceLegend} class="size-12" />
-									</button>
-								{/snippet}
-								{#snippet inner(close)}
-									{#if onEditLegends}
-										<div class="mb-2 flex justify-end">
-											<button
-												type="button"
-												class="btn btn-sm preset-tonal-secondary"
-												onclick={() => {
-													close();
-													onEditLegends?.();
-												}}
-											>
-												<Pencil class="size-4" />
-												{isBuiltin(legends.id)
-													? m.legends_clone_builtin_edit()
-													: m.legends_edit_legends()}
-											</button>
-										</div>
-									{/if}
-									<LegendViewer
-										{legends}
-										selectedLegend={faceLegend}
-										onSelectedLegend={(next) => {
-											setFaceLegend(next);
-											close();
-										}}
+					{/if}
+					<label class="my-2 flex items-center justify-between">
+						{m.face_parameters_selected_legend()}
+						<Modal>
+							{#snippet title()}
+								{m.face_parameters_pick_legend()}
+							{/snippet}
+							{#snippet trigger(props)}
+								<button {...props} class="btn preset-filled-primary-500 p-0">
+									<LegendPreview {legends} legend={faceLegend} class="size-12" />
+								</button>
+							{/snippet}
+							{#snippet inner(close)}
+								{#if onEditLegends}
+									<div class="mb-2 flex justify-end">
+										<button
+											type="button"
+											class="btn btn-sm preset-tonal-secondary"
+											onclick={() => {
+												close();
+												onEditLegends?.();
+											}}
+										>
+											<Pencil class="size-4" />
+											{isBuiltin(legends.id)
+												? m.legends_clone_builtin_edit()
+												: m.legends_edit_legends()}
+										</button>
+									</div>
+								{/if}
+								<LegendViewer
+									{legends}
+									selectedLegend={faceLegend}
+									onSelectedLegend={(next) => {
+										setFaceLegend(next);
+										close();
+									}}
+								/>
+							{/snippet}
+						</Modal>
+					</label>
+					{#if paramMode === 'raw'}
+						<div class="mt-2 flex flex-col gap-3">
+							{#each faceRawFields as field (field.id)}
+								<div class="flex flex-col gap-1">
+									<p class="flex items-center justify-between gap-2">
+										<span class="truncate">{field.label()}</span>
+										{#if field.showUnset}
+											<label class="flex shrink-0 items-center gap-1 text-xs">
+												<input
+													type="checkbox"
+													class="checkbox"
+													checked={!faceFieldIsSet(field.unsetField)}
+													onchange={(e) =>
+														setFaceFieldUnset(
+															field.unsetField,
+															(e.target as HTMLInputElement).checked
+														)}
+												/>
+												{m.dice_parameters_raw_unset()}
+											</label>
+										{/if}
+									</p>
+									<input
+										type="text"
+										inputmode="decimal"
+										class="input {faceOutOfRange(field.id, rawFaceValue(field.id), field.min, field.max)
+											? 'border-warning-500'
+											: ''}"
+										value={rawFaceValue(field.id)}
+										disabled={!faceFieldIsSet(field.unsetField)}
+										oninput={(e) => setRawFace(field.id, (e.target as HTMLInputElement).value)}
 									/>
-								{/snippet}
-							</Modal>
+									<span class="text-surface-500 text-xs">
+										{m.dice_parameters_raw_range({
+											min: field.min,
+											max: field.max,
+											step: field.step
+										})}
+									</span>
+								</div>
+							{/each}
+						</div>
+					{:else}
+						<label class="flex flex-col">
+							<p class="flex justify-between">
+								<span>
+									{m.face_parameters_scale()}
+								</span>
+								<span>
+									({numberFormat(faceLegendScale)})
+								</span>
+							</p>
+
+							<Slider
+								class="py-1"
+								value={faceLegendScale}
+								onChange={(nextScale) => {
+									updateTargetFaces((p) => (p.scale = nextScale));
+								}}
+								min={0.1}
+								max={5.0}
+								step={0.01}
+							></Slider>
+						</label>
+						<label class="flex flex-col">
+							<p class="flex justify-between">
+								<span>
+									{m.face_parameters_offset_x()}
+								</span>
+								<span>
+									({faceLegendOffset.x.toFixed(2)})
+								</span>
+							</p>
+							<Slider
+								class="py-1"
+								value={faceLegendOffset.x}
+								onChange={(nextOffset) => {
+									updateTargetFaces((p) => {
+										p.offset = (p.offset?.clone() ?? new Vector2(0, 0)).setX(nextOffset);
+									});
+								}}
+								min={-20}
+								max={20}
+								step={0.1}
+							></Slider>
+						</label>
+						<label class="flex flex-col">
+							<p class="flex justify-between">
+								<span>
+									{m.face_parameters_offset_y()}
+								</span>
+								<span>
+									({faceLegendOffset.y.toFixed(2)})
+								</span>
+							</p>
+							<Slider
+								class="py-1"
+								value={faceLegendOffset.y}
+								onChange={(nextOffset) => {
+									updateTargetFaces((p) => {
+										p.offset = (p.offset?.clone() ?? new Vector2(0, 0)).setY(nextOffset);
+									});
+								}}
+								min={-20}
+								max={20}
+								step={0.1}
+							></Slider>
+						</label>
+						<label class="flex flex-col">
+							<p class="flex justify-between">
+								<span>
+									{m.face_parameters_rotation()}
+								</span>
+								<span>
+									({faceRotationDegrees.toFixed(2)})
+								</span>
+							</p>
+							<Slider
+								class="py-1"
+								value={faceRotationDegrees}
+								onChange={(nextRotation) => {
+									updateTargetFaces((p) => (p.rotation = degToRad(nextRotation)));
+								}}
+								min={-180}
+								max={180}
+								step={0.1}
+							></Slider>
 						</label>
 					{/if}
-					<label class="flex flex-col">
-						<p class="flex justify-between">
-							<span>
-								{m.face_parameters_scale()}
-							</span>
-							<span>
-								({numberFormat(faceLegendScale)})
-							</span>
-						</p>
-
-						<Slider
-							class="py-1"
-							value={faceLegendScale}
-							onChange={(nextScale) => {
-								updateTargetFaces((p) => (p.scale = nextScale));
-							}}
-							min={0.1}
-							max={5.0}
-							step={0.01}
-						></Slider>
-					</label>
-					<label class="flex flex-col">
-						<p class="flex justify-between">
-							<span>
-								{m.face_parameters_offset_x()}
-							</span>
-							<span>
-								({faceLegendOffset.x.toFixed(2)})
-							</span>
-						</p>
-						<Slider
-							class="py-1"
-							value={faceLegendOffset.x}
-							onChange={(nextOffset) => {
-								updateTargetFaces((p) => {
-									p.offset = (p.offset?.clone() ?? new Vector2(0, 0)).setX(nextOffset);
-								});
-							}}
-							min={-20}
-							max={20}
-							step={0.1}
-						></Slider>
-					</label>
-					<label class="flex flex-col">
-						<p class="flex justify-between">
-							<span>
-								{m.face_parameters_offset_y()}
-							</span>
-							<span>
-								({faceLegendOffset.y.toFixed(2)})
-							</span>
-						</p>
-						<Slider
-							class="py-1"
-							value={faceLegendOffset.y}
-							onChange={(nextOffset) => {
-								updateTargetFaces((p) => {
-									p.offset = (p.offset?.clone() ?? new Vector2(0, 0)).setY(nextOffset);
-								});
-							}}
-							min={-20}
-							max={20}
-							step={0.1}
-						></Slider>
-					</label>
-					<label class="flex flex-col">
-						<p class="flex justify-between">
-							<span>
-								{m.face_parameters_rotation()}
-							</span>
-							<span>
-								({faceRotationDegrees.toFixed(2)})
-							</span>
-						</p>
-						<Slider
-							class="py-1"
-							value={faceRotationDegrees}
-							onChange={(nextRotation) => {
-								updateTargetFaces((p) => (p.rotation = degToRad(nextRotation)));
-							}}
-							min={-180}
-							max={180}
-							step={0.1}
-						></Slider>
-					</label>
 				{/if}
 				{#if displayFace >= 0}
 					<div class="mt-4 flex flex-col gap-2">

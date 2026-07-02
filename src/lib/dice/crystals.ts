@@ -20,14 +20,14 @@ const crystalParameters: Array<DiceParameter> = [
 		defaultValue: defaultHeight,
 		min: 6,
 		max: 60,
-		step: 1
+		step: 0.1
 	},
 	{
 		id: 'crystal_width',
 		defaultValue: defaultWidth,
 		min: 6,
 		max: 60,
-		step: 0.5
+		step: 0.1
 	},
 	{
 		id: 'crystal_cap',

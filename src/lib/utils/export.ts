@@ -5,7 +5,7 @@ import dice from '$lib/dice';
 import type { DieFaceModel } from '$lib/interfaces/dice';
 import type { Dice, DiceSet } from '$lib/interfaces/storage.svelte';
 import { Builder } from './builder';
-import { applyOrderingToFaces } from '$lib/dice/legend_orderings';
+import { applyOrderingToFaces } from '$lib/utils/legend_orderings';
 import { Legend, loadMutableLegends, type LegendSet, type SerialisedLegendSet } from './legends';
 import { extraBuildOptions, type OptionValues } from './build_options';
 import { blanks, isBuiltin, loadBuiltinById } from '$lib/fonts';

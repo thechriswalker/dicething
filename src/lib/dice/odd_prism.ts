@@ -28,9 +28,9 @@ const yAxis = new Vector3(0, 1, 0);
 const zAxis = new Vector3(0, 0, 1);
 
 const oddPrismParameters: Array<DiceParameter> = [
-	{ id: 'prism_length', defaultValue: defaultLength, min: 10, max: 60, step: 1 },
-	{ id: 'prism_width', defaultValue: defaultWidth, min: 6, max: 40, step: 0.5 },
-	{ id: 'prism_cap', defaultValue: defaultCapHeight, min: 1, max: 30, step: 0.2 },
+	{ id: 'prism_length', defaultValue: defaultLength, min: 10, max: 60, step: 0.1 },
+	{ id: 'prism_width', defaultValue: defaultWidth, min: 6, max: 40, step: 0.1 },
+	{ id: 'prism_cap', defaultValue: defaultCapHeight, min: 1, max: 30, step: 0.1 },
 	{ id: 'prism_twist', defaultValue: defaultTwist, min: 0.1, max: 0.9, step: 0.01 }
 ];
 

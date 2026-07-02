@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { Vector3 } from 'three';
 import dice from '../src/lib/dice/index';
-import { numberingOrders, type NumberingOrder } from '../src/lib/dice/numbering_orders';
+import { numberingOrders, type NumberingOrder } from '../src/lib/utils/numbering_orders';
 
 // the dice built by convexPolyhedronDie (those whose numbering we generate).
 const CONVEX_POLYHEDRON_DICE = [
@@ -329,7 +329,7 @@ ${entries}
 
 const outPath = resolve(
 	dirname(fileURLToPath(import.meta.url)),
-	'../src/lib/dice/numbering_orders.ts'
+	'../src/lib/utils/numbering_orders.ts'
 );
 writeFileSync(outPath, header);
 console.log(`\nwrote ${outPath}`);

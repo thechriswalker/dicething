@@ -14,8 +14,8 @@
 //                 is stored explicitly in `face_parameters` instead.
 
 import type { DieFaceModel } from '$lib/interfaces/dice';
-import dice from './index';
-import { spindownOrders } from './spindown_orders';
+import dice from '$lib/dice';
+import { spindownOrders } from '$lib/utils/spindown_orders';
 import { Legend, legendForValue } from '$lib/utils/legends';
 
 export type LegendOrdering = {
