@@ -62,6 +62,7 @@
 		PackageOpen
 	} from '@lucide/svelte';
 	import { Button } from 'bits-ui';
+	import { getLightDarkContext } from '$lib/components/light_switch/light_dark_context';
 
 	const setId = page.params.setId ?? '';
 
@@ -153,6 +154,9 @@
 	let fancy = $state(true);
 	let wireframeOn = $state(false);
 	let showBounds = $state(false);
+
+	let ld = getLightDarkContext()
+	let controlPresetClass = $derived(ld?.isLight ? 'preset-filled-surface-200-800' : 'preset-filled-surface-100-900')
 
 	$effect(() => {
 		if (!devMode && wireframeOn) {
@@ -482,12 +486,13 @@
 			root.add(g);
 		}
 		{
-			// the lid hangs off a pivot on the seam line (box-frame z = seam, y = 0)
-			// so toggling `boxClosed` swings it up and over onto the base.
+			// the lid hangs off a pivot on the hinge pin/barrel axis so toggling
+			// `boxClosed` swings it up and over onto the base.
+			const pivotZ = built.hinge?.axisZ ?? built.baseHeight;
 			const pivot = new Group();
-			pivot.position.set(0, 0, built.baseHeight);
+			pivot.position.set(0, 0, pivotZ);
 			const g = new Group();
-			g.position.set(0, offset, -built.baseHeight);
+			g.position.set(0, offset, -pivotZ);
 			const lidMesh = new Mesh(built.lid, normalMat);
 			g.add(lidMesh);
 			boxMeshes.push(lidMesh);
@@ -751,7 +756,6 @@
 	}
 </script>
 
-<Layout>
 	{#snippet header()}
 		<a class="btn preset-tonal-surface" href="/boxes" aria-label={m.boxes_back_to_sets()}>
 			<ArrowLeft class="size-4" />
@@ -762,7 +766,7 @@
 	<div class="flex h-full flex-row gap-4 p-4">
 		<Scene class="relative h-full grow" {sceneReady}>
 			<ul class="absolute top-2 left-2 flex flex-col gap-2">
-				<li class="card preset-filled-surface-100-900 flex w-56 flex-col gap-1 p-2 text-sm">
+				<li class="card {controlPresetClass} flex w-56 flex-col gap-1 p-2 text-sm">
 					<span class="flex justify-between">
 						<span>{m.boxes_tuning_die_opacity()}</span>
 						<span>{Math.round(dieOpacity * 100)}%</span>
@@ -777,7 +781,7 @@
 					/>
 				</li>
 				{#if built}
-					<li class="card preset-filled-surface-100-900 flex w-56 flex-col gap-1 p-2 text-sm">
+					<li class="card {controlPresetClass} flex w-56 flex-col gap-1 p-2 text-sm">
 						<span class="flex justify-between" title={m.boxes_lid_position_hint()}>
 							<span>{m.boxes_hinge_position()}</span>
 							<span class="text-surface-600-400 tabular-nums">{Math.round(lidClosedT * 100)}%</span>
@@ -807,7 +811,7 @@
 						</div>
 					</li>
 				{/if}
-				<li><div class="card preset-filled-surface-100-900 inline-flex gap-2 p-2">
+				<li><div class="card {controlPresetClass} inline-flex gap-2 p-2">
 					<Tooltip content={m.controls_toggle_fancy_render()} side="right">
 						{#snippet children(props)}
 							<Button.Root
@@ -1293,4 +1297,3 @@
 			onClose={() => (layoutOpen = false)}
 		/>
 	{/if}
-</Layout>

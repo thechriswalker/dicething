@@ -161,7 +161,7 @@ export const BOX_PARAM_DEFAULTS: BoxParams = {
 		enabled: true,
 		pinRadius: 2.6,
 		barrelRadius: 6,
-		clearance: 0.35,
+		clearance: 0.5,
 		knuckles: 3,
 		knuckleWidth: 8,
 		indent: 0

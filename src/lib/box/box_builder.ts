@@ -55,7 +55,7 @@ export type BoxBoundaries = {
 // coaxial on the seam line) and the fold animation knows the pivot. Absent when
 // the box has no hinge.
 export type BuiltHinge = {
-	// the hinge/fold axis height (= the seam plane).
+	// the hinge pin/barrel axis height (the fold pivot — slightly above the seam).
 	axisZ: number;
 	// number of knuckle clusters placed across the back edge (1 or 2).
 	clusters: number;
@@ -520,7 +520,7 @@ export function magnetCorners(
 	// the perpendicular gap to the chamfer face is inset * SQRT2 = radius + wall.
 	const mx = outerHalf.x - chamfer / 2;
 	const my = outerHalf.y - chamfer / 2;
-	const inset = (radius + wall) / Math.SQRT2;
+	const inset = (radius + wall/2) / Math.SQRT2;
 	const cx = mx - inset;
 	const cy = my - inset;
 	const all = [
@@ -555,7 +555,7 @@ export function recessChamfer(
 	let c = Math.max(0, base);
 	if (corners.length > 0) {
 		const c0 = corners[0];
-		c = Math.max(c, innerX + innerY - (Math.abs(c0.x) + Math.abs(c0.y)) + (bossRadius) * Math.SQRT2) + wall*2
+		c = Math.max(c, innerX + innerY - (Math.abs(c0.x) + Math.abs(c0.y)) + (bossRadius) * Math.SQRT2);
 	}
 	return c;
 }
@@ -681,7 +681,16 @@ const HINGE_BODY_OVERLAP = 1;
 // thick relative to the barrel (otherwise the gap is sized so the barrel's inner
 // face lands flush on the inner wall - see buildHinge).
 const HINGE_MIN_PARTING_GAP = 1;
+// default radial/axial print-in-place gap when hinge.clearance is 0.
+const HINGE_DEFAULT_CLEARANCE = 0.5;
+// each half's knuckle axis is raised this far above the seam; when the lid folds
+// shut (z -> 2*seam - z) the two rows of barrels end up closureZGap apart.
+const HINGE_CLOSURE_Z_GAP = 0.5;
 const HINGE_SEGMENTS = 48;
+
+export function hingePivotZ(seam: number): number {
+	return seam + HINGE_CLOSURE_Z_GAP / 2;
+}
 
 type ResolvedHinge = {
 	clearance: number;
@@ -697,7 +706,7 @@ type ResolvedHinge = {
 // the barrel's lower half must fit below the seam, and the pin must leave a
 // printable wall inside the barrel.
 function resolveHinge(h: HingeConfig, seam: number): ResolvedHinge {
-	const clearance = h.clearance > 0 ? h.clearance : 0.35;
+	const clearance = h.clearance > 0 ? h.clearance : HINGE_DEFAULT_CLEARANCE;
 	let barrelR = h.barrelRadius > 0 ? h.barrelRadius : 3.4;
 	let pinR = h.pinRadius > 0 ? h.pinRadius : 1.6;
 	// at least 3 knuckles so the pin is captured by >= 2 base barrels.
@@ -853,6 +862,7 @@ type HingeSolids = {
 	lidAdds: Array<Manifold>;
 	clusters: number;
 	partingGap: number;
+	barrelZ: number;
 };
 
 // Build the hinge manifolds for both halves (EDDC layout): the base carries the
@@ -871,6 +881,7 @@ function buildHinge(
 ): HingeSolids {
 	const wasm = manifold();
 	const { clearance, barrelR, pinR, knuckles, knuckleWidth, indent } = resolveHinge(h, seam);
+	const barrelZ = hingePivotZ(seam);
 	// the support tail dies into the foot of the vertical wall - i.e. the height
 	// where the body's bottom bevel begins - so it never pokes past the bevelled
 	// bottom footprint. (The bevel itself then carries the body down to the bed.)
@@ -940,10 +951,10 @@ function buildHinge(
 		const pinTo = center(n - 1);
 		const pinMid = (pinFrom + pinTo) / 2;
 		const pinLen = pinTo - pinFrom;
-		baseAdds.push(xCylinder(pinR, pinLen, pinMid, baseY, seam));
+		baseAdds.push(xCylinder(pinR, pinLen, pinMid, baseY, barrelZ));
 		// clear the bar from the lid along its whole span (the gaps between the
 		// lid's bored knuckles still have the bar passing through them).
-		lidCutters.push(xCylinder(boreR, pinLen + 1, pinMid, lidY, seam));
+		lidCutters.push(xCylinder(boreR, pinLen + 1, pinMid, lidY, barrelZ));
 
 		for (let i = 0; i < n; i++) {
 			const c = center(i);
@@ -953,21 +964,21 @@ function buildHinge(
 				// outer / base knuckle: a SOLID round barrel fused to the bar, braced
 				// to the bed by a tail leaning back to the base's wall foot; the lid is
 				// relieved here (same teardrop, grown by clearance) so it has room.
-				baseAdds.push(teardropBarrel(barrelR, knuckleW, c, baseY, seam, outerHalf.y, tailZ));
-				lidCutters.push(teardropBarrel(reliefR, reliefW, c, lidY, seam, -outerHalf.y, tailZ));
+				baseAdds.push(teardropBarrel(barrelR, knuckleW, c, baseY, barrelZ, outerHalf.y, tailZ));
+				lidCutters.push(teardropBarrel(reliefR, reliefW, c, lidY, barrelZ, -outerHalf.y, tailZ));
 			} else {
 				// inner / lid knuckle: a bored round barrel (also tailed back to the
 				// lid's wall foot) that wraps the bar; the base is relieved here.
-				const barrel = teardropBarrel(barrelR, knuckleW, c, lidY, seam, -outerHalf.y, tailZ);
-				const bore = xCylinder(boreR, knuckleW + 1, c, lidY, seam);
+				const barrel = teardropBarrel(barrelR, knuckleW, c, lidY, barrelZ, -outerHalf.y, tailZ);
+				const bore = xCylinder(boreR, knuckleW + 1, c, lidY, barrelZ);
 				const tube = wasm.Manifold.difference(barrel, bore);
 				deleteAll(barrel, bore);
 				lidAdds.push(tube);
-				baseCutters.push(teardropBarrel(reliefR, reliefW, c, baseY, seam, outerHalf.y, tailZ));
+				baseCutters.push(teardropBarrel(reliefR, reliefW, c, baseY, barrelZ, outerHalf.y, tailZ));
 			}
 		}
 	}
-	return { baseCutters, baseAdds, lidCutters, lidAdds, clusters: clusters.length, partingGap };
+	return { baseCutters, baseAdds, lidCutters, lidAdds, clusters: clusters.length, partingGap, barrelZ };
 }
 
 // mesh_check welds coincident corners on a 1e-4 mm grid; Manifold's working
@@ -1023,11 +1034,11 @@ function closedLidManifold(lid: Manifold, seam: number): Manifold {
 }
 
 // Transform the lid for a hinged close animation step (matches the preview pivot).
-function hingedLidManifold(lid: Manifold, seam: number, offset: number, angleRad: number): Manifold {
+function hingedLidManifold(lid: Manifold, pivotZ: number, offset: number, angleRad: number): Manifold {
 	const m = new Matrix4()
-		.makeTranslation(0, 0, seam)
+		.makeTranslation(0, 0, pivotZ)
 		.multiply(new Matrix4().makeRotationX(angleRad))
-		.multiply(new Matrix4().makeTranslation(0, offset, -seam));
+		.multiply(new Matrix4().makeTranslation(0, offset, -pivotZ));
 	return lid.transform(threeMatrixToManifold(m));
 }
 
@@ -1056,13 +1067,14 @@ export function checkBoxClosure(built: BuiltBox): BoxClosure {
 		// Hinged: match the preview layout (base at -offset, lid pivots from +offset)
 		// so the open print pose and the fold arc are both in frame.
 		const offset = (built.outer.y + built.hinge.partingGap) / 2;
+		const pivotZ = built.hinge.axisZ;
 		const baseShift = new Matrix4().makeTranslation(0, -offset, 0);
 		const baseShiftArr = threeMatrixToManifold(baseShift);
 
 		const baseShell = geometryToManifold(built.base).transform(baseShiftArr);
 		const closedLid = hingedLidManifold(
 			geometryToManifold(built.lid),
-			seam,
+			pivotZ,
 			offset,
 			Math.PI
 		);
@@ -1081,7 +1093,7 @@ export function checkBoxClosure(built: BuiltBox): BoxClosure {
 		if (diceUnion) {
 			for (let i = 0; i <= HINGE_CLOSURE_SAMPLES; i++) {
 				const angle = (Math.PI * i) / HINGE_CLOSURE_SAMPLES;
-				const posed = hingedLidManifold(geometryToManifold(built.lid), seam, offset, angle);
+				const posed = hingedLidManifold(geometryToManifold(built.lid), pivotZ, offset, angle);
 				const inter = wasm.Manifold.intersection(posed, diceUnion);
 				const v = inter.volume();
 				inter.delete();
@@ -1748,7 +1760,7 @@ export async function buildBox(
 		lidHeight: half,
 		boundaries,
 		hinge: hinge
-			? { axisZ: seam, clusters: hinge.clusters, partingGap: hinge.partingGap }
+			? { axisZ: hinge.barrelZ, clusters: hinge.clusters, partingGap: hinge.partingGap }
 			: undefined,
 		closure: { ok: true, shellOverlap: 0, maxDiceClip: 0 }
 	};

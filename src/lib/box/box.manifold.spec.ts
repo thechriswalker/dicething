@@ -125,7 +125,7 @@ describe('box builder produces printable solids', () => {
 		config.params.hinge.enabled = true;
 		const built = await buildBox(set, config);
 		built.base.computeBoundingBox();
-		const seam = built.hinge!.axisZ;
+		const seam = built.baseHeight;
 		expect(built.base.boundingBox!.min.z).toBeCloseTo(0, 5);
 		expect(built.base.boundingBox!.max.z).toBeGreaterThan(seam + 1);
 	});
