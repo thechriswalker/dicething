@@ -23,6 +23,11 @@ import {
 
 export type ExportFormat = 'stl' | '3mf';
 
+export type ThreeMfExportOptions = {
+	// Pause before the print-in magnet bridge layer (mm, build-plate Z).
+	magnetPauseZ?: number;
+};
+
 // `dieId` ties an exported mesh back to the die it came from (the main numbered
 // die and any of its build-option artifacts all share the die's id), so callers
 // like the mesh-health check can aggregate results per die. `group` identifies
@@ -240,9 +245,10 @@ async function toThreeMfObjects(named: Array<NamedMesh>): Promise<Array<ThreeMfO
 // `upAxis` is the source frame's up axis ('y' for dice, 'z' for boxes).
 export async function exportThreeMfSingle(
 	named: Array<NamedMesh>,
-	upAxis: UpAxis = 'y'
+	upAxis: UpAxis = 'y',
+	options?: ThreeMfExportOptions
 ): Promise<Blob> {
-	return buildThreeMf(await toThreeMfObjects(named), upAxis);
+	return buildThreeMf(await toThreeMfObjects(named), upAxis, options?.magnetPauseZ);
 }
 
 // A set of meshes that should export as one grouped 3MF object.
@@ -275,7 +281,8 @@ export function groupMeshesByCategory(
 // meshes should already be laid out. `upAxis` is the source frame's up axis.
 export async function exportThreeMfGrouped(
 	groups: Array<ThreeMfMeshGroup>,
-	upAxis: UpAxis = 'y'
+	upAxis: UpAxis = 'y',
+	options?: ThreeMfExportOptions
 ): Promise<Blob> {
 	await getManifold();
 	const used = new Set<string>();
@@ -283,14 +290,15 @@ export async function exportThreeMfGrouped(
 		name: g.name,
 		objects: g.meshes.map((n) => toThreeMfObject(n, used))
 	}));
-	return buildThreeMfGrouped(tmGroups, upAxis);
+	return buildThreeMfGrouped(tmGroups, upAxis, options?.magnetPauseZ);
 }
 
 // One .3mf per group, packed into a ZIP. Each file holds the group's meshes as a
 // single grouped object (the meshes should already be laid out per group).
 export async function exportThreeMfGroupZip(
 	groups: Array<ThreeMfMeshGroup>,
-	upAxis: UpAxis = 'y'
+	upAxis: UpAxis = 'y',
+	options?: ThreeMfExportOptions
 ): Promise<Blob> {
 	await getManifold();
 	const used = new Set<string>();
@@ -298,15 +306,16 @@ export async function exportThreeMfGroupZip(
 		name: g.name,
 		objects: g.meshes.map((n) => toThreeMfObject(n, used))
 	}));
-	return buildThreeMfGroupZip(tmGroups, upAxis);
+	return buildThreeMfGroupZip(tmGroups, upAxis, options?.magnetPauseZ);
 }
 
 // One .3mf per mesh, packed into a single ZIP (mirrors exportStlZip).
 export async function exportThreeMfZip(
 	named: Array<NamedMesh>,
-	upAxis: UpAxis = 'y'
+	upAxis: UpAxis = 'y',
+	options?: ThreeMfExportOptions
 ): Promise<Blob> {
-	return buildThreeMfZip(await toThreeMfObjects(named), upAxis);
+	return buildThreeMfZip(await toThreeMfObjects(named), upAxis, options?.magnetPauseZ);
 }
 
 // --- JSON ------------------------------------------------------------------

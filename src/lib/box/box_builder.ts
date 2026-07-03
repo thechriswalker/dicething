@@ -85,6 +85,9 @@ export type BuiltBox = {
 	boundaries: BoxBoundaries;
 	hinge?: BuiltHinge;
 	closure: BoxClosure;
+	// Z height (mm) to pause before the print-in magnet bridge layer; undefined
+	// when magnets are off or push-in.
+	magnetPauseZ?: number;
 };
 
 // Which stage of a build a progress tick belongs to. `prepare` is the per-die
@@ -615,6 +618,19 @@ function trayCutter(
 	return tray;
 }
 
+// Thin roof left over a print-in magnet pocket; pause the print at this height
+// so the magnet can be dropped in before the bridge layer prints.
+export const MAGNET_PRINTIN_BRIDGE_MM = 0.4;
+
+// Seam-plane Z where a slicer should pause before the print-in magnet bridge.
+export function magnetPauseZ(params: BoxParams, seam: number): number | undefined {
+	const mag = params.magnets;
+	if (!mag.enabled || mag.mode !== 'printin') {
+		return undefined;
+	}
+	return seam - MAGNET_PRINTIN_BRIDGE_MM;
+}
+
 // Magnet bore manifolds, sunk DOWN from the seam surface `topZ`. push-in bores
 // are open at the seam; print-in bores are blind (a thin bridge prints over the
 // magnet to capture it mid-print).
@@ -626,7 +642,7 @@ function magnetBores(params: BoxParams, corners: Array<Vector2>, topZ: number): 
 	}
 	const radius = mag.diameter / 2 + mag.tolerance;
 	const depth = mag.thickness + mag.tolerance;
-	const bridge = mag.mode === 'printin' ? 0.4 : 0;
+	const bridge = mag.mode === 'printin' ? MAGNET_PRINTIN_BRIDGE_MM : 0;
 	const bores: Array<Manifold> = [];
 	for (const c of corners) {
 		const top = topZ - bridge;
@@ -1762,7 +1778,8 @@ export async function buildBox(
 		hinge: hinge
 			? { axisZ: hinge.barrelZ, clusters: hinge.clusters, partingGap: hinge.partingGap }
 			: undefined,
-		closure: { ok: true, shellOverlap: 0, maxDiceClip: 0 }
+		closure: { ok: true, shellOverlap: 0, maxDiceClip: 0 },
+		magnetPauseZ: magnetPauseZ(p, seam)
 	};
 	result.closure = checkBoxClosure(result);
 	return result;

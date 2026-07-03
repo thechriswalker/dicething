@@ -696,6 +696,10 @@
 			return;
 		}
 		const name = (setData?.name || 'set').replace(/[^a-z0-9-_]+/gi, '_');
+		const threemfOpts =
+			format === '3mf' && built.magnetPauseZ !== undefined
+				? { magnetPauseZ: built.magnetPauseZ }
+				: undefined;
 		// a print-in-place hinge must print as ONE interlocked, open-flat piece:
 		// the two halves meet on the seam line so their barrels are coaxial and
 		// the pin threads the base bores. Force a single file in that layout.
@@ -714,7 +718,7 @@
 				// base + lid are one print-in-place piece: keep them as a single
 				// grouped 3MF object so the slicer never treats them as two parts.
 				download(
-					await exportThreeMfGrouped([{ name: `${name}_box`, meshes: named }], 'z'),
+					await exportThreeMfGrouped([{ name: `${name}_box`, meshes: named }], 'z', threemfOpts),
 					`${name}_box.3mf`
 				);
 			} else {
@@ -729,7 +733,7 @@
 			];
 			// the box is already built Z-up, so no reorientation for 3MF.
 			if (format === '3mf') {
-				download(await exportThreeMfZip(named, 'z'), `${name}_box.zip`);
+				download(await exportThreeMfZip(named, 'z', threemfOpts), `${name}_box.zip`);
 			} else {
 				download(exportStlZip(named), `${name}_box.zip`);
 			}
@@ -746,7 +750,7 @@
 				// the base and lid are halves of one box: group them into a single
 				// 3MF object rather than two independent build items.
 				download(
-					await exportThreeMfGrouped([{ name: `${name}_box`, meshes: named }], 'z'),
+					await exportThreeMfGrouped([{ name: `${name}_box`, meshes: named }], 'z', threemfOpts),
 					`${name}_box.3mf`
 				);
 			} else {

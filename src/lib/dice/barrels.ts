@@ -73,7 +73,36 @@ function barrel(
 	if (sides % 2 === 1) {
 		throw new RangeError('sides cannot be odd for a barrel die');
 	}
-	return { id, name, parameters: barrelParameters(sides), build: build(sides, tens, turnRight) };
+	const params = barrelParameters(sides);
+	const defaultParameters = Object.fromEntries(params.map(p => [p.id, p.defaultValue]));
+	return { id, name, blankParameters: barrelBlankParams(sides, defaultParameters),
+		 parameters: params, build: build(sides, defaultParameters, tens, turnRight) };
+}
+
+function barrelBlankParams(
+	sides: number,
+	defaultParameters: Record<string, number>
+): (params: Record<string, number>, offset: number) => Record<string, number> {
+	// we want to reduce face-2-face distance by offset*2.
+	const alpha = (2 * Math.PI) / sides;
+	const tanHalfAlpha = Math.tan(alpha / 2);
+	return (params, offset) => {
+		const x = params['barrel_radius'] ?? defaultParameters['barrel_radius'] ?? defaultRadius;
+		const y = params['barrel_height'] ?? defaultParameters['barrel_height'] ?? defaultHeight;
+		const cap = params['barrel_cap'] ?? defaultParameters['barrel_cap'] ?? defaultCapHeight;
+		const d = x / (2 * tanHalfAlpha);
+		// this is the current center to face distance.
+		// we want to find x so that d is reduced by offset.
+		const xb = (d - offset) * 2 * tanHalfAlpha;
+		// the height is reduced by 2*offset (one at each end)
+		// and the cap height is reduced by offset.
+		return {
+			...params,
+			barrel_height: y - (offset * 2),
+			barrel_cap: cap - offset,
+			barrel_radius: xb
+		};
+	};
 }
 
 const centroidOf = (verts: Array<Vector3>): Vector3 =>
@@ -183,11 +212,11 @@ function cap(verts: Array<Vector3>, apex: Vector3): DieFaceModel {
 	};
 }
 
-function build(sides: number, tens: boolean, turnRight: boolean): DieModel['build'] {
+function build(sides: number, defaultParameters: Record<string, number>, tens: boolean, turnRight: boolean): DieModel['build'] {
 	return (params) => {
-		const height = params.barrel_height ?? defaultHeight;
-		const radius = params.barrel_radius ?? (sides === 4 ? defaultD4Radius : defaultRadius);
-		const capHeight = params.barrel_cap ?? defaultCapHeight;
+		const height = params.barrel_height ?? defaultParameters.barrel_height ?? defaultHeight;
+		const radius = params.barrel_radius ?? defaultParameters.barrel_radius ?? (sides === 4 ? defaultD4Radius : defaultRadius);
+		const capHeight = params.barrel_cap ?? defaultParameters.barrel_cap ?? defaultCapHeight;
 
 		const m = sides / 2; // vertices per ring (and faces per cap)
 		const step = (2 * Math.PI) / m;

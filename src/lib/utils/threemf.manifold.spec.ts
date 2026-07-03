@@ -8,6 +8,10 @@ import {
 	buildThreeMfZip,
 	groupedModelXml,
 	modelXml,
+	BAMBU_MAGNET_PAUSE_FILE,
+	PRUSA_MAGNET_PAUSE_FILE,
+	bambuMagnetPauseXml,
+	prusaMagnetPauseXml,
 	type UpAxis
 } from './threemf';
 import { buildPlatform } from './build_options/platforms';
@@ -163,5 +167,31 @@ describe('manifold -> 3MF export pipeline', () => {
 		// each entry is itself a valid 3MF package.
 		const inner = unzipSync(files['part_0.3mf']);
 		expect(Object.keys(inner)).toContain('3D/3dmodel.model');
+	});
+
+	it('embeds Prusa and Bambu magnet-pause metadata when magnetPauseZ is set', async () => {
+		const indexed = geometryToIndexedMesh(buildPlatform(pentagon(10), platform));
+		const pauseZ = 12.34567;
+		const blob = buildThreeMfGrouped([{ name: 'box', objects: [{ name: 'base', ...indexed }] }], 'z', pauseZ);
+		const files = unzipSync(new Uint8Array(await blob.arrayBuffer()));
+		expect(Object.keys(files)).toContain(PRUSA_MAGNET_PAUSE_FILE);
+		expect(Object.keys(files)).toContain(BAMBU_MAGNET_PAUSE_FILE);
+		const prusa = strFromU8(files[PRUSA_MAGNET_PAUSE_FILE]);
+		const bambu = strFromU8(files[BAMBU_MAGNET_PAUSE_FILE]);
+		expect(prusa).toContain('print_z="12.34567"');
+		expect(prusa).toContain('type="1"');
+		expect(bambu).toContain('top_z="12.34567"');
+		expect(bambu).toContain('type="1"');
+	});
+
+	it('magnet pause XML matches slicer schemas', () => {
+		expect(prusaMagnetPauseXml(10)).toBe(
+			'<?xml version="1.0" encoding="UTF-8"?>\n' +
+				'<custom_gcodes_per_print_z bed_idx="0">\n' +
+				'<code print_z="10" type="1" extruder="0" color="" extra="" gcode="M601"/>\n' +
+				'<mode value="SingleExtruder"/>\n' +
+				'</custom_gcodes_per_print_z>\n'
+		);
+		expect(bambuMagnetPauseXml(10)).toContain('<layer top_z="10" type="1"');
 	});
 });

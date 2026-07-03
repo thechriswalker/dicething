@@ -136,36 +136,97 @@ export function groupedModelXml(groups: Array<ThreeMfGroup>, upAxis: UpAxis): st
 
 const _enc = new TextEncoder();
 
+// CustomGCode::PausePrint in PrusaSlicer / OrcaSlicer.
+const PAUSE_GCODE_TYPE = 1;
+const SINGLE_EXTRUDER_MODE = 'SingleExtruder';
+
+export const PRUSA_MAGNET_PAUSE_FILE = 'Metadata/Prusa_Slicer_custom_gcode_per_print_z.xml';
+export const BAMBU_MAGNET_PAUSE_FILE = 'Metadata/custom_gcode_per_layer.xml';
+
+// PrusaSlicer / Orca (Prusa fork) pause-before-layer metadata.
+export function prusaMagnetPauseXml(printZ: number): string {
+	const z = fmt(printZ);
+	return (
+		`<?xml version="1.0" encoding="UTF-8"?>\n` +
+		`<custom_gcodes_per_print_z bed_idx="0">\n` +
+		`<code print_z="${z}" type="${PAUSE_GCODE_TYPE}" extruder="0" color="" extra="" gcode="M601"/>\n` +
+		`<mode value="${SINGLE_EXTRUDER_MODE}"/>\n` +
+		`</custom_gcodes_per_print_z>\n`
+	);
+}
+
+// Bambu Studio / OrcaSlicer (BBS fork) pause-before-layer metadata.
+export function bambuMagnetPauseXml(topZ: number): string {
+	const z = fmt(topZ);
+	return (
+		`<?xml version="1.0" encoding="UTF-8"?>\n` +
+		`<custom_gcodes_per_layer>\n` +
+		`<plate>\n` +
+		`<plate_info id="1"/>\n` +
+		`<layer top_z="${z}" type="${PAUSE_GCODE_TYPE}" extruder="0" color="" extra="" gcode="M601"/>\n` +
+		`<mode value="${SINGLE_EXTRUDER_MODE}"/>\n` +
+		`</plate>\n` +
+		`</custom_gcodes_per_layer>\n`
+	);
+}
+
+export function magnetPauseMetadataFiles(printZ: number): Record<string, string> {
+	return {
+		[PRUSA_MAGNET_PAUSE_FILE]: prusaMagnetPauseXml(printZ),
+		[BAMBU_MAGNET_PAUSE_FILE]: bambuMagnetPauseXml(printZ)
+	};
+}
+
 // Assemble a single .3mf package from the given model XML.
-function pack(model: string): Uint8Array {
+function pack(model: string, metadata?: Record<string, string>): Uint8Array {
 	const files: Zippable = {
 		'[Content_Types].xml': _enc.encode(CONTENT_TYPES),
 		'_rels/.rels': _enc.encode(RELS),
 		'3D/3dmodel.model': _enc.encode(model)
 	};
+	if (metadata) {
+		for (const [path, xml] of Object.entries(metadata)) {
+			files[path] = _enc.encode(xml);
+		}
+	}
 	return zipSync(files);
 }
 
 // One .3mf containing every object (placed in a single build). The natural form
 // for "all in one file" since 3MF holds multiple objects directly.
-export function buildThreeMf(objects: Array<ThreeMfObject>, upAxis: UpAxis): Blob {
-	const bytes = pack(modelXml(objects, upAxis));
+export function buildThreeMf(
+	objects: Array<ThreeMfObject>,
+	upAxis: UpAxis,
+	magnetPauseZ?: number
+): Blob {
+	const metadata = magnetPauseZ !== undefined ? magnetPauseMetadataFiles(magnetPauseZ) : undefined;
+	const bytes = pack(modelXml(objects, upAxis), metadata);
 	return new Blob([bytes as BlobPart], { type: 'model/3mf' });
 }
 
 // One .3mf where each group's meshes are combined into a single grouped object
 // (a 3MF component object). Use when several parts belong to one logical object,
 // e.g. a box base + lid that should stay together.
-export function buildThreeMfGrouped(groups: Array<ThreeMfGroup>, upAxis: UpAxis): Blob {
-	const bytes = pack(groupedModelXml(groups, upAxis));
+export function buildThreeMfGrouped(
+	groups: Array<ThreeMfGroup>,
+	upAxis: UpAxis,
+	magnetPauseZ?: number
+): Blob {
+	const metadata = magnetPauseZ !== undefined ? magnetPauseMetadataFiles(magnetPauseZ) : undefined;
+	const bytes = pack(groupedModelXml(groups, upAxis), metadata);
 	return new Blob([bytes as BlobPart], { type: 'model/3mf' });
 }
 
 // One .3mf per group, all packed into a ZIP. Each file holds a single grouped
 // component object (the group's meshes), so it's the "one file per group" layout.
-export function buildThreeMfGroupZip(groups: Array<ThreeMfGroup>, upAxis: UpAxis): Blob {
+export function buildThreeMfGroupZip(
+	groups: Array<ThreeMfGroup>,
+	upAxis: UpAxis,
+	magnetPauseZ?: number
+): Blob {
 	const files: Zippable = {};
 	const used = new Set<string>();
+	const metadata = magnetPauseZ !== undefined ? magnetPauseMetadataFiles(magnetPauseZ) : undefined;
 	for (const group of groups) {
 		let filename = `${group.name}.3mf`;
 		let i = 1;
@@ -173,16 +234,21 @@ export function buildThreeMfGroupZip(groups: Array<ThreeMfGroup>, upAxis: UpAxis
 			filename = `${group.name}_${i++}.3mf`;
 		}
 		used.add(filename);
-		files[filename] = pack(groupedModelXml([group], upAxis));
+		files[filename] = pack(groupedModelXml([group], upAxis), metadata);
 	}
 	const zipped = zipSync(files);
 	return new Blob([zipped as BlobPart], { type: 'application/zip' });
 }
 
-// One .3mf per object, all packed into a ZIP (the "separate files" layout).
-export function buildThreeMfZip(objects: Array<ThreeMfObject>, upAxis: UpAxis): Blob {
+// One .3mf per object, all packed into a single ZIP (the "separate files" layout).
+export function buildThreeMfZip(
+	objects: Array<ThreeMfObject>,
+	upAxis: UpAxis,
+	magnetPauseZ?: number
+): Blob {
 	const files: Zippable = {};
 	const used = new Set<string>();
+	const metadata = magnetPauseZ !== undefined ? magnetPauseMetadataFiles(magnetPauseZ) : undefined;
 	for (const obj of objects) {
 		let filename = `${obj.name}.3mf`;
 		let i = 1;
@@ -190,7 +256,7 @@ export function buildThreeMfZip(objects: Array<ThreeMfObject>, upAxis: UpAxis): 
 			filename = `${obj.name}_${i++}.3mf`;
 		}
 		used.add(filename);
-		files[filename] = pack(modelXml([obj], upAxis));
+		files[filename] = pack(modelXml([obj], upAxis), metadata);
 	}
 	const zipped = zipSync(files);
 	return new Blob([zipped as BlobPart], { type: 'application/zip' });

@@ -18,7 +18,7 @@
 // planes as the original triangular faces regardless of truncation, so the
 // hexagon "face to face" stays equal to the size parameter.
 
-import type { DieFaceModel, DieModel } from '$lib/interfaces/dice';
+import type { DiceParameter, DieFaceModel, DieModel } from '$lib/interfaces/dice';
 import {
 	compareKeys,
 	orbitFace,
@@ -69,13 +69,17 @@ function placedToFaces(placed: PlacedFaces, isNumberFace: boolean): Array<DieFac
 	}));
 }
 
+
+const defaultParameters: Array<DiceParameter> = [
+	{ id: SIZE_PARAM, defaultValue: defaultSize, min: 12, max: 60, step: 0.1 },
+	{ id: TRUNCATION_PARAM, defaultValue: defaultTruncation, min: 0, max: 10, step: 0.05 }
+];
+
 export const TruncatedOctahedronD8: DieModel = {
 	id: 'd8_truncated_octahedron',
 	name: 'D8 Truncated',
-	parameters: [
-		{ id: SIZE_PARAM, defaultValue: defaultSize, min: 12, max: 60, step: 0.1 },
-		{ id: TRUNCATION_PARAM, defaultValue: defaultTruncation, min: 0, max: 10, step: 0.05 }
-	],
+	parameters: defaultParameters,
+	blankParameters: truncatedOctahedronBlankParams(Object.fromEntries(defaultParameters.map(p => [p.id, p.defaultValue]))),
 	build(params) {
 		const size = params[SIZE_PARAM] ?? defaultSize;
 		const truncationMm = params[TRUNCATION_PARAM] ?? defaultTruncation;
@@ -144,3 +148,15 @@ export const TruncatedOctahedronD8: DieModel = {
 		};
 	}
 };
+
+function truncatedOctahedronBlankParams(defaultParameters: Record<string, number>): (params: Record<string, number>, offset: number) => Record<string, number> {
+	return (params, offset) => {
+		const size = params[SIZE_PARAM] ?? defaultParameters[SIZE_PARAM] ?? defaultSize;
+		const truncationMm = params[TRUNCATION_PARAM] ?? defaultParameters[TRUNCATION_PARAM] ?? defaultTruncation;
+		return {
+			...params,
+			[SIZE_PARAM]: size - offset,
+			[TRUNCATION_PARAM]: truncationMm - offset
+		};
+	};
+}

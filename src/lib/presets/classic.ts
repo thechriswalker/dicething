@@ -49,7 +49,7 @@ export const classic: Preset = {
 					>,
 					face_parameters: []
 				},
-				{ kind: 'd12_dodecahedron', parameters: { polyhedron_size: 15 }, face_parameters: [] },
+				{ kind: 'd12_dodecahedron', parameters: { polyhedron_size: 17.5 }, face_parameters: [] },
 				{
 					kind: 'd20_icosahedron',
 					parameters: { polyhedron_size: 19.5 } as Record<string, number>,

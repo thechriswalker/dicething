@@ -404,7 +404,7 @@
 				"id=barrel_twist": "Cap Twist",
 				"id=coin_bevel_angle": "Bevel Angle",
 				"id=coin_bevel_amount": "Bevel Amount",
-				"id=trunc_tetra_size": "Edge Length",
+				"id=trunc_tetra_size": "Pyramid Height",
 				"id=trunc_tetra_truncation": "Truncation",
 				"id=skew": "Skew",
 				"id=engraving_depth": "Engraving Depth",

@@ -81,7 +81,7 @@ export type DieModel = {
 	// blanks that are bigger than the numbered dice and shell smooth or regular
 	// ones that are smaller than the regular ones and shell to the same size as regular.
 	// either way, the offset should be at least your engraving depth + wiggle room.
-	blankParameters?(params: Record<string, number>, offset: number): Record<string, number>;
+	blankParameters(params: Record<string, number>, offset: number): Record<string, number>;
 	// the 2D outline (centered at the origin) to use as the base of a printing
 	// "platform" for this die. when omitted, the export flow falls back to the
 	// die's largest built face shape. dice that split one physical face into

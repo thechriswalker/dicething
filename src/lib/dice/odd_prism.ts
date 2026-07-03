@@ -61,9 +61,32 @@ function oddPrism(
 ): DieModel {
 	const parameters = customParameters(customParams);
 	const defaultParameters = Object.fromEntries(parameters.map((p) => [p.id, p.defaultValue]));
-	return { id, name, parameters, build: build(sides, defaultParameters) };
+	return { id, name, blankParameters: oddPrismBlankParams(sides, defaultParameters), parameters, build: build(sides, defaultParameters) };
 }
 
+
+function oddPrismBlankParams(sides: number, defaultParameters: Record<string, number>): (params: Record<string, number>, offset: number) => Record<string, number> {
+	// we want to reduce face-2-face distance by offset*2.
+	const alpha = (2 * Math.PI) / sides;
+	const tanHalfAlpha = Math.tan(alpha / 2);
+	return (params, offset) => {
+		const x = params['prism_width'] ?? defaultParameters['prism_width'] ?? defaultWidth;
+		const y = params['prism_length'] ?? defaultParameters['prism_length'] ?? defaultLength;
+		const cap = params['prism_cap'] ?? defaultParameters['prism_cap'] ?? defaultCapHeight;
+		const d = x / (2 * tanHalfAlpha);
+		// this is the current center to face distance.
+		// we want to find x so that d is reduced by offset.
+		const xb = (d - offset) * 2 * tanHalfAlpha;
+		// the height is reduced by 2*offset (one at each end)
+		// and the cap height is reduced by offset.
+		return {
+			...params,
+			prism_length: y - (offset * 2),
+			prism_cap: cap - offset,
+			prism_width: xb
+		};
+	};
+}
 // orient a set of coplanar 3D vertices into a face shape + placement transform,
 // ensuring the engraving front (+z) faces outward.
 function orientedFace(verts: Array<Vector3>): { shape: Shape; transform: Transform } {

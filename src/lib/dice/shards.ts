@@ -2,11 +2,11 @@
 // unbalanced lengths.
 // i.e. long edge for number faces and short cap for blanks.
 import type { DieModel, DieFaceModel, DiceParameter } from '$lib/interfaces/dice';
-import { Transform, previewTilt, vectorRotateY, vectorRotateZ } from '$lib/utils/3d';
+import { Transform, previewTilt } from '$lib/utils/3d';
 import { stackedExplode } from '$lib/utils/explode';
 import { Legend, pickForDoublesByIndex, pickForNumber } from '$lib/utils/legends';
 import { orientCoplanarVertices, rotateShapes, translateShapes } from '$lib/utils/shapes';
-import { BufferGeometry, Plane, Ray, Camera, Vector2, Vector3 } from 'three';
+import { Plane, Ray, Vector2, Vector3 } from 'three';
 
 const defaultHeight = 24;
 const defaultRadius = 8;
@@ -61,7 +61,25 @@ function shard(id: string, name: string, sides: number, tens = false): DieModel 
 		id,
 		name,
 		parameters: shardParameters,
+		blankParameters: shardBlankParams(Object.fromEntries(shardParameters.map(p => [p.id, p.defaultValue]))),
 		build: build(sides, tens, sides === 4 ? previewTilt() : undefined)
+	};
+}
+
+function shardBlankParams(
+	defaultParameters: Record<string, number>
+): (params: Record<string, number>, offset: number) => Record<string, number> {
+	// we want to reduce face-2-face distance by offset*2.
+	return (params, offset) => {
+		const x = params['shard_radius'] ?? defaultParameters['shard_radius'] ?? defaultRadius;
+		const y = params['shard_height'] ?? defaultParameters['shard_height'] ?? defaultHeight;
+		const cap = params['shard_cap'] ?? defaultParameters['shard_cap'] ?? defaultCapHeight;
+		return {
+			...params,
+			shard_height: y - offset * 2,
+			shard_cap: cap - offset,
+			shard_radius: x - offset
+		};
 	};
 }
 

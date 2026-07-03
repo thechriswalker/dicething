@@ -18,7 +18,7 @@
 import type { DiceParameter, DieFaceModel, DieModel } from '$lib/interfaces/dice';
 import { Transform, previewTilt } from '$lib/utils/3d';
 import { pickForNumber } from '$lib/utils/legends';
-import { centerShapes, getBoundingBox, rotateShapes } from '$lib/utils/shapes';
+import { centerShapes, getBoundingBox } from '$lib/utils/shapes';
 import { Shape, Vector2, Vector3 } from 'three';
 
 const defaultCaltropHeight = 16;
@@ -284,6 +284,7 @@ function caltropModel(id: string, name: string, style: 'kite' | 'base' | 'custom
 		id,
 		name,
 		parameters: caltropParameters,
+		blankParameters: caltropBlankParams(defaultCaltropHeight),
 		build(params) {
 			const H = params.caltrop_height ?? defaultCaltropHeight;
 			const built = style === 'custom' ? buildCustom(H) : buildSegmented(H, style);
@@ -299,6 +300,16 @@ function caltropModel(id: string, name: string, style: 'kite' | 'base' | 'custom
 			const { e, h } = tetrahedronDimensions(H);
 			return equilateralTriangleShape(e, h);
 		}
+	};
+}
+
+function caltropBlankParams(height: number): (params: Record<string, number>, offset: number) => Record<string, number> {
+	return (params, offset) => {
+		const H = params.caltrop_height ?? height ?? defaultCaltropHeight;
+		return {
+			...params,
+			caltrop_height: H - offset
+		};
 	};
 }
 

@@ -12,7 +12,7 @@
 // four triangles (and all four hexagons) share one `Shape`, keeping the exploded
 // view and engraved legends consistently oriented.
 
-import type { DieFaceModel, DieModel } from '$lib/interfaces/dice';
+import type { DiceParameter, DieFaceModel, DieModel } from '$lib/interfaces/dice';
 import {
 	compareKeys,
 	orbitFace,
@@ -25,7 +25,7 @@ import { stackedExplode } from '$lib/utils/explode';
 import { Legend, pickForNumber } from '$lib/utils/legends';
 import { Vector3 } from 'three';
 
-const defaultEdge = 26;
+const defaultHeight = 20;
 const defaultTruncation = 0.33; // 1/3 is the Archimedean truncated tetrahedron.
 
 // round to 3 dp so near-equal face centroids sort deterministically.
@@ -60,22 +60,27 @@ function placedToFaces(placed: PlacedFaces, isNumberFace: boolean): Array<DieFac
 	}));
 }
 
+const defaultParameters: Array<DiceParameter> = [
+	{ id: 'trunc_tetra_size', defaultValue: defaultHeight, min: 10, max: 60, step: 0.1 },
+	{
+		id: 'trunc_tetra_truncation',
+		defaultValue: defaultTruncation,
+		min: 0.25,
+		max: 0.4,
+		step: 0.01
+	}
+]
+
 export const TruncatedTetrahedronD4: DieModel = {
 	id: 'd4_truncated_tetrahedron',
 	name: 'D4 Truncated',
-	parameters: [
-		{ id: 'trunc_tetra_size', defaultValue: defaultEdge, min: 10, max: 60, step: 0.1 },
-		{
-			id: 'trunc_tetra_truncation',
-			defaultValue: defaultTruncation,
-			min: 0.25,
-			max: 0.4,
-			step: 0.01
-		}
-	],
+	parameters: defaultParameters,
+	blankParameters: truncatedTetrahedronBlankParams(Object.fromEntries(defaultParameters.map(p => [p.id, p.defaultValue]))),
 	build(params) {
-		const edge = params.trunc_tetra_size ?? defaultEdge;
+		const height = params.trunc_tetra_size ?? defaultHeight;
 		const f = params.trunc_tetra_truncation ?? defaultTruncation;
+		const edge = Math.sqrt(3) * height;
+		
 		const v = tetrahedronVertices(edge);
 
 		const v0 = v[0];
@@ -133,3 +138,15 @@ export const TruncatedTetrahedronD4: DieModel = {
 		};
 	}
 };
+
+function truncatedTetrahedronBlankParams(defaultParameters: Record<string, number>): (params: Record<string, number>, offset: number) => Record<string, number> {
+	return (params, offset) => {
+		const height = params['trunc_tetra_size'] ?? defaultParameters['trunc_tetra_size'] ?? defaultHeight;
+		const truncation = params['trunc_tetra_truncation'] ?? defaultParameters['trunc_tetra_truncation'] ?? defaultTruncation;
+		return {
+			...params,
+			trunc_tetra_size: height - offset,
+			trunc_tetra_truncation: truncation - offset
+		};
+	};
+}
