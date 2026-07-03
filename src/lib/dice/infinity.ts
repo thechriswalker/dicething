@@ -80,6 +80,7 @@ export const InfinityD4: DieModel = {
 	id: 'd4_infinity',
 	name: 'D4 Infinity',
 	parameters: infinityParameters,
+	blankParameters: infinityBlankParams,
 	build(params) {
 		const width = params.infinity_width ?? defaultWidth;
 		const length = params.infinity_length ?? defaultLength;
@@ -189,3 +190,13 @@ export const InfinityD4: DieModel = {
 		};
 	}
 };
+
+function infinityBlankParams(params: Record<string, number>, offset: number): Record<string, number> {
+	const width = params.infinity_width ?? defaultWidth;
+	const length = params.infinity_length ?? defaultLength;
+	return {
+		...params,
+		infinity_width: width - offset*2,
+		infinity_length: length - offset*2
+	}
+}

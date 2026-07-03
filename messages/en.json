@@ -368,6 +368,8 @@
 	"face_parameters_offset_x_description": "Horizontal offset of legend from center",
 	"face_parameters_offset_y": "Y-Offset",
 	"face_parameters_offset_y_description": "Vertical offset of legend from center",
+	"face_parameters_extra_depth": "Extra Engraving Depth",
+	"face_parameters_extra_depth_description": "Adds to the engraving depth set for this die, but only on this face. Useful if you want the 1 face engraved deeper, for example.",
 	"dice_parameters_name": [
 		{
 			"declarations": ["input id"],

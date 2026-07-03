@@ -81,7 +81,7 @@ function oddPrismBlankParams(sides: number, defaultParameters: Record<string, nu
 		// and the cap height is reduced by offset.
 		return {
 			...params,
-			prism_length: y - (offset * 2),
+			prism_length: y - (offset),
 			prism_cap: cap - offset,
 			prism_width: xb
 		};

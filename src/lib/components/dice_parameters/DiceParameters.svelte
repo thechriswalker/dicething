@@ -305,6 +305,7 @@
 	);
 	let faceLegendOffset = $derived(fparams[displayFace]?.offset ?? new Vector2(0, 0));
 	let faceRotationDegrees = $derived(radToDeg(fparams[displayFace]?.rotation ?? 0));
+	let faceExtraDepth = $derived(fparams[displayFace]?.extraDepth ?? 0);
 
 	// ---- parameter editing mode: controls / raw / JSON (JSON is dev-only) ----
 	const prefs = getPreferences();
@@ -512,10 +513,10 @@
 		},
 		{
 			id: 'extraDepth',
-			label: () => 'extraDepth',
-			min: 0,
-			max: 1,
-			step: 0.01,
+			label: () => m.face_parameters_extra_depth(),
+			min: -3,
+			max: 3,
+			step: 0.05,
 			unsetField: 'extraDepth' as const,
 			showUnset: true
 		}
@@ -1019,7 +1020,7 @@
 	legend
 	scale: 0-2
 	rotation: -Pi - Pi
-	extraDepth: 0-1 // for engraving
+	extraDepth: -3-3 // per-face engraving depth offset (mm)
 	offset Vector2 (i.e. x,y) from center. might be better to have a component for this
 	that we bind to the faceparams
 	
@@ -1197,6 +1198,27 @@
 								min={-180}
 								max={180}
 								step={0.1}
+							></Slider>
+						</label>
+						<label class="flex flex-col">
+							<p class="flex justify-between">
+								<span class="flex items-center gap-1">
+									{m.face_parameters_extra_depth()}
+									{@render helpIcon(m.face_parameters_extra_depth_description())}
+								</span>
+								<span>
+									({numberFormat(faceExtraDepth)})
+								</span>
+							</p>
+							<Slider
+								class="py-1"
+								value={faceExtraDepth}
+								onChange={(nextExtraDepth) => {
+									updateTargetFaces((p) => (p.extraDepth = nextExtraDepth));
+								}}
+								min={-3}
+								max={3}
+								step={0.05}
 							></Slider>
 						</label>
 					{/if}

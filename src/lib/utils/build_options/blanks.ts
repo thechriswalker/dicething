@@ -24,7 +24,7 @@ const controls: ExtraBuildOption['controls'] = [
 		min: 0,
 		max: 10,
 		step: 0.05,
-		default: 0.7,
+		default: 0.2,
 		unit: m.export_unit_mm,
 		help: m.export_opt_blanks_tolerance_help,
 		visibleWhen: { control: 'bigger', equals: false }
