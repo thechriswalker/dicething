@@ -5,10 +5,12 @@ import {
 	geometryToManifold,
 	manifold,
 	manifoldToGeometry,
+	manifoldToIndexedMesh,
 	differenceGeometry,
 	toFlatPositions
 } from './manifold';
 import { checkMesh } from './mesh_check';
+import { manifoldToFlatPositions } from './export';
 
 describe('manifold adapter', () => {
 	beforeAll(async () => {
@@ -25,6 +27,25 @@ describe('manifold adapter', () => {
 		expect(report.isWatertight).toBe(true);
 		expect(report.isManifold).toBe(true);
 		expect(report.degenerateTriangleCount).toBe(0);
+	});
+
+	it('manifoldToIndexedMesh copies mesh without a three round-trip', () => {
+		const man = geometryToManifold(new BoxGeometry(10, 10, 10));
+		const indexed = manifoldToIndexedMesh(man);
+		man.delete();
+		expect(indexed.positions.length).toBeGreaterThan(0);
+		expect(indexed.indices.length).toBeGreaterThan(0);
+		expect(indexed.positions.length % 3).toBe(0);
+		expect(indexed.indices.length % 3).toBe(0);
+	});
+
+	it('manifoldToFlatPositions stays printable', () => {
+		const man = geometryToManifold(new BoxGeometry(10, 10, 10));
+		const report = checkMesh(manifoldToFlatPositions(man, 'y'));
+		man.delete();
+		expect(report.isWatertight).toBe(true);
+		expect(report.isManifold).toBe(true);
+		expect(report.isPrintable).toBe(true);
 	});
 
 	it('cuts a cylinder out of a box and the result is a printable solid', () => {

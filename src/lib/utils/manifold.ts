@@ -117,8 +117,11 @@ export function geometryToManifold(geometry: BufferGeometry): Manifold {
 	return man;
 }
 
-// Convert a Manifold back to an (indexed) three BufferGeometry with recomputed
-// flat-ish vertex normals. Does NOT delete the Manifold (the caller owns it).
+// Convert a Manifold back to three BufferGeometry with per-triangle normals.
+// Manifold welds coplanar regions down to few big triangles; splitting to
+// non-indexed before computeVertexNormals keeps flat faces from looking curved
+// under MeshNormalMaterial (shared corner verts would otherwise average crease
+// normals across the whole face). Does NOT delete the Manifold (caller owns it).
 export function manifoldToGeometry(man: Manifold): BufferGeometry {
 	const mesh: ManifoldMesh = man.getMesh();
 	const geo = new BufferGeometry();
@@ -138,8 +141,10 @@ export function manifoldToGeometry(man: Manifold): BufferGeometry {
 		geo.setAttribute('position', new Float32BufferAttribute(positions, 3));
 	}
 	geo.setIndex(new BufferAttribute(mesh.triVerts, 1));
-	geo.computeVertexNormals();
-	return geo;
+	const flat = geo.toNonIndexed();
+	geo.dispose();
+	flat.computeVertexNormals();
+	return flat;
 }
 
 // A welded, indexed triangle mesh: a plain xyz vertex buffer plus triangle
@@ -147,6 +152,37 @@ export function manifoldToGeometry(man: Manifold): BufferGeometry {
 // 3MF (one vertex shared by every triangle that touches it), as opposed to the
 // flat 9-floats-per-triangle form an STL wants.
 export type IndexedMesh = { positions: Float32Array; indices: Uint32Array };
+
+function meshGlToIndexedMesh(mesh: ManifoldMesh): IndexedMesh | undefined {
+	const numProp = mesh.numProp;
+	const vertCount = numProp > 0 ? mesh.vertProperties.length / numProp : 0;
+	if (mesh.triVerts.length === 0 || vertCount === 0) {
+		return undefined;
+	}
+	let positions: Float32Array;
+	if (numProp === 3) {
+		positions = new Float32Array(mesh.vertProperties);
+	} else {
+		positions = new Float32Array(vertCount * 3);
+		for (let i = 0; i < vertCount; i++) {
+			positions[i * 3] = mesh.vertProperties[i * numProp];
+			positions[i * 3 + 1] = mesh.vertProperties[i * numProp + 1];
+			positions[i * 3 + 2] = mesh.vertProperties[i * numProp + 2];
+		}
+	}
+	return { positions, indices: new Uint32Array(mesh.triVerts) };
+}
+
+// Copy a Manifold's mesh into indexed form for 3MF export. Does NOT delete the
+// Manifold (caller owns it). Prefer this over geometryToIndexedMesh when the
+// solid is already a Manifold so export never round-trips through Three.js.
+export function manifoldToIndexedMesh(man: Manifold): IndexedMesh {
+	const indexed = meshGlToIndexedMesh(man.getMesh());
+	if (!indexed) {
+		throw new Error('manifoldToIndexedMesh: empty Manifold mesh');
+	}
+	return indexed;
+}
 
 // Bridge a three BufferGeometry into the indexed mesh 3MF wants by routing it
 // through Manifold: ofMesh() welds and validates topology, and getMesh() hands
@@ -162,22 +198,9 @@ export type IndexedMesh = { positions: Float32Array; indices: Uint32Array };
 export function geometryToIndexedMesh(geometry: BufferGeometry): IndexedMesh {
 	const man = geometryToManifold(geometry);
 	try {
-		const mesh: ManifoldMesh = man.getMesh();
-		const numProp = mesh.numProp;
-		const vertCount = numProp > 0 ? mesh.vertProperties.length / numProp : 0;
-		if (mesh.triVerts.length > 0 && vertCount > 0) {
-			let positions: Float32Array;
-			if (numProp === 3) {
-				positions = new Float32Array(mesh.vertProperties);
-			} else {
-				positions = new Float32Array(vertCount * 3);
-				for (let i = 0; i < vertCount; i++) {
-					positions[i * 3] = mesh.vertProperties[i * numProp];
-					positions[i * 3 + 1] = mesh.vertProperties[i * numProp + 1];
-					positions[i * 3 + 2] = mesh.vertProperties[i * numProp + 2];
-				}
-			}
-			return { positions, indices: new Uint32Array(mesh.triVerts) };
+		const indexed = meshGlToIndexedMesh(man.getMesh());
+		if (indexed) {
+			return indexed;
 		}
 	} finally {
 		man.delete();

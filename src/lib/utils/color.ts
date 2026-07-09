@@ -57,7 +57,7 @@ let getRGBFromCanvas = (_: string) => {
 
 if (canUseCanvas) {
 	const cvs = new OffscreenCanvas(1, 1);
-	const ctx = cvs.getContext('2d');
+	const ctx = cvs.getContext('2d', { willReadFrequently: true });
 	if (ctx) {
 		getRGBFromCanvas = (cssColor) => {
 			ctx.fillStyle = cssColor;

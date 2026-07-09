@@ -171,3 +171,13 @@ Some of the code here was produced by LLMs. I actually built the majority before
 ## Contributing
 
 I started this project because I was unhappy I could not contibute to DiceMaker to add new shapes or features. I want you to be able to add features to this software, so not only is open source and MIT licensed, but it you have worthwhile contributions I'd be happy to accept them. Please reach out / open an issue first however, I may be working on something similar or want to implement the feature myself. If not though, I will say and I will welcome thoughtful PRs. Please keep slop and time-wasting to a minimum, nobody wants that.
+
+
+# Rewrite
+
+I think I need to rewrite the entire thing using manifold as a base, not threejs.
+
+That would likely simplify so many things, cut many edges cases, allow many improvements.
+
+But it's so much work...1
+

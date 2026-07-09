@@ -10,7 +10,8 @@ import { Legend, loadMutableLegends, type LegendSet, type SerialisedLegendSet } 
 import { extraBuildOptions, type OptionValues } from './build_options';
 import { blanks, isBuiltin, loadBuiltinById } from '$lib/fonts';
 import { uuid } from './uuid';
-import { getManifold, geometryToIndexedMesh } from './manifold';
+import type { Manifold } from 'manifold-3d';
+import { getManifold, geometryToIndexedMesh, manifoldToIndexedMesh, type IndexedMesh } from './manifold';
 import {
 	buildThreeMf,
 	buildThreeMfGrouped,
@@ -166,6 +167,39 @@ export function layoutGrid(meshes: Array<Mesh>, gap = 4): void {
 
 const _exporter = new STLExporter();
 
+function vertexForExport(x: number, y: number, z: number, upAxis: UpAxis): [number, number, number] {
+	// Match the 3MF writer: dice are Y-up, print bed is Z-up.
+	if (upAxis === 'y') {
+		return [x, -z, y];
+	}
+	return [x, y, z];
+}
+
+// Expand an indexed Manifold mesh into the flat 9-floats-per-triangle buffer
+// mesh_check uses. Applies the same up-axis rotation as 3MF export.
+export function indexedMeshToFlatPositions(mesh: IndexedMesh, upAxis: UpAxis = 'y'): Float32Array {
+	const { positions, indices } = mesh;
+	const out = new Float32Array(indices.length * 3);
+	let o = 0;
+	for (let i = 0; i < indices.length; i++) {
+		const vi = indices[i];
+		const [x, y, z] = vertexForExport(
+			positions[vi * 3],
+			positions[vi * 3 + 1],
+			positions[vi * 3 + 2],
+			upAxis
+		);
+		out[o++] = x;
+		out[o++] = y;
+		out[o++] = z;
+	}
+	return out;
+}
+
+export function manifoldToFlatPositions(man: Manifold, upAxis: UpAxis = 'y'): Float32Array {
+	return indexedMeshToFlatPositions(manifoldToIndexedMesh(man), upAxis);
+}
+
 function stlBinary(object: Mesh | Group): Uint8Array {
 	const data = _exporter.parse(object, { binary: true }) as unknown as DataView;
 	return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
@@ -249,6 +283,17 @@ export async function exportThreeMfSingle(
 	options?: ThreeMfExportOptions
 ): Promise<Blob> {
 	return buildThreeMf(await toThreeMfObjects(named), upAxis, options?.magnetPauseZ);
+}
+
+// Export an existing Manifold solid directly to 3MF (no Three.js round-trip).
+export async function exportThreeMfFromManifold(
+	name: string,
+	man: Manifold,
+	upAxis: UpAxis = 'y',
+	options?: ThreeMfExportOptions
+): Promise<Blob> {
+	await getManifold();
+	return buildThreeMf([{ name, ...manifoldToIndexedMesh(man) }], upAxis, options?.magnetPauseZ);
 }
 
 // A set of meshes that should export as one grouped 3MF object.

@@ -12,6 +12,7 @@ import {
 	LineBasicMaterial,
 	LineLoop,
 	Material,
+	Matrix4,
 	Mesh,
 	MeshBasicMaterial,
 	MeshNormalMaterial,
@@ -24,6 +25,18 @@ import {
 	DoubleSide
 } from 'three';
 import { DefaultDivisions, engrave, Part } from './engraving';
+import {
+	canEngraveLegend,
+	buildEngravedDieExport,
+	engraveDie,
+	engraveFace,
+	extractFaceGeometry,
+	getOrBuildBlankManifold,
+	insetShapeViaCrossSection,
+	manifoldDieToGeometry,
+	transformToMat4
+} from './die_manifold';
+import { manifold } from './manifold';
 import { debugLegendName, Legend, type LegendSet } from './legends';
 import { applyOrderingToFaces, STANDARD_ORDERING } from '$lib/utils/legend_orderings';
 
@@ -208,7 +221,15 @@ export class Builder {
 	private hasBuilt = false;
 	private static readonly EXPLODE_DURATION_MS = 800;
 
-	// these two default to mesh normal
+	// When true, engraving uses manifold-3d cross-section subtract instead of the
+	// legacy cap+wall tessellation path.
+	public useManifoldEngraving = false;
+
+	// Cached blank export geometry for manifold blank builds (invalidated on die change).
+	private cachedBlankExportGeometry: BufferGeometry | undefined;
+	private cachedBlankExportKey = '';
+	private buildingBlankExport = false;
+
 	private frontMaterial: Material = _genericNormalMaterial;
 	private wallMaterial: Material = _genericNormalMaterial;
 
@@ -285,7 +306,21 @@ export class Builder {
 		}
 		// the inset of the face shape by the tolerance. a concave face can inset to
 		// more than one loop (or none), so this returns a list of loops.
-		const loops = insetPolygon(face.shape, this.currentTolerance, face.convex !== false);
+		let loops: Array<Array<Vector2>>;
+		try {
+			manifold();
+			const csLoop = insetShapeViaCrossSection(
+				face.shape,
+				this.currentTolerance,
+				DefaultDivisions
+			);
+			loops = csLoop ? [csLoop] : [];
+		} catch {
+			loops = insetPolygon(face.shape, this.currentTolerance, face.convex !== false);
+		}
+		if (loops.length === 0) {
+			loops = insetPolygon(face.shape, this.currentTolerance, face.convex !== false);
+		}
 		if (loops.length === 0) {
 			return;
 		}
@@ -821,8 +856,14 @@ export class Builder {
 			this.faceEngravingErrors.length = this.faces.length;
 			this.lastDieParams = dieParams;
 			this.lastStringParams = stringParams;
+			this.cachedBlankExportGeometry?.dispose();
+			this.cachedBlankExportGeometry = undefined;
+			this.cachedBlankExportKey = '';
 		}
 		this.forceRerenderBlank = false;
+		if (this.useManifoldEngraving) {
+			return this.exportViaManifold(dieParams, faceParams);
+		}
 		const geos: Array<BufferGeometry> = [];
 		for (let i = 0; i < this.faces.length; i++) {
 			const face = this.faces[i];
@@ -846,6 +887,144 @@ export class Builder {
 		return new Mesh(repaired, _genericNormalMaterial);
 	}
 
+	private blankExportGeometry(dieParams: Record<string, number>): BufferGeometry {
+		const key = JSON.stringify(dieParams);
+		if (this.cachedBlankExportGeometry && this.cachedBlankExportKey === key) {
+			return this.cachedBlankExportGeometry;
+		}
+		const geos: Array<BufferGeometry> = [];
+		this.buildingBlankExport = true;
+		try {
+			for (let i = 0; i < this.faces.length; i++) {
+				const face = this.faces[i];
+				const f = this.buildFace(i, dieParams.engraving_depth, { legend: Legend.BLANK }, {
+					forExport: true
+				});
+				f.forEach((g) => {
+					face.transform.applyToGeometry(g);
+					const ng = toNonIndexed(g);
+					ng.computeVertexNormals();
+					delete ng.attributes.uv;
+					geos.push(ng);
+				});
+			}
+		} finally {
+			this.buildingBlankExport = false;
+		}
+		const repaired = assembleExportSolid(geos);
+		this.cachedBlankExportGeometry?.dispose();
+		this.cachedBlankExportGeometry = repaired;
+		this.cachedBlankExportKey = key;
+		return repaired;
+	}
+
+	private exportViaManifold(
+		dieParams: Record<string, number>,
+		faceParams: Array<FaceParams>
+	): Mesh {
+		const blankGeo = this.blankExportGeometry(dieParams);
+		const simplified = this.faces.map((face, i) =>
+			simplifyFaceParams(faceParams[i], face)
+		);
+		const exported = buildEngravedDieExport({
+			model: this.model,
+			legends: this.legends,
+			params: dieParams,
+			stringParams: this.lastStringParams,
+			faceParams: simplified,
+			depth: dieParams.engraving_depth,
+			tolerance: this.currentTolerance,
+			divisions: DefaultDivisions,
+			getScaleForLegend: (l) => this.getDefaultScaleForLegend(l),
+			blankExportGeometry: blankGeo
+		});
+		exported.manifold.delete();
+		this.printingTransform.applyToGeometry(exported.previewMesh.geometry);
+		exported.previewMesh.material = _genericNormalMaterial;
+		return exported.previewMesh;
+	}
+
+	private geometryToFaceLocal(geo: BufferGeometry, face: DieFaceModel): BufferGeometry {
+		const inv = new Matrix4().fromArray(transformToMat4(face.transform)).invert();
+		const local = geo.clone();
+		local.applyMatrix4(inv);
+		return local;
+	}
+
+	private buildFaceManifold(
+		i: number,
+		engravingDepth: number,
+		params: FaceParams,
+		opts: { forExport: boolean }
+	): Array<BufferGeometry> {
+		const face = this.faces[i];
+		const legend = params.legend ?? face.defaultLegend;
+		const symbols = this.legends.get(legend);
+		if (!params.scale) {
+			params.scale = this.getDefaultScaleForLegend(legend);
+		}
+		let error: EngravingError | null = null;
+		const depth = engravingDepth + (params.extraDepth ?? 0);
+		const divisions = opts.forExport ? DefaultDivisions : 2 * DefaultDivisions;
+
+		if (
+			legend !== Legend.BLANK &&
+			!canEngraveLegend(face.shape, symbols, params, this.currentTolerance, face.convex !== false)
+		) {
+			error = {
+				faceIndex: i,
+				legend,
+				legendName: this.legends.getLegendName(legend),
+				reason: 'symbol-too-large'
+			};
+		}
+		this.faceEngravingErrors[i] = error;
+
+		const dieParams = {
+			...this.lastDieParams,
+			engraving_depth: engravingDepth,
+			engraving_tolerance: this.currentTolerance
+		};
+		const blankGeo = this.blankExportGeometry(dieParams);
+		const blank = getOrBuildBlankManifold(
+			this.model.id,
+			this.faces,
+			dieParams,
+			this.lastStringParams,
+			{ source: 'export', exportGeometry: blankGeo }
+		);
+
+		let man;
+		if (legend === Legend.BLANK || error) {
+			const wasm = manifold();
+			man = new wasm.Manifold(blank.manifold.getMesh());
+		} else {
+			man = engraveFace(blank, face, i, symbols, params, depth, divisions);
+		}
+		blank.manifold.delete();
+
+		let parts = extractFaceGeometry(man, face, i, depth);
+		man.delete();
+
+		if (!opts.forExport) {
+			parts = parts.map((g) => this.geometryToFaceLocal(g, face));
+		} else {
+			parts = parts.map((g) => {
+				const ng = toNonIndexed(g);
+				ng.computeVertexNormals();
+				delete ng.attributes.uv;
+				g.dispose();
+				return ng;
+			});
+		}
+
+		if (parts.length === 0) {
+			// fall back to a flat cap if extraction found nothing near this face.
+			parts = engrave(face.shape, [], params, depth, this.currentTolerance, divisions, face.convex !== false);
+		}
+		return parts;
+	}
+
 	public getDefaultScaleForLegend(l: Legend): number {
 		if (this.individualLegendScaling) {
 			return this.currentLegendScaling.get(l) ?? this.currentSmallestLegendScaling;
@@ -860,6 +1039,9 @@ export class Builder {
 		params: FaceParams,
 		opts: { forExport: boolean } = { forExport: false }
 	): Array<BufferGeometry> {
+		if (this.useManifoldEngraving && !this.buildingBlankExport) {
+			return this.buildFaceManifold(i, engravingDepth, params, opts);
+		}
 		// engrave face.
 		const face = this.faces[i];
 		const legend = params.legend ?? face.defaultLegend;
