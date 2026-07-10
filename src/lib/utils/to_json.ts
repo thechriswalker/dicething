@@ -140,3 +140,30 @@ export function shapeFromJSON(obj: any): Shape {
 	}
 	return s;
 }
+
+export function isCompactShapeJson(s: unknown): s is { c: unknown[] } {
+	return typeof s === 'object' && s !== null && 'c' in s && Array.isArray((s as { c: unknown[] }).c);
+}
+
+function isShapeLike(s: unknown): s is Shape {
+	return (
+		s instanceof Shape ||
+		(typeof s === 'object' && s !== null && 'curves' in s && Array.isArray((s as Shape).curves))
+	);
+}
+
+// Compact JSON for storage / postMessage. Accepts live THREE.Shape instances (incl.
+// Svelte proxies), three's native toJSON blobs, or already-encoded shapes.
+export function encodeShapeForStorage(s: unknown): unknown {
+	if (isCompactShapeJson(s)) {
+		return s;
+	}
+	if (isShapeLike(s)) {
+		return shapeToJSON(s);
+	}
+	return s;
+}
+
+export function encodeShapeSlot(slot: Array<unknown>): Array<unknown> {
+	return slot.map(encodeShapeForStorage);
+}

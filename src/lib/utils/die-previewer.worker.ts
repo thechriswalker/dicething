@@ -12,7 +12,8 @@ import type { Dice } from '$lib/interfaces/storage.svelte';
 import { Box3, PerspectiveCamera, Scene, Vector2, Vector3, WebGLRenderer } from 'three';
 import { Builder } from './builder';
 import { deferred } from './deferred';
-import { loadImmutableLegends, type SerialisedLegendSet } from './legends';
+import { resolvePreviewLegends } from './preview_legends';
+import type { SerialisedLegendSet } from './legends';
 
 // Fraction of the frame left empty around the die so tips don't touch the edge.
 const PREVIEW_MARGIN = 1.08;
@@ -91,7 +92,12 @@ const reviver: Defined<Parameters<typeof JSON.parse>[1]> = (key, value) => {
 // let's do them one by one
 let queue = Promise.resolve();
 
-let render: (d: Dice, l: SerialisedLegendSet) => Promise<string>;
+let render: (
+	d: Dice,
+	legendSetId: string,
+	legendUpdated?: number,
+	inlineLegends?: SerialisedLegendSet
+) => Promise<string>;
 function getRenderFunction() {
 	if (!render) {
 		const boxSize = 256;
@@ -102,11 +108,16 @@ function getRenderFunction() {
 		renderer.setPixelRatio(1);
 		// renderer.setSize(boxSize, boxSize);
 
-		render = function (d: Dice, l: SerialisedLegendSet): Promise<string> {
+		render = function (
+			d: Dice,
+			legendSetId: string,
+			legendUpdated?: number,
+			inlineLegends?: SerialisedLegendSet
+		): Promise<string> {
 			const deferral = deferred<string>();
 			queue = queue.then(async () => {
 				try {
-					const legends = loadImmutableLegends(l);
+					const legends = await resolvePreviewLegends(legendSetId, legendUpdated, inlineLegends);
 					const builder = new Builder(dice[d.kind], legends, d.id);
 					builder.build(
 						d.parameters,
@@ -140,13 +151,10 @@ function getRenderFunction() {
 }
 
 self.onmessage = function (event) {
-	console.log('worker:recv', event);
-	if ((event.data.msg = 'die-preview')) {
+	if (event.data.msg === 'die-preview') {
 		const d = JSON.parse(event.data.die, reviver);
-		const l = JSON.parse(event.data.legends);
-		getRenderFunction()(d, l)
+		getRenderFunction()(d, event.data.legendSetId, event.data.legendUpdated, event.data.legends)
 			.then((url) => {
-				console.log('worker:send', { id: d.id, url });
 				postMessage({ id: d.id, url });
 			})
 			.catch((err) => {

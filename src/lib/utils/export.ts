@@ -10,8 +10,8 @@ import { Legend, loadMutableLegends, type LegendSet, type SerialisedLegendSet } 
 import { extraBuildOptions, type OptionValues } from './build_options';
 import { blanks, isBuiltin, loadBuiltinById } from '$lib/fonts';
 import { uuid } from './uuid';
-import type { Manifold } from 'manifold-3d';
-import { getManifold, geometryToIndexedMesh, manifoldToIndexedMesh, type IndexedMesh } from './manifold';
+import type { Manifold } from './manifold';
+import { geometryToIndexedMesh, manifoldToIndexedMesh, type IndexedMesh } from './manifold';
 import {
 	buildThreeMf,
 	buildThreeMfGrouped,
@@ -34,8 +34,15 @@ export type ThreeMfExportOptions = {
 // like the mesh-health check can aggregate results per die. `group` identifies
 // which export group the mesh belongs to ('dice' for the numbered die, otherwise
 // the build option's id, e.g. 'blanks' / 'platforms') so callers can aggregate
-// per group (e.g. volume totals).
-export type NamedMesh = { name: string; mesh: Mesh; dieId?: string; group: string };
+// per group (e.g. volume totals). When present, `manifold` is the authoritative
+// print solid; the mesh is for preview only.
+export type NamedMesh = {
+	name: string;
+	mesh: Mesh;
+	dieId?: string;
+	group: string;
+	manifold?: Manifold;
+};
 
 // per-option UI state: whether it's enabled and the current values for its controls.
 export type OptionState = { enabled: boolean; values: OptionValues };
@@ -77,7 +84,14 @@ export function buildExportMeshes(
 				die.string_parameters ?? {},
 				die.legend_ordering
 			);
-			out.push({ name: baseName, mesh: mainMesh, dieId: die.id, group: 'dice' });
+			const mainManifold = mainBuilder.takeExportManifold();
+			out.push({
+				name: baseName,
+				mesh: mainMesh,
+				dieId: die.id,
+				group: 'dice',
+				manifold: mainManifold
+			});
 		}
 
 		// extra artifacts. each option gets its own fully-built builder so that
@@ -107,7 +121,8 @@ export function buildExportMeshes(
 					name: `${baseName}_${artifact.suffix}`,
 					mesh: artifact.mesh,
 					dieId: die.id,
-					group: option.id
+					group: option.id,
+					manifold: artifact.manifold
 				});
 			}
 		}
@@ -126,6 +141,14 @@ function dieExportName(set: DiceSet, dieId: string, idx: number): string {
 // untouched so every die stays on the same level). Mutates the meshes'
 // geometries in place. Used for the on-screen preview and the all-in-one file.
 export function layoutGrid(meshes: Array<Mesh>, gap = 4): void {
+	layoutNamedMeshes(
+		meshes.map((mesh) => ({ name: '', mesh, group: '' })),
+		gap
+	);
+}
+
+export function layoutNamedMeshes(named: Array<NamedMesh>, gap = 4): void {
+	const meshes = named.map((n) => n.mesh);
 	const n = meshes.length;
 	if (n === 0) {
 		return;
@@ -152,14 +175,16 @@ export function layoutGrid(meshes: Array<Mesh>, gap = 4): void {
 	cellW += gap;
 	cellD += gap;
 
-	meshes.forEach((mesh, i) => {
+	named.forEach((entry, i) => {
 		const col = i % cols;
 		const row = Math.floor(i / cols);
 		const x = (col - (cols - 1) / 2) * cellW;
 		const z = (row - (rows - 1) / 2) * cellD;
-		// center the die over its cell in X/Z, leave Y as-is.
 		const f = footprints[i];
-		mesh.geometry.translate(x - f.center.x, 0, z - f.center.z);
+		const dx = x - f.center.x;
+		const dz = z - f.center.z;
+		entry.mesh.geometry.translate(dx, 0, dz);
+		entry.manifold?.translate(dx, 0, dz);
 	});
 }
 
@@ -255,8 +280,8 @@ export function exportStlZip(named: Array<NamedMesh>): Blob {
 
 // --- 3MF -------------------------------------------------------------------
 
-// Convert the named meshes into indexed 3MF objects by routing each through
-// Manifold (see geometryToIndexedMesh). Awaits the one-time WASM init up front.
+// Convert the named meshes into indexed 3MF objects. Uses the live Manifold
+// solid when present; otherwise falls back to geometryToIndexedMesh.
 function toThreeMfObject(named: NamedMesh, used: Set<string>): ThreeMfObject {
 	let uniqueName = named.name;
 	let i = 1;
@@ -264,12 +289,21 @@ function toThreeMfObject(named: NamedMesh, used: Set<string>): ThreeMfObject {
 		uniqueName = `${named.name}_${i++}`;
 	}
 	used.add(uniqueName);
+	if (named.manifold) {
+		return { name: uniqueName, ...manifoldToIndexedMesh(named.manifold) };
+	}
 	const { positions, indices } = geometryToIndexedMesh(named.mesh.geometry);
 	return { name: uniqueName, positions, indices };
 }
 
-async function toThreeMfObjects(named: Array<NamedMesh>): Promise<Array<ThreeMfObject>> {
-	await getManifold();
+export function disposeNamedManifolds(named: Array<NamedMesh>): void {
+	for (const entry of named) {
+		entry.manifold?.delete();
+		entry.manifold = undefined;
+	}
+}
+
+function toThreeMfObjects(named: Array<NamedMesh>): Array<ThreeMfObject> {
 	const used = new Set<string>();
 	return named.map((n) => toThreeMfObject(n, used));
 }
@@ -282,7 +316,7 @@ export async function exportThreeMfSingle(
 	upAxis: UpAxis = 'y',
 	options?: ThreeMfExportOptions
 ): Promise<Blob> {
-	return buildThreeMf(await toThreeMfObjects(named), upAxis, options?.magnetPauseZ);
+	return buildThreeMf(toThreeMfObjects(named), upAxis, options?.magnetPauseZ);
 }
 
 // Export an existing Manifold solid directly to 3MF (no Three.js round-trip).
@@ -292,7 +326,6 @@ export async function exportThreeMfFromManifold(
 	upAxis: UpAxis = 'y',
 	options?: ThreeMfExportOptions
 ): Promise<Blob> {
-	await getManifold();
 	return buildThreeMf([{ name, ...manifoldToIndexedMesh(man) }], upAxis, options?.magnetPauseZ);
 }
 
@@ -329,7 +362,6 @@ export async function exportThreeMfGrouped(
 	upAxis: UpAxis = 'y',
 	options?: ThreeMfExportOptions
 ): Promise<Blob> {
-	await getManifold();
 	const used = new Set<string>();
 	const tmGroups: Array<ThreeMfGroup> = groups.map((g) => ({
 		name: g.name,
@@ -345,7 +377,6 @@ export async function exportThreeMfGroupZip(
 	upAxis: UpAxis = 'y',
 	options?: ThreeMfExportOptions
 ): Promise<Blob> {
-	await getManifold();
 	const used = new Set<string>();
 	const tmGroups: Array<ThreeMfGroup> = groups.map((g) => ({
 		name: g.name,
@@ -360,7 +391,7 @@ export async function exportThreeMfZip(
 	upAxis: UpAxis = 'y',
 	options?: ThreeMfExportOptions
 ): Promise<Blob> {
-	return buildThreeMfZip(await toThreeMfObjects(named), upAxis, options?.magnetPauseZ);
+	return buildThreeMfZip(toThreeMfObjects(named), upAxis, options?.magnetPauseZ);
 }
 
 // --- JSON ------------------------------------------------------------------

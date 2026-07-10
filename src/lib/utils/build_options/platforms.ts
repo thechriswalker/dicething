@@ -10,7 +10,6 @@ import {
 import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { m } from '$lib/paraglide/messages';
 import { buildPlatformViaCrossSection } from '../die_manifold';
-import { manifold } from '../manifold';
 import type { Builder } from '../builder';
 import { getAreaOfShapeAtOrigin } from '../shapes';
 import { controlValue, type ExtraBuildOption } from './types';
@@ -105,7 +104,6 @@ export function buildPlatform(
 	{ height, inset, outset }: { height: number; inset: number; outset: number }
 ): BufferGeometry {
 	try {
-		manifold();
 		return buildPlatformViaCrossSection(shape, { height, inset, outset });
 	} catch {
 		return buildPlatformLegacy(shape, { height, inset, outset });

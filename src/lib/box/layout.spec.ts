@@ -1,8 +1,7 @@
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { Vector2 } from 'three';
 import dice from '$lib/dice';
 import type { Dice, DiceSet } from '$lib/interfaces/storage.svelte';
-import { getManifold } from '$lib/utils/manifold';
 import { prepareLayout } from './box_builder';
 import { defaultBoxParams, type BoxConfig } from './types';
 
@@ -90,10 +89,6 @@ function placedHull(hull0: Array<Vector2>, x: number, y: number): Array<Vector2>
 }
 
 describe('box layout hulls', () => {
-	beforeAll(async () => {
-		await getManifold();
-	});
-
 	it('avoids zero-length edges on classic dice hulls', async () => {
 		const set = makeSet([
 			'd4_caltrop',

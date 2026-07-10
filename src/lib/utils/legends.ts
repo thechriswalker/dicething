@@ -1,7 +1,7 @@
 import { Shape } from 'three';
 import { m } from '$lib/paraglide/messages';
 import { defaultStrings, legendNameForText } from './font';
-import { shapeFromJSON, shapeToJSON } from './to_json';
+import { shapeFromJSON, shapeToJSON, encodeShapeSlot } from './to_json';
 
 export enum Legend {
 	BLANK = -1,
@@ -370,10 +370,10 @@ export function loadMutableLegends(s: SerialisedLegendSet): MutableLegendSet {
 			return {
 				id: s.id,
 				name: self.name,
-				shapes: data,
+				shapes: data.map((slot) => encodeShapeSlot(slot ?? [])),
 				updated: self.updated,
 				font: self.font,
-				sources: sources
+				sources: sources.map((src) => (src ? { ...src } : src))
 			};
 		},
 		*[Symbol.iterator]() {

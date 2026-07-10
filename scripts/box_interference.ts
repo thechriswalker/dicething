@@ -10,7 +10,7 @@ import dice from '../src/lib/dice/index';
 import type { Dice, DiceSet, BoxConfig } from '../src/lib/interfaces/storage.svelte';
 import { buildBox } from '../src/lib/box/box_builder';
 import { defaultBoxParams } from '../src/lib/box/types';
-import { getManifold, manifold, geometryToManifold } from '../src/lib/utils/manifold';
+import { manifold, geometryToManifold } from '../src/lib/utils/manifold';
 
 function makeSet(kinds: Array<keyof typeof dice>): DiceSet {
 	const makeDie = (kind: keyof typeof dice): Dice => {
@@ -76,7 +76,6 @@ async function report(label: string, kinds: Array<keyof typeof dice>, trayDepth:
 	);
 }
 
-await getManifold();
 console.log('Closed-box base/lid interference (lower is better; ~0 = clean clamshell):\n');
 await report('cube (baseline noise)', ['d6_cube'], 1);
 await report('coin, no tray', ['d2_coin'], 0);

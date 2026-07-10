@@ -186,7 +186,7 @@
 			legend_ordering: 'standard'
 		});
 		// mirror the init effect: dice need a builder before they can be rendered.
-		diceBuilders.set(id, new Builder(dice[kind], setData.legends, id));
+		ensureDiceBuilder(id, kind);
 		save(setData);
 		gotoDie(id);
 	};
@@ -533,6 +533,22 @@
 	let renderedDice = $state('');
 	let currentBuilder = $state<Builder | undefined>(undefined);
 
+	function ensureDiceBuilder(dieId: string, kind: Dice['kind']): Builder | undefined {
+		if (!setData) {
+			return undefined;
+		}
+		const model = dice[kind];
+		if (!model) {
+			return undefined;
+		}
+		let builder = diceBuilders.get(dieId);
+		if (!builder) {
+			builder = new Builder(model, setData.legends, dieId);
+			diceBuilders.set(dieId, builder);
+		}
+		return builder;
+	}
+
 	// per-die engraving errors: faces whose legend won't engrave and would
 	// therefore export blank/broken. recomputed off the render path (debounced)
 	// so dragging a slider doesn't rebuild every die every frame. keyed by die id
@@ -542,12 +558,6 @@
 	// depends only on the die geometry, but is recomputed in the same debounced
 	// pass as the engraving errors and surfaced in the same tooltip/badge.
 	let dieLandWarnings = $state<Record<string, boolean>>({});
-	// cached builders for the off-screen engraving-error check, one per die id.
-	// reused across recomputes so we don't reinstantiate (and fully rebuild) every
-	// die on every edit; only dice whose inputs changed get rebuilt. kept separate
-	// from `diceBuilders` so checking a die never disturbs the on-screen (possibly
-	// exploded) scene builder. cleared on unmount.
-	const errorBuilders = new Map<string, Builder>();
 	// per-die signature of the inputs the engraving check depends on, so we can
 	// skip dice that didn't change. a legend-set swap invalidates every die.
 	const lastEngravingSig = new Map<string, string>();
@@ -559,15 +569,16 @@
 		const legends = setData.legends;
 		// a legend change can flip any die's faces between engraving/blank, so it
 		// forces a recompute of every die; a die edit only affects that one die.
-		const legendsChanged = legends.id !== lastEngravingLegendsId;
+		const legendsChanged =
+			lastEngravingLegendsId !== undefined && legends.id !== lastEngravingLegendsId;
 		lastEngravingLegendsId = legends.id;
 		const next: Record<string, Array<EngravingError>> = {};
 		const nextLand: Record<string, boolean> = {};
 		const liveIds = new Set<string>();
 		for (const d of setData.dice) {
 			liveIds.add(d.id);
-			const model = dice[d.kind];
-			if (!model) {
+			const builder = ensureDiceBuilder(d.id, d.kind);
+			if (!builder) {
 				continue;
 			}
 			const sig = dieToJSON(d);
@@ -578,30 +589,29 @@
 				continue;
 			}
 			lastEngravingSig.set(d.id, sig);
-			let builder = errorBuilders.get(d.id);
-			if (!builder) {
-				builder = new Builder(model, legends, d.id);
-				errorBuilders.set(d.id, builder);
-			} else if (legendsChanged) {
+			if (legendsChanged) {
 				builder.reloadLegends(legends);
 			}
-			next[d.id] = engravingErrorsForBuilder(builder, d);
-			nextLand[d.id] = computeLandWarning(model, d.parameters, d.string_parameters ?? {});
+			// Reuse the live scene build for the focused die so the error pass
+			// doesn't rebuild it (and reset explode / camera framing).
+			const isLiveScene = d.id === dieId && builder === currentBuilder && !legendsChanged;
+			next[d.id] = isLiveScene
+				? builder.getEngravingErrors()
+				: engravingErrorsForBuilder(builder, d);
+			nextLand[d.id] = computeLandWarning(dice[d.kind], d.parameters, d.string_parameters ?? {});
 		}
-		// forget cached builders/signatures for dice that were removed.
-		for (const id of [...errorBuilders.keys()]) {
+		// forget cached signatures for dice that were removed.
+		for (const id of [...lastEngravingSig.keys()]) {
 			if (!liveIds.has(id)) {
-				errorBuilders.delete(id);
 				lastEngravingSig.delete(id);
 			}
 		}
 		dieEngravingErrors = next;
 		dieLandWarnings = nextLand;
 	};
-	// drop the cached error-check builders (and the scene builders) when leaving
-	// the editor so their geometries can be collected rather than lingering.
+	// drop the scene builders when leaving the editor so their geometries can be
+	// collected rather than lingering.
 	onDestroy(() => {
-		errorBuilders.clear();
 		lastEngravingSig.clear();
 		diceBuilders.clear();
 	});
@@ -623,23 +633,17 @@
 	$effect(() => {
 		if (setData && ctx && !init) {
 			init = true;
-			console.log('init', setData);
 			for (let i = 0; i < setData.dice.length; i++) {
 				const d = setData.dice[i];
 				// ensure the (optional) string-parameter channel exists so it can be
 				// two-way bound and mutated by the parameter UI.
 				d.string_parameters ??= {};
-				let builder = diceBuilders.get(d.id);
+				const builder = ensureDiceBuilder(d.id, d.kind);
 				if (!builder) {
-					const model = dice[d.kind];
-					builder = new Builder(model, setData.legends, d.id);
-					diceBuilders.set(d.id, builder);
-				} else {
-					// this doesn't actually change the legends could be a noop
-					builder.changeLegends(setData.legends);
+					continue;
 				}
+				builder.changeLegends(setData.legends);
 				if (d.id === dieId) {
-					console.log('rendering in init', d.id);
 					renderPass = builder.build(
 						{ ...d.parameters },
 						d.face_parameters.slice(),
@@ -654,7 +658,6 @@
 		}
 	});
 	$effect(() => {
-		console.log({ init, renderedDice, dieId });
 		if (init) {
 			if (dieId == '') {
 				let builder = diceBuilders.get(renderedDice);
@@ -676,7 +679,6 @@
 				if (builder && ctx && setData) {
 					const d = setData?.dice.find((x) => x.id === dieId)!;
 					d.string_parameters ??= {};
-					console.log('rendering on change', dieId, ctx.scene);
 					currentBuilder?.changeLegends(setData!.legends);
 					renderPass = builder.build(
 						{ ...d.parameters },
@@ -692,7 +694,6 @@
 						selectMode = 'single';
 						selectedFace = 0;
 						selectedFaces = [];
-						console.log('dice changed');
 						resetCamera();
 						ctx.scene.add(builder.diceGroup);
 					}
@@ -740,9 +741,7 @@
 			return;
 		}
 		for (const d of setData.dice) {
-			if (!diceBuilders.has(d.id)) {
-				diceBuilders.set(d.id, new Builder(dice[d.kind], setData.legends, d.id));
-			}
+			ensureDiceBuilder(d.id, d.kind);
 		}
 		for (const id of [...diceBuilders.keys()]) {
 			if (!setData.dice.find((d) => d.id === id)) {

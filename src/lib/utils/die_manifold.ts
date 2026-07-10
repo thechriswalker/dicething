@@ -5,7 +5,7 @@
 // profiles per face, and converts back to Three.js geometry where needed.
 
 import type { DieFaceModel, DieModel, FaceParams } from '$lib/interfaces/dice';
-import type { CrossSection, Manifold, Mat4 } from 'manifold-3d';
+import type { CrossSection, Manifold, Mat4 } from './manifold';
 import {
 	BufferGeometry,
 	Float32BufferAttribute,
@@ -26,6 +26,8 @@ import {
 	scaleShapes,
 	translateShapes
 } from './shapes';
+import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { shapeGeometry } from './tessellate';
 
 const FACE_ID_BASE = 0;
 const CUTTER_ID_BASE = 10_000;
@@ -197,16 +199,239 @@ export function buildBlankManifold(
 	return { manifold: blank, faceIds };
 }
 
+// --- Export-shell blank with per-face runOriginalID --------------------------------
+
+const CAP_Z_EPS = 0.15;
+
+function pointInPolygon(x: number, y: number, poly: Array<Vector2>): boolean {
+	let inside = false;
+	for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+		const vi = poly[i];
+		const vj = poly[j];
+		const crosses =
+			vi.y > y !== vj.y > y && x < ((vj.x - vi.x) * (y - vi.y)) / (vj.y - vi.y) + vi.x;
+		if (crosses) {
+			inside = !inside;
+		}
+	}
+	return inside;
+}
+
+function openFaceLoop(shape: Shape, divisions: number): Array<Vector2> {
+	const pts = shape.getPoints(divisions);
+	if (pts.length > 1 && pts[0].distanceToSquared(pts[pts.length - 1]) < 1e-12) {
+		pts.pop();
+	}
+	return pts;
+}
+
+function pointInFaceShape(shape: Shape, x: number, y: number, divisions: number): boolean {
+	const outer = openFaceLoop(shape, divisions);
+	if (!pointInPolygon(x, y, outer)) {
+		return false;
+	}
+	for (const hole of shape.holes) {
+		if (pointInPolygon(x, y, openFaceLoop(hole, divisions))) {
+			return false;
+		}
+	}
+	return true;
+}
+
+const _centroid = new Vector3();
+const _normal = new Vector3();
+const _edgeA = new Vector3();
+const _edgeB = new Vector3();
+const _onFace = new Vector3();
+const _outward = new Vector3();
+
+function assignTriangleFaceIndex(
+	centroid: Vector3,
+	normal: Vector3,
+	faces: Array<DieFaceModel>,
+	invs: Array<Matrix4>,
+	divisions: number
+): number {
+	let best = -1;
+	let bestScore = -1;
+	for (let i = 0; i < faces.length; i++) {
+		_local.copy(centroid).applyMatrix4(invs[i]);
+		if (Math.abs(_local.z) > CAP_Z_EPS) {
+			continue;
+		}
+		if (!pointInFaceShape(faces[i].shape, _local.x, _local.y, divisions)) {
+			continue;
+		}
+		_onFace.copy(faces[i].transform.applyToVector3(new Vector3(0, 0, 0)));
+		_outward
+			.copy(faces[i].transform.applyToVector3(new Vector3(0, 0, 1)))
+			.sub(_onFace)
+			.normalize();
+		const align = normal.dot(_outward);
+		if (align < 0.25) {
+			continue;
+		}
+		const score = align - Math.abs(_local.z);
+		if (score > bestScore) {
+			bestScore = score;
+			best = i;
+		}
+	}
+	if (best >= 0) {
+		return best;
+	}
+	// Edge/seam fallback: pick the face whose plane the centroid lies closest to
+	// while still inside the face outline.
+	let bestDist = Infinity;
+	for (let i = 0; i < faces.length; i++) {
+		_local.copy(centroid).applyMatrix4(invs[i]);
+		if (!pointInFaceShape(faces[i].shape, _local.x, _local.y, divisions)) {
+			continue;
+		}
+		const dist = Math.abs(_local.z);
+		if (dist < bestDist) {
+			bestDist = dist;
+			best = i;
+		}
+	}
+	if (best >= 0) {
+		return best;
+	}
+	// Last resort: face whose outward normal best matches the triangle (bevel/rim caps
+	// whose centroid sits outside the 2D outline after welding).
+	let bestAlign = -1;
+	for (let i = 0; i < faces.length; i++) {
+		_onFace.copy(faces[i].transform.applyToVector3(new Vector3(0, 0, 0)));
+		_outward
+			.copy(faces[i].transform.applyToVector3(new Vector3(0, 0, 1)))
+			.sub(_onFace)
+			.normalize();
+		const align = normal.dot(_outward);
+		if (align > bestAlign) {
+			bestAlign = align;
+			best = i;
+		}
+	}
+	return best;
+}
+
+// Blank face cap in face-local space (z = 0), for assembling the export shell.
+export function buildBlankFaceCapGeometry(
+	face: DieFaceModel,
+	divisions: number = DefaultDivisions
+): BufferGeometry {
+	return shapeGeometry(face.shape, divisions);
+}
+
+// Full die blank from the watertight export shell, with every triangle tagged by
+// the face it belongs to so extractFaceGeometry can filter on runOriginalID.
+export function buildBlankManifoldFromExportShell(
+	shellGeometry: BufferGeometry,
+	faces: Array<DieFaceModel>,
+	divisions: number = DefaultDivisions
+): DieManifoldBlank {
+	const wasm = manifold();
+	const positionOnly = new BufferGeometry();
+	const srcPos = shellGeometry.getAttribute('position');
+	positionOnly.setAttribute('position', srcPos.clone());
+	if (shellGeometry.index) {
+		positionOnly.setIndex(shellGeometry.index.clone());
+	}
+	const welded = mergeVertices(positionOnly);
+	const pos = welded.getAttribute('position');
+	const index = welded.index;
+	if (!index) {
+		throw new Error('mergeVertices did not produce an indexed geometry');
+	}
+
+	const invs = faces.map((face) => new Matrix4().fromArray(transformToMat4(face.transform)).invert());
+	const buckets = new Map<number, Array<number>>();
+
+	for (let t = 0; t < index.count; t += 3) {
+		const ia = index.getX(t);
+		const ib = index.getX(t + 1);
+		const ic = index.getX(t + 2);
+		_centroid.set(0, 0, 0);
+		for (const vi of [ia, ib, ic]) {
+			_centroid.x += pos.getX(vi);
+			_centroid.y += pos.getY(vi);
+			_centroid.z += pos.getZ(vi);
+		}
+		_centroid.multiplyScalar(1 / 3);
+		_edgeA.set(pos.getX(ia), pos.getY(ia), pos.getZ(ia));
+		_edgeB.set(pos.getX(ib), pos.getY(ib), pos.getZ(ib));
+		_normal
+			.set(pos.getX(ic), pos.getY(ic), pos.getZ(ic))
+			.sub(_edgeA)
+			.cross(_edgeB.sub(_edgeA))
+			.normalize();
+
+		const faceIndex = assignTriangleFaceIndex(_centroid, _normal, faces, invs, divisions);
+		if (faceIndex < 0) {
+			throw new Error('buildBlankManifoldFromExportShell: triangle matched no face');
+		}
+		const origId = faceOriginalId(faceIndex);
+		let bucket = buckets.get(origId);
+		if (!bucket) {
+			bucket = [];
+			buckets.set(origId, bucket);
+		}
+		bucket.push(ia, ib, ic);
+	}
+
+	if (buckets.size === 0) {
+		throw new Error('buildBlankManifoldFromExportShell: no triangles matched a face');
+	}
+
+	const vertProperties = new Float32Array(pos.count * 3);
+	for (let i = 0; i < pos.count; i++) {
+		vertProperties[i * 3] = pos.getX(i);
+		vertProperties[i * 3 + 1] = pos.getY(i);
+		vertProperties[i * 3 + 2] = pos.getZ(i);
+	}
+
+	const sortedIds = [...buckets.keys()].sort((a, b) => a - b);
+	const triVerts: Array<number> = [];
+	const runOriginalID = new Uint32Array(sortedIds.length);
+	const runIndex = new Uint32Array(sortedIds.length + 1);
+	let offset = 0;
+	for (let r = 0; r < sortedIds.length; r++) {
+		const tris = buckets.get(sortedIds[r])!;
+		runOriginalID[r] = sortedIds[r];
+		runIndex[r] = offset;
+		triVerts.push(...tris);
+		offset += tris.length;
+	}
+	runIndex[sortedIds.length] = offset;
+
+	const mesh = new wasm.Mesh({
+		numProp: 3,
+		vertProperties,
+		triVerts: new Uint32Array(triVerts)
+	});
+	mesh.runIndex = runIndex;
+	mesh.runOriginalID = runOriginalID;
+	mesh.merge();
+	const man = wasm.Manifold.ofMesh(mesh);
+	const status = man.status();
+	if (status !== 'NoError') {
+		console.warn('buildBlankManifoldFromExportShell: non-manifold input ->', status);
+	}
+	return {
+		manifold: man,
+		faceIds: new Uint32Array(faces.map((_, i) => faceOriginalId(i)))
+	};
+}
+
 // Turn the watertight export-shell mesh into a Manifold solid. The closed surface
 // around the die already bounds the volume Manifold needs for boolean subtract.
+// Each triangle is tagged with the face it came from (runOriginalID).
 export function buildBlankManifoldFromGeometry(
 	geometry: BufferGeometry,
-	faceCount: number
+	faces: Array<DieFaceModel>,
+	divisions?: number
 ): DieManifoldBlank {
-	return {
-		manifold: geometryToManifold(geometry),
-		faceIds: new Uint32Array(Array.from({ length: faceCount }, (_, i) => faceOriginalId(i)))
-	};
+	return buildBlankManifoldFromExportShell(geometry, faces, divisions);
 }
 
 // --- Legend cutters -------------------------------------------------------------
@@ -586,7 +811,11 @@ export function getOrBuildBlankManifold(
 	}
 	let built: DieManifoldBlank;
 	if (source === 'export' && opts.exportGeometry) {
-		built = buildBlankManifoldFromGeometry(opts.exportGeometry, faces.length);
+		built = buildBlankManifoldFromExportShell(
+			opts.exportGeometry,
+			faces,
+			opts.divisions
+		);
 	} else {
 		built = buildBlankManifold(faces, opts.divisions);
 	}
@@ -652,6 +881,64 @@ export function buildEngravedDieExport(args: BuildEngravedDieArgs): ManifoldDieE
 export function disposeManifoldDieExport(exported: ManifoldDieExport | undefined): void {
 	exported?.previewMesh.geometry.dispose();
 	exported?.manifold.delete();
+}
+
+export type BuildBlankManifoldExportArgs = {
+	model: DieModel;
+	faces: Array<DieFaceModel>;
+	params: Record<string, number>;
+	stringParams?: Record<string, string>;
+	exportGeometry: BufferGeometry;
+	offset?: number;
+	divisions?: number;
+};
+
+// Morphological inset/outset on a watertight blank solid. Positive offset shrinks
+// (inset); negative offset grows (outset). Consumes and deletes `man`.
+export function offsetBlankManifold(man: Manifold, offset: number): Manifold {
+	if (offset === 0) {
+		return man;
+	}
+	const wasm = manifold();
+	const r = Math.abs(offset);
+	const segments = Math.max(12, Math.ceil(r * 8));
+	const sphere = wasm.Manifold.sphere(r, segments);
+	const result = offset > 0 ? man.minkowskiDifference(sphere) : man.minkowskiSum(sphere);
+	sphere.delete();
+	man.delete();
+	return result;
+}
+
+export function buildBlankManifoldSolid(
+	modelId: string,
+	faces: Array<DieFaceModel>,
+	params: Record<string, number>,
+	stringParams: Record<string, string>,
+	exportGeometry: BufferGeometry,
+	divisions?: number
+): Manifold {
+	const blank = getOrBuildBlankManifold(modelId, faces, params, stringParams, {
+		source: 'export',
+		exportGeometry,
+		divisions
+	});
+	return blank.manifold;
+}
+
+export function buildBlankManifoldExport(args: BuildBlankManifoldExportArgs): ManifoldDieExport {
+	let man = buildBlankManifoldSolid(
+		args.model.id,
+		args.faces,
+		args.params,
+		args.stringParams ?? {},
+		args.exportGeometry,
+		args.divisions
+	);
+	const offset = args.offset ?? 0;
+	if (offset !== 0) {
+		man = offsetBlankManifold(man, offset);
+	}
+	return buildManifoldDieExport(man);
 }
 
 export function clearBlankCache(): void {

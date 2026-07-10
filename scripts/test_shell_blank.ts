@@ -1,4 +1,4 @@
-import { getManifold, geometryToManifold, manifoldToGeometry, toFlatPositions } from '$lib/utils/manifold';
+import { geometryToManifold, manifoldToGeometry, toFlatPositions } from '$lib/utils/manifold';
 import { buildLegendCutter, engraveWithCutter } from '$lib/utils/die_manifold';
 import { checkMesh } from '$lib/utils/mesh_check';
 import { Builder } from '$lib/utils/builder';
@@ -6,7 +6,6 @@ import dice from '$lib/dice';
 import fonts from '$lib/fonts';
 import { Legend } from '$lib/utils/legends';
 
-await getManifold();
 const legends = await fonts.voltaire.load();
 const model = dice.d20_icosahedron;
 const built = model.build({ polyhedron_size: 18 });

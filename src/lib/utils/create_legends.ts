@@ -19,6 +19,7 @@ import {
 
 export type { SvgPiece, SvgPieceAction } from './font';
 import type { Shape } from 'three';
+import { encodeShapeSlot } from './to_json';
 import { shapesRowToSVGData } from './shapes';
 import {
 	loadMutableLegends,
@@ -41,8 +42,7 @@ export function legendSetFromFont(
 	id: string = crypto.randomUUID()
 ): MutableLegendSet {
 	const strings = addRenderOptions(characters);
-	// NB createShapesFromFont returns already-serialised shape JSON.
-	const shapes = createShapesFromFont(buffer, strings) as unknown as Array<Array<unknown>>;
+	const shapes = createShapesFromFont(buffer, strings).map((slot) => encodeShapeSlot(slot));
 	const sources: Array<LegendSource | null> = strings.map((s) => ({
 		kind: 'font',
 		text: s.text,
@@ -56,7 +56,9 @@ export function legendSetFromFont(
 	shapes.splice(
 		at,
 		0,
-		createShapesFromSVG(dicethingLogo, svgIconScale(dicethingLogo)) as unknown as Array<unknown>
+		encodeShapeSlot(
+			createShapesFromSVG(dicethingLogo, svgIconScale(dicethingLogo)) as unknown as Array<unknown>
+		)
 	);
 	sources.splice(at, 0, { kind: 'svg' });
 

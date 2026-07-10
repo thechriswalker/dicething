@@ -1,4 +1,4 @@
-import { getManifold, geometryToManifold, manifold, manifoldToGeometry, toFlatPositions } from '$lib/utils/manifold';
+import { geometryToManifold, manifold, manifoldToGeometry, toFlatPositions } from '$lib/utils/manifold';
 import { buildBlankManifold, buildLegendCutter, engraveDie, engraveWithCutter } from '$lib/utils/die_manifold';
 import { checkMesh } from '$lib/utils/mesh_check';
 import { Builder } from '$lib/utils/builder';
@@ -6,7 +6,6 @@ import dice from '$lib/dice';
 import fonts from '$lib/fonts';
 import { Legend } from '$lib/utils/legends';
 
-await getManifold();
 const legends = await fonts.voltaire.load();
 
 function exportBlankMesh(model: (typeof dice)[keyof typeof dice], params: Record<string, number>) {

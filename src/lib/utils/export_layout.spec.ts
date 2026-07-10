@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildExportMeshes, layoutGrid } from './export';
+import { buildExportMeshes, disposeNamedManifolds, layoutNamedMeshes, manifoldToFlatPositions } from './export';
 import { checkMesh } from './mesh_check';
 import { toNonIndexed } from './3d';
 import { loadImmutableLegends, type SerialisedLegendSet } from './legends';
@@ -31,33 +31,32 @@ function makeSet(): DiceSet {
 	} as unknown as DiceSet;
 }
 
-function expectAllPrintable(named: ReturnType<typeof buildExportMeshes>) {
-	layoutGrid(named.map((n) => n.mesh));
-	for (const n of named) {
-		// mirror the export page: expand any indexed geometry to a flat triangle
-		// soup before checking, since checkMesh reads 9 floats per triangle.
-		const r = checkMesh(toNonIndexed(n.mesh.geometry).getAttribute('position').array);
-		expect(r.boundaryEdgeCount, `${n.name} boundary edges`).toBe(0);
-		expect(r.nonManifoldEdgeCount, `${n.name} non-manifold edges`).toBe(0);
-		expect(r.degenerateTriangleCount, `${n.name} degenerate triangles`).toBe(0);
-		expect(r.isPrintable, `${n.name} printable`).toBe(true);
-	}
-}
-
 // A die that checks out as a printable solid on its own must keep checking out
 // when it is laid out next to another die (i.e. translated into a grid cell).
 // Regression for the mesh-check weld being sensitive to absolute position.
 describe('laid-out dice stay printable', () => {
+	function expectAllPrintable(named: ReturnType<typeof buildExportMeshes>) {
+		layoutNamedMeshes(named);
+		try {
+			for (const n of named) {
+				const positions = n.manifold
+					? manifoldToFlatPositions(n.manifold, 'y')
+					: toNonIndexed(n.mesh.geometry).getAttribute('position').array;
+				const r = checkMesh(positions);
+				expect(r.boundaryEdgeCount, `${n.name} boundary edges`).toBe(0);
+				expect(r.nonManifoldEdgeCount, `${n.name} non-manifold edges`).toBe(0);
+				expect(r.degenerateTriangleCount, `${n.name} degenerate triangles`).toBe(0);
+				expect(r.isPrintable, `${n.name} printable`).toBe(true);
+			}
+		} finally {
+			disposeNamedManifolds(named);
+		}
+	}
 	it('D24 + D6 are both watertight/manifold after layoutGrid', () => {
 		expectAllPrintable(buildExportMeshes(makeSet(), { selectedIds: ['d24', 'd6'] }));
 	});
 
-	// Regression: a platform artifact is welded (mergeVertices), so it comes back
-	// as an INDEXED geometry, unlike the non-indexed dice. The mesh-health check
-	// reads the position buffer as a flat triangle soup, so an indexed platform
-	// was misread as a pile of open edges / degenerate triangles ("14 open edges,
-	// 2 degenerate triangles" for a plain D6 platform). Expanding to non-indexed
-	// before the check must yield a clean, printable solid.
+	// Regression: platform artifacts must stay printable when laid out alongside dice.
 	it('D6 platform artifact is a printable solid', () => {
 		const named = buildExportMeshes(makeSet(), {
 			selectedIds: ['d6'],
@@ -65,7 +64,6 @@ describe('laid-out dice stay printable', () => {
 			optionStates: { platforms: { enabled: true, values: {} } }
 		});
 		expect(named.length, 'one platform artifact').toBe(1);
-		expect(named[0].mesh.geometry.index, 'platform geometry is indexed').not.toBeNull();
 		expectAllPrintable(named);
 	});
 

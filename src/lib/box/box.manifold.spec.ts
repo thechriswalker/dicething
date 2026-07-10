@@ -1,8 +1,8 @@
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { Vector2, type BufferGeometry } from 'three';
 import dice from '$lib/dice';
 import type { Dice, DiceSet } from '$lib/interfaces/storage.svelte';
-import { getManifold, manifold, geometryToManifold, toFlatPositions } from '$lib/utils/manifold';
+import { manifold, geometryToManifold, toFlatPositions } from '$lib/utils/manifold';
 import { checkMesh } from '$lib/utils/mesh_check';
 import { buildBox, chooseHingeClusters, isLayoutValid, magnetCorners, prepareLayout } from './box_builder';
 import { defaultBoxParams, type BoxConfig } from './types';
@@ -54,10 +54,6 @@ function expectPrintable(geo: BufferGeometry) {
 }
 
 describe('box builder produces printable solids', () => {
-	beforeAll(async () => {
-		await getManifold();
-	});
-
 	it('builds a watertight base + lid for a mixed set', async () => {
 		const set = makeSet(['d6_cube', 'd20_icosahedron', 'd10_trapezohedron', 'd6_crystal']);
 		const built = await buildBox(set, makeConfig(set));

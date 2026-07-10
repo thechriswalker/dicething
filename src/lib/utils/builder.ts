@@ -24,11 +24,11 @@ import {
 	Vector2,
 	DoubleSide
 } from 'three';
-import { DefaultDivisions, engrave, Part } from './engraving';
+import { DefaultDivisions, Part } from './engraving';
 import {
-	canEngraveLegend,
+	buildBlankFaceCapGeometry,
 	buildEngravedDieExport,
-	engraveDie,
+	canEngraveLegend,
 	engraveFace,
 	extractFaceGeometry,
 	getOrBuildBlankManifold,
@@ -36,6 +36,7 @@ import {
 	manifoldDieToGeometry,
 	transformToMat4
 } from './die_manifold';
+import type { Manifold } from './manifold';
 import { manifold } from './manifold';
 import { debugLegendName, Legend, type LegendSet } from './legends';
 import { applyOrderingToFaces, STANDARD_ORDERING } from '$lib/utils/legend_orderings';
@@ -221,14 +222,15 @@ export class Builder {
 	private hasBuilt = false;
 	private static readonly EXPLODE_DURATION_MS = 800;
 
-	// When true, engraving uses manifold-3d cross-section subtract instead of the
-	// legacy cap+wall tessellation path.
-	public useManifoldEngraving = false;
+	// Manifold cross-section subtract engraving (production default).
+	public useManifoldEngraving = true;
 
 	// Cached blank export geometry for manifold blank builds (invalidated on die change).
 	private cachedBlankExportGeometry: BufferGeometry | undefined;
 	private cachedBlankExportKey = '';
 	private buildingBlankExport = false;
+	// Retained from the last export() for direct 3MF output; taken via takeExportManifold().
+	private exportManifold: Manifold | undefined;
 
 	private frontMaterial: Material = _genericNormalMaterial;
 	private wallMaterial: Material = _genericNormalMaterial;
@@ -244,9 +246,7 @@ export class Builder {
 		private legends: LegendSet,
 		// this is the dice ID, so we can find it in the scene, or at least uniquely identify parts of _this_ dice
 		private id = uuid() as string
-	) {
-		console.warn('Builder instantiated for', this.model.id, this.id);
-	}
+	) {}
 
 	public getFaces(): ReadonlyArray<DieFaceModel> {
 		return this.faces;
@@ -308,7 +308,6 @@ export class Builder {
 		// more than one loop (or none), so this returns a list of loops.
 		let loops: Array<Array<Vector2>>;
 		try {
-			manifold();
 			const csLoop = insetShapeViaCrossSection(
 				face.shape,
 				this.currentTolerance,
@@ -410,6 +409,28 @@ export class Builder {
 
 	getFace2FaceDistance(): number {
 		return this.face2face;
+	}
+
+	getBlankExportShell(dieParams: Record<string, number>): BufferGeometry {
+		return this.blankExportGeometry(dieParams);
+	}
+
+	takeExportManifold(): Manifold | undefined {
+		const man = this.exportManifold;
+		this.exportManifold = undefined;
+		return man;
+	}
+
+	getLastDieParams(): Record<string, number> {
+		return this.lastDieParams;
+	}
+
+	getLastStringParams(): Record<string, string> {
+		return this.lastStringParams;
+	}
+
+	applyPrintingTransformToGeometry(geometry: BufferGeometry): void {
+		this.printingTransform.applyToGeometry(geometry);
 	}
 
 	changeLegends(set: LegendSet) {
@@ -897,16 +918,13 @@ export class Builder {
 		try {
 			for (let i = 0; i < this.faces.length; i++) {
 				const face = this.faces[i];
-				const f = this.buildFace(i, dieParams.engraving_depth, { legend: Legend.BLANK }, {
-					forExport: true
-				});
-				f.forEach((g) => {
-					face.transform.applyToGeometry(g);
-					const ng = toNonIndexed(g);
-					ng.computeVertexNormals();
-					delete ng.attributes.uv;
-					geos.push(ng);
-				});
+				const g = buildBlankFaceCapGeometry(face, DefaultDivisions);
+				face.transform.applyToGeometry(g);
+				const ng = toNonIndexed(g);
+				ng.computeVertexNormals();
+				delete ng.attributes.uv;
+				g.dispose();
+				geos.push(ng);
 			}
 		} finally {
 			this.buildingBlankExport = false;
@@ -938,7 +956,8 @@ export class Builder {
 			getScaleForLegend: (l) => this.getDefaultScaleForLegend(l),
 			blankExportGeometry: blankGeo
 		});
-		exported.manifold.delete();
+		this.exportManifold?.delete();
+		this.exportManifold = exported.manifold;
 		this.printingTransform.applyToGeometry(exported.previewMesh.geometry);
 		exported.previewMesh.material = _genericNormalMaterial;
 		return exported.previewMesh;
@@ -1019,8 +1038,7 @@ export class Builder {
 		}
 
 		if (parts.length === 0) {
-			// fall back to a flat cap if extraction found nothing near this face.
-			parts = engrave(face.shape, [], params, depth, this.currentTolerance, divisions, face.convex !== false);
+			console.warn(`extractFaceGeometry returned nothing for face ${i}`);
 		}
 		return parts;
 	}
@@ -1039,65 +1057,7 @@ export class Builder {
 		params: FaceParams,
 		opts: { forExport: boolean } = { forExport: false }
 	): Array<BufferGeometry> {
-		if (this.useManifoldEngraving && !this.buildingBlankExport) {
-			return this.buildFaceManifold(i, engravingDepth, params, opts);
-		}
-		// engrave face.
-		const face = this.faces[i];
-		const legend = params.legend ?? face.defaultLegend;
-		const symbols = this.legends.get(legend);
-		if (!params.scale) {
-			params.scale = this.getDefaultScaleForLegend(legend);
-		}
-		let output: Array<BufferGeometry>;
-		let error: EngravingError | null = null;
-		try {
-			output = engrave(
-				face.shape,
-				symbols,
-				params,
-				engravingDepth + (params.extraDepth ?? 0),
-				this.currentTolerance, // clearance: minimum inset from the face edge
-				opts.forExport ? DefaultDivisions : 2 * DefaultDivisions, // will need to "up" this to make a "high quality" render.
-				face.convex !== false // concave faces use the general containment maths
-			);
-			// engrave() only emits a Part.Symbol geometry when the (non-blank) symbol
-			// failed the containment test, i.e. it's too big to fit the face. that's
-			// the same thing that leaves the face blank on export.
-			const tooLarge = output.some(
-				(g) => g.userData.diceThingPart === Part.Symbol && g.userData.diceThingSymbolOK === false
-			);
-			if (tooLarge) {
-				error = {
-					faceIndex: i,
-					legend,
-					legendName: this.legends.getLegendName(legend),
-					reason: 'symbol-too-large'
-				};
-			}
-		} catch (e) {
-			console.warn('error building face', i, 'with symbol', debugLegendName(legend));
-			error = {
-				faceIndex: i,
-				legend,
-				legendName: this.legends.getLegendName(legend),
-				reason: 'build-failed'
-			};
-			output = engrave(
-				face.shape,
-				[], // force to blank
-				params,
-				engravingDepth + (params.extraDepth ?? 0),
-				this.currentTolerance, // clearance: minimum inset from the face edge
-				opts.forExport ? DefaultDivisions : 2 * DefaultDivisions // will need to "up" this to make a "high quality" render.
-			);
-		}
-		this.faceEngravingErrors[i] = error;
-
-		// geometry is built at the origin; the face's Group is positioned/oriented
-		// by the view layer (see applyProgress/update) so we can animate between
-		// the solid and exploded states.
-		return output;
+		return this.buildFaceManifold(i, engravingDepth, params, opts);
 	}
 }
 

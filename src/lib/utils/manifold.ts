@@ -1,11 +1,14 @@
 // Thin adapter around manifold-3d (a WASM port of the Manifold geometry kernel).
 //
-// We use Manifold for the box builder's CSG: subtracting die-shaped cavities and
-// magnet bores from a parametric shell. Manifold's whole selling point is that it
-// guarantees *manifold* (watertight, 2-manifold, degenerate-free) output, which
-// is exactly the export goal the rest of this codebase works so hard to hold.
+// We use Manifold for CSG (die engraving, box cavities, platform offsets) and
+// indexed 3MF export. Manifold guarantees watertight, 2-manifold, degenerate-free
+// output, which is exactly the export goal the rest of this codebase works hard
+// to hold.
 //
-// Two awkward facts shape this file:
+// WASM is initialised once in ./manifold_wasm (top-level await). Import anything
+// from this file and the binding is ready; do not import manifold-3d directly.
+//
+// Two awkward facts shape the geometry helpers:
 //   1. WASM has no GC. Every Manifold instance MUST be `.delete()`d. Callers own
 //      the Manifolds they create; the helpers here only delete the temporaries
 //      they create internally.
@@ -24,64 +27,26 @@ import {
 	type Mesh as ThreeMesh
 } from 'three';
 import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import Module from 'manifold-3d';
-import type { Manifold, ManifoldToplevel, Mesh as ManifoldMesh } from 'manifold-3d';
+import wasm from './manifold_wasm';
+import type { Manifold, ManifoldToplevel, ManifoldMesh } from './manifold_wasm';
 
-let _wasm: ManifoldToplevel | undefined;
-let _initPromise: Promise<ManifoldToplevel> | undefined;
+export { default as wasm } from './manifold_wasm';
+export type { CrossSection, Manifold, ManifoldToplevel, Mat4, ManifoldMesh } from './manifold_wasm';
 
-// Are we running outside a browser (i.e. in node, e.g. the vitest `server`
-// project)? In node the emscripten module locates its own .wasm beside the .js,
-// so we must NOT pass a `locateFile`; in the browser we resolve the asset URL via
-// Vite's `?url` import. We key off `window` rather than `process` because the
-// jsdom test environments define `process` too. A web worker has no `window` but
-// is still a browser context that needs the Vite-resolved `?url` (otherwise the
-// emscripten loader 404s on the .wasm), so treat a WorkerGlobalScope as browser.
-const workerScope = (globalThis as { WorkerGlobalScope?: new () => object }).WorkerGlobalScope;
-const isWorker =
-	typeof workerScope !== 'undefined' && typeof self !== 'undefined' && self instanceof workerScope;
-const isBrowser = typeof window !== 'undefined' || isWorker;
-
-// Initialise (once) and return the Manifold WASM toplevel. Safe to call
-// concurrently; all callers await the same in-flight init.
-export async function getManifold(): Promise<ManifoldToplevel> {
-	if (_wasm) {
-		return _wasm;
-	}
-	if (!_initPromise) {
-		_initPromise = (async () => {
-			let wasm: ManifoldToplevel;
-			if (isBrowser) {
-				// Vite needs the wasm asset URL wired up explicitly, otherwise the
-				// emscripten loader 404s looking for it next to the bundled chunk.
-				const { default: wasmUrl } = await import('manifold-3d/manifold.wasm?url');
-				wasm = await Module({ locateFile: () => wasmUrl });
-			} else {
-				wasm = await Module();
-			}
-			wasm.setup();
-			_wasm = wasm;
-			return wasm;
-		})();
-	}
-	return _initPromise;
+// Ready immediately (manifold_wasm top-level await completed before this module
+// runs). Kept for callers that already await init at a boundary.
+export function getManifold(): Promise<ManifoldToplevel> {
+	return Promise.resolve(wasm);
 }
 
-// Synchronous accessor for code paths that already know init has completed (e.g.
-// inside a builder run that awaited getManifold() up front). Throws if called
-// before initialisation.
 export function manifold(): ManifoldToplevel {
-	if (!_wasm) {
-		throw new Error('Manifold WASM not initialised; await getManifold() first');
-	}
-	return _wasm;
+	return wasm;
 }
 
 // Convert a three BufferGeometry into a Manifold. Welds vertices by position
 // first (see file header). The caller owns the returned Manifold and must
 // `.delete()` it.
 export function geometryToManifold(geometry: BufferGeometry): Manifold {
-	const wasm = manifold();
 	// strip everything but position so mergeVertices welds purely on geometry,
 	// collapsing the hard-edge seams a die mesh keeps split by normal.
 	const positionOnly = new BufferGeometry();
@@ -190,8 +155,7 @@ export function manifoldToIndexedMesh(man: Manifold): IndexedMesh {
 // "transfer the model between three and manifold" path, and it guarantees a
 // genuinely manifold solid rather than a soup that merely re-welds.
 //
-// Requires getManifold() to have completed first (uses the sync accessor). The
-// returned arrays are copies, so they survive the temporary Manifold's delete().
+// The returned arrays are copies, so they survive the temporary Manifold's delete().
 // If Manifold rejects the input (non-manifold) and yields an empty mesh, we fall
 // back to a position-only weld of the original geometry so export still emits
 // something faithful rather than nothing.
@@ -236,7 +200,6 @@ function weldedIndexedMesh(geometry: BufferGeometry): IndexedMesh {
 // result geometry. Deletes every Manifold it touches, including the inputs, so
 // callers can pass freshly-built solids and not worry about leaks.
 export function differenceGeometry(base: Manifold, cutters: Array<Manifold>): BufferGeometry {
-	const wasm = manifold();
 	let result = base;
 	if (cutters.length > 0) {
 		const cut = wasm.Manifold.union(cutters);

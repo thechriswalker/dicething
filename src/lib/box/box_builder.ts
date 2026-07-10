@@ -19,9 +19,8 @@ import type { DiceSet } from '$lib/interfaces/storage.svelte';
 import type { DieModel } from '$lib/interfaces/dice';
 import dice from '$lib/dice';
 import { Box3, BufferGeometry, Matrix4, Vector2, Vector3 } from 'three';
-import type { CrossSection, Manifold, Mat4 } from 'manifold-3d';
+import type { CrossSection, Manifold, Mat4 } from '$lib/utils/manifold';
 import {
-	getManifold,
 	manifold,
 	geometryToManifold,
 	manifoldToGeometry,
@@ -1450,7 +1449,6 @@ export async function prepareLayout(
 	config: BoxConfig,
 	onProgress?: ProgressCallback
 ): Promise<PreparedLayout> {
-	await getManifold();
 	const p = config.params;
 	const byId = new Map(config.placements.map((pl) => [pl.dieId, pl]));
 	// preserve placement order, with any set-only dice appended.
@@ -1532,7 +1530,6 @@ export async function buildBox(
 	config: BoxConfig,
 	onProgress?: ProgressCallback
 ): Promise<BuiltBox> {
-	await getManifold();
 	const p = config.params;
 
 	const placements = config.placements

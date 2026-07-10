@@ -1,9 +1,8 @@
-import { getManifold, manifoldToGeometry, toFlatPositions } from '$lib/utils/manifold';
+import { manifoldToGeometry, toFlatPositions } from '$lib/utils/manifold';
 import { buildBlankManifold } from '$lib/utils/die_manifold';
 import { checkMesh } from '$lib/utils/mesh_check';
 import dice from '$lib/dice';
 
-await getManifold();
 for (const id of ['d6_cube', 'd20_icosahedron', 'd2_coin'] as const) {
 	const model = dice[id];
 	const params =

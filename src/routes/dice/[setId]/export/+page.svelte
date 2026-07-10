@@ -11,16 +11,15 @@
 	import { debounce } from '$lib/utils/debounce';
 	import {
 		buildExportMeshes,
+		disposeNamedManifolds,
 		download,
-		exportStlGroupZip,
-		exportStlSingle,
-		exportStlZip,
 		exportThreeMfGrouped,
 		exportThreeMfGroupZip,
 		exportThreeMfZip,
 		groupMeshesByCategory,
-		layoutGrid,
-		type ExportFormat,
+		layoutNamedMeshes,
+		manifoldToFlatPositions,
+		type NamedMesh,
 		type OptionStates
 	} from '$lib/utils/export';
 	import { defaultValues, extraBuildOptions, isControlVisible } from '$lib/utils/build_options';
@@ -58,7 +57,6 @@
 	// broken), keyed by die id. used to default-exclude broken dice and warn.
 	let dieErrors = $state<Record<string, Array<EngravingError>>>({});
 	let includeDice = $state(true);
-	let format = $state<ExportFormat>('3mf');
 	let fileLayout = $state<'single' | 'group' | 'object'>('single');
 
 	let optionStates = $state<OptionStates>(
@@ -109,19 +107,6 @@
 	// a user just saw nothing download. We catch and show them instead.
 	let exportError = $state<string | undefined>(undefined);
 
-	// dice whose mesh is open or non-manifold cannot be written as 3MF: that
-	// format routes every object through Manifold (WASM), which rejects anything
-	// that isn't a closed 2-manifold. STL has no such constraint, so we fall back
-	// to it (and lock out 3MF) whenever any object would fail the manifold check.
-	let anyNonManifold = $derived(
-		Object.values(meshReports).some((r) => !r.isManifold || !r.isWatertight)
-	);
-	$effect(() => {
-		if (anyNonManifold && format === '3mf') {
-			format = 'stl';
-		}
-	});
-
 	// whether to overlay the problem triangles (open/non-manifold/degenerate) in
 	// red on the preview. on by default so issues are obvious; toggleable.
 	let highlightProblems = $state(true);
@@ -156,19 +141,19 @@
 	// Check every freshly-built export mesh for manifold/watertight/degenerate
 	// problems in the worker, aggregating per die. Results from superseded builds
 	// (older generation) are dropped so rapid option changes don't race.
-	async function runMeshChecks(named: Array<{ mesh: Mesh; dieId?: string }>) {
+	async function runMeshChecks(named: Array<NamedMesh>) {
 		const generation = ++checkGeneration;
-		const byDie = new Map<string, Array<Mesh>>();
-		for (const { mesh, dieId } of named) {
-			if (!dieId) {
+		const byDie = new Map<string, Array<NamedMesh>>();
+		for (const entry of named) {
+			if (!entry.dieId) {
 				continue;
 			}
-			let list = byDie.get(dieId);
+			let list = byDie.get(entry.dieId);
 			if (!list) {
 				list = [];
-				byDie.set(dieId, list);
+				byDie.set(entry.dieId, list);
 			}
-			list.push(mesh);
+			list.push(entry);
 		}
 		if (byDie.size === 0) {
 			meshReports = {};
@@ -177,17 +162,15 @@
 		checkingMesh = true;
 		try {
 			const entries = await Promise.all(
-				[...byDie].map(async ([dieId, meshes]) => {
+				[...byDie].map(async ([dieId, items]) => {
 					const reports = await Promise.all(
-						meshes.map((mesh) =>
-							// positions are read post-layout, so the returned problem
-							// triangles are already in the preview's coordinate space.
-							// expand any indexed geometry (e.g. a platform, which welds
-							// its vertices) to a flat triangle soup first: checkMesh treats
-							// the buffer as 9 floats per triangle and ignores the index.
-							checkMeshInWorker(toNonIndexed(mesh.geometry).getAttribute('position').array, {
-								collectBad: true
-							})
+						items.map((entry) =>
+							checkMeshInWorker(
+								entry.manifold
+									? manifoldToFlatPositions(entry.manifold, 'y')
+									: toNonIndexed(entry.mesh.geometry).getAttribute('position').array,
+								{ collectBad: true }
+							)
 						)
 					);
 					return [dieId, mergeMeshReports(reports)] as const;
@@ -262,6 +245,7 @@
 	let fancyRender = $state<ReturnType<typeof createFancyRender>>();
 	let fancy = $state(true);
 	let previewMeshes: Array<Mesh> = [];
+	let previewNamed: Array<NamedMesh> = [];
 
 	// the render tuning panel is exposed in developer mode.
 	const prefs = getPreferences();
@@ -352,11 +336,13 @@
 		// layout once the (async) check finishes.
 		problemPositions = undefined;
 		updateProblemHighlight();
+		disposeNamedManifolds(previewNamed);
 		const named = buildExportMeshes(setData, {
 			selectedIds,
 			includeDice,
 			optionStates: $state.snapshot(optionStates)
 		});
+		previewNamed = named;
 		// measure each build-option group's volume from its actual generated meshes
 		// (the dice group is measured analytically, "without legends", elsewhere).
 		const vols: Record<string, number> = {};
@@ -368,7 +354,7 @@
 		}
 		artifactVolumesMl = vols;
 		const meshes = named.map((n) => n.mesh);
-		layoutGrid(meshes);
+		layoutNamedMeshes(named);
 		const group = new Group();
 		meshes.forEach((mesh) => {
 			fancyRender?.styleMesh(mesh);
@@ -491,54 +477,31 @@
 		}
 		exporting = true;
 		exportError = undefined;
+		const named = buildExportMeshes(setData, {
+			selectedIds,
+			includeDice,
+			optionStates: $state.snapshot(optionStates)
+		});
 		try {
-			const named = buildExportMeshes(setData, {
-				selectedIds,
-				includeDice,
-				optionStates: $state.snapshot(optionStates)
-			});
 			const name = (setData.name || 'set').replace(/[^a-z0-9-_]+/gi, '_');
 			const groups = groupMeshesByCategory(named, name);
-			// dice are built Y-up; the 3MF writer reorients them to the print bed.
-			// non-manifold objects can't be written as 3MF (Manifold rejects them), so
-			// fall back to STL even if the format somehow still reads as 3mf here.
-			if (format === '3mf' && !anyNonManifold) {
-				if (fileLayout === 'object') {
-					download(await exportThreeMfZip(named, 'y'), `${name}.zip`);
-				} else if (fileLayout === 'group' && groups.length > 1) {
-					// each group laid out within its own file, then one grouped 3MF per
-					// group, all packed into a ZIP.
-					for (const g of groups) {
-						layoutGrid(g.meshes.map((n) => n.mesh));
-					}
-					download(await exportThreeMfGroupZip(groups, 'y'), `${name}.zip`);
-				} else {
-					layoutGrid(named.map((n) => n.mesh));
-					// group each category (dice / blanks / platforms / ...) into one 3MF
-					// object so the slicer treats each as a single grouped object.
-					download(await exportThreeMfGrouped(groups, 'y'), `${name}.3mf`);
-				}
-				return;
-			}
 			if (fileLayout === 'object') {
-				download(exportStlZip(named), `${name}.zip`);
+				download(await exportThreeMfZip(named, 'y'), `${name}.zip`);
 			} else if (fileLayout === 'group' && groups.length > 1) {
 				for (const g of groups) {
-					layoutGrid(g.meshes.map((n) => n.mesh));
+					layoutNamedMeshes(g.meshes);
 				}
-				download(exportStlGroupZip(groups), `${name}.zip`);
+				download(await exportThreeMfGroupZip(groups, 'y'), `${name}.zip`);
 			} else {
-				const meshes = named.map((n) => n.mesh);
-				layoutGrid(meshes);
-				download(exportStlSingle(meshes), `${name}.stl`);
+				layoutNamedMeshes(named);
+				download(await exportThreeMfGrouped(groups, 'y'), `${name}.3mf`);
 			}
 		} catch (err) {
-			// surface the failure instead of letting it vanish into the console: the
-			// download silently never happened otherwise.
 			console.error('export failed', err);
 			const detail = err instanceof Error ? err.message : String(err);
 			exportError = m.export_failed({ detail });
 		} finally {
+			disposeNamedManifolds(named);
 			exporting = false;
 		}
 	}
@@ -905,16 +868,6 @@
 			<!-- file layout -->
 			<Collapsible title={m.export_file_layout()}>
 				<div class="flex flex-col gap-2 pt-2">
-					<label class="flex flex-col gap-1">
-						<span class="text-sm">{m.export_format()}</span>
-						<select class="select" bind:value={format}>
-							<option value="stl">STL</option>
-							<option value="3mf" disabled={anyNonManifold}>3MF</option>
-						</select>
-					</label>
-					{#if anyNonManifold}
-						<p class="text-warning-600-400 text-sm">{m.export_non_manifold_warning()}</p>
-					{/if}
 					<label class="flex items-center gap-2 text-sm">
 						<input type="radio" class="radio" value="single" bind:group={fileLayout} />
 						<span>{m.export_file_single()}</span>

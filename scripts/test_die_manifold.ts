@@ -1,11 +1,10 @@
-import { getManifold, manifoldToGeometry, toFlatPositions } from '$lib/utils/manifold';
+import { manifoldToGeometry, toFlatPositions } from '$lib/utils/manifold';
 import { buildBlankManifold, engraveDie } from '$lib/utils/die_manifold';
 import { checkMesh } from '$lib/utils/mesh_check';
 import dice from '$lib/dice';
 import fonts from '$lib/fonts';
 import { Legend } from '$lib/utils/legends';
 
-await getManifold();
 const legends = await fonts.voltaire.load();
 
 for (const [id, params] of [

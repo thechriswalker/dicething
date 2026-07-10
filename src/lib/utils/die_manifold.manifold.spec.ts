@@ -1,6 +1,8 @@
-import { describe, it, expect, beforeAll } from 'vitest';
-import { getManifold, manifoldToGeometry, toFlatPositions } from './manifold';
-import { buildBlankManifold, buildBlankManifoldFromGeometry, engraveDie } from './die_manifold';
+import { describe, it, expect } from 'vitest';
+import { manifoldToGeometry, toFlatPositions } from './manifold';
+import { buildBlankManifold, buildBlankManifoldFromGeometry, engraveDie, extractFaceGeometry } from './die_manifold';
+import { manifold } from './manifold';
+import { Part } from './engraving';
 import { checkMesh } from './mesh_check';
 import { Builder } from './builder';
 import dice from '$lib/dice';
@@ -9,10 +11,6 @@ import { Legend } from './legends';
 import { findBestLegendScalingFactor } from './shapes';
 
 describe('die_manifold engraving', () => {
-	beforeAll(async () => {
-		await getManifold();
-	});
-
 	function scaledFaceParams(
 		faces: ReturnType<(typeof dice)['d6_cube']['build']>['faces'],
 		legends: Awaited<ReturnType<(typeof fonts)['voltaire']['load']>>,
@@ -52,7 +50,7 @@ describe('die_manifold engraving', () => {
 			params,
 			built.faces.map(() => ({ legend: Legend.BLANK }))
 		);
-		const blank = buildBlankManifoldFromGeometry(blankMesh.geometry, built.faces.length);
+		const blank = buildBlankManifoldFromGeometry(blankMesh.geometry, built.faces);
 		const faceParams = scaledFaceParams(built.faces, legends);
 		const engraved = engraveDie(blank, {
 			faces: built.faces,
@@ -70,6 +68,31 @@ describe('die_manifold engraving', () => {
 		expect(report.isPrintable).toBe(true);
 	});
 
+	it('tagged export-shell blank extracts Front cap per face', async () => {
+		const legends = await fonts.voltaire.load();
+		const params = { polyhedron_size: 18, engraving_depth: 1, engraving_tolerance: 0.5 };
+		const built = dice.d6_cube.build(params);
+		const builder = new Builder(dice.d6_cube, legends);
+		const blankMesh = builder.export(
+			params,
+			built.faces.map(() => ({ legend: Legend.BLANK }))
+		);
+		const blank = buildBlankManifoldFromGeometry(blankMesh.geometry, built.faces);
+		const wasm = manifold();
+		for (let i = 0; i < built.faces.length; i++) {
+			if (built.faces[i].hidden) {
+				continue;
+			}
+			const copy = new wasm.Manifold(blank.manifold.getMesh());
+			const parts = extractFaceGeometry(copy, built.faces[i], i, 1);
+			copy.delete();
+			expect(parts.some((p) => p.userData.diceThingPart === Part.Front), `face ${i} Front`).toBe(
+				true
+			);
+		}
+		blank.manifold.delete();
+	});
+
 	it('d20 with all legends subtract stays printable via export blank', async () => {
 		const legends = await fonts.voltaire.load();
 		const params = { polyhedron_size: 18, engraving_depth: 1, engraving_tolerance: 0.5 };
@@ -79,7 +102,7 @@ describe('die_manifold engraving', () => {
 			params,
 			built.faces.map(() => ({ legend: Legend.BLANK }))
 		);
-		const blank = buildBlankManifoldFromGeometry(blankMesh.geometry, built.faces.length);
+		const blank = buildBlankManifoldFromGeometry(blankMesh.geometry, built.faces);
 		const faceParams = scaledFaceParams(built.faces, legends);
 		const engraved = engraveDie(blank, {
 			faces: built.faces,
@@ -112,7 +135,7 @@ describe('die_manifold engraving', () => {
 			params,
 			built.faces.map(() => ({ legend: Legend.BLANK }))
 		);
-		const blank = buildBlankManifoldFromGeometry(blankMesh.geometry, built.faces.length);
+		const blank = buildBlankManifoldFromGeometry(blankMesh.geometry, built.faces);
 		const faceParams = scaledFaceParams(built.faces, legends);
 		const engraved = engraveDie(blank, {
 			faces: built.faces,

@@ -5,7 +5,7 @@
 	import { checkMesh, type MeshCheckReport } from '$lib/utils/mesh_check';
 	import fonts, { blanks } from '$lib/fonts';
 	import { loadBuiltinById } from '$lib/fonts';
-	import { getManifold, manifold, toFlatPositions } from '$lib/utils/manifold';
+	import { manifold, toFlatPositions } from '$lib/utils/manifold';
 	import {
 		buildManifoldDieExport,
 		disposeManifoldDieExport,
@@ -72,7 +72,6 @@
 	let legacyReport = $state<MeshCheckReport | undefined>(undefined);
 	let timings = $state('');
 	let statusLine = $state('Ready');
-	let manifoldReady = $state(false);
 	let exporting3mf = $state(false);
 	let exportReady = $state(false);
 
@@ -159,7 +158,6 @@
 		}
 		exporting3mf = true;
 		try {
-			await ensureManifold();
 			const blob = await exportThreeMfFromManifold(exportFilename(), dieExport.manifold, 'y');
 			download(blob, `${exportFilename()}.3mf`);
 		} catch (e) {
@@ -198,13 +196,6 @@
 		};
 	}
 
-	async function ensureManifold() {
-		if (!manifoldReady) {
-			await getManifold();
-			manifoldReady = true;
-		}
-	}
-
 	async function loadLegends(): Promise<LegendSet> {
 		if (legendSource === 'problem-glyphs') {
 			return problemGlyphLegendSet(selectedProblemGlyph);
@@ -234,7 +225,6 @@
 		timings = '';
 		statusLine = 'Building…';
 		try {
-			await ensureManifold();
 			currentLegends = await loadLegends();
 
 			const model = dice[selectedKind];

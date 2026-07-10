@@ -1,7 +1,7 @@
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { Shape, Vector2 } from 'three';
 import { unzipSync, strFromU8 } from 'fflate';
-import { getManifold, geometryToIndexedMesh } from './manifold';
+import { geometryToIndexedMesh } from './manifold';
 import {
 	buildThreeMf,
 	buildThreeMfGrouped,
@@ -70,10 +70,6 @@ function flatFromModelXml(xml: string): Float32Array {
 }
 
 const platform = { height: 2, inset: 1.5, outset: 1.5 };
-
-beforeAll(async () => {
-	await getManifold();
-});
 
 describe('manifold -> 3MF export pipeline', () => {
 	it('geometryToIndexedMesh produces a non-empty indexed mesh', () => {

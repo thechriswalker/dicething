@@ -1,7 +1,6 @@
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { BoxGeometry } from 'three';
 import {
-	getManifold,
 	geometryToManifold,
 	manifold,
 	manifoldToGeometry,
@@ -13,10 +12,6 @@ import { checkMesh } from './mesh_check';
 import { manifoldToFlatPositions } from './export';
 
 describe('manifold adapter', () => {
-	beforeAll(async () => {
-		await getManifold();
-	});
-
 	it('round-trips a three geometry through Manifold and stays watertight', () => {
 		const box = new BoxGeometry(10, 10, 10);
 		const man = geometryToManifold(box);

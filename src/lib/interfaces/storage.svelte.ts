@@ -7,6 +7,7 @@ import {
 	type MutableLegendSet,
 	type SerialisedLegendSet
 } from '$lib/utils/legends';
+import { LEGENDS_STORAGE_PREFIX } from '$lib/utils/legend_storage';
 import builtins, { blanks, isBuiltin, loadBuiltinById } from '$lib/fonts';
 import { defaultSources } from '$lib/utils/create_legends';
 import { browser } from '$app/environment';
@@ -28,7 +29,7 @@ function dispatchLegendsChanged(id: string) {
 const LOCALSTORAGE_PREFIX = 'dt:';
 
 const DICE_SETS_PREFIX = LOCALSTORAGE_PREFIX + 'sets:';
-const LEGENDS_PREFIX = LOCALSTORAGE_PREFIX + 'legends:';
+const LEGENDS_PREFIX = LEGENDS_STORAGE_PREFIX;
 
 export type DiceSetWithoutLegends = {
 	id: string;

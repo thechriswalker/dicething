@@ -1,8 +1,8 @@
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import type { BufferGeometry } from 'three';
 import dice from '$lib/dice';
 import type { Dice, DiceSet } from '$lib/interfaces/storage.svelte';
-import { getManifold, toFlatPositions } from '$lib/utils/manifold';
+import { toFlatPositions } from '$lib/utils/manifold';
 import { checkMesh } from '$lib/utils/mesh_check';
 import { buildBox, prepareLayout, type BuildProgress } from './box_builder';
 import {
@@ -58,10 +58,6 @@ function expectPrintable(geo: BufferGeometry) {
 }
 
 describe('box serialisation round-trip', () => {
-	beforeAll(async () => {
-		await getManifold();
-	});
-
 	it('rehydrates a built box that is still watertight + manifold', async () => {
 		const set = makeSet(['d6_cube', 'd20_icosahedron', 'd10_trapezohedron']);
 		const built = await buildBox(set, makeConfig(set));
@@ -122,10 +118,6 @@ describe('box serialisation round-trip', () => {
 });
 
 describe('box build progress reporting', () => {
-	beforeAll(async () => {
-		await getManifold();
-	});
-
 	it('emits ordered steps from 0 to totalSteps (= dice + 2)', async () => {
 		const set = makeSet(['d6_cube', 'd20_icosahedron']);
 		const ticks: Array<BuildProgress> = [];
