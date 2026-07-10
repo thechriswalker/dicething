@@ -4,21 +4,19 @@
 	import Layout from '$lib/components/layout/Layout.svelte';
 	import Scene from '$lib/components/scene/Scene.svelte';
 	import Slider from '$lib/components/slider/Slider.svelte';
-	import { waitForSet, type DiceSet } from '$lib/interfaces/storage.svelte';
+	import { waitForSet, dieToJSON, type DiceSet } from '$lib/interfaces/storage.svelte';
 	import { getPreferences } from '$lib/interfaces/preferences.svelte';
 	import { m } from '$lib/paraglide/messages';
 	import { createFancyRender, createGridHelper, type SceneRenderer } from '$lib/utils/scene';
 	import { debounce } from '$lib/utils/debounce';
 	import {
-		buildExportMeshes,
-		disposeNamedManifolds,
 		download,
+		exportDieCacheSig,
 		exportThreeMfGrouped,
 		exportThreeMfGroupZip,
 		exportThreeMfZip,
 		groupMeshesByCategory,
 		layoutNamedMeshes,
-		manifoldToFlatPositions,
 		type NamedMesh,
 		type OptionStates
 	} from '$lib/utils/export';
@@ -28,11 +26,11 @@
 	import dice from '$lib/dice';
 	import {
 		approximateDieVolume,
-		computeEngravingErrors,
 		meshVolume,
 		type EngravingError
 	} from '$lib/utils/builder';
-	import { checkMeshInWorker } from '$lib/utils/mesh_check_client';
+	import { exportDieInEngine, loadEngineSet, meshCheckInEngine } from '$lib/utils/die_engine_client';
+	import { legendsJsonForEngine } from '$lib/utils/preview_legends';
 	import { mergeMeshReports, type MeshCheckReport } from '$lib/utils/mesh_check';
 	import { toNonIndexed } from '$lib/utils/3d';
 	import { onMount } from 'svelte';
@@ -74,17 +72,16 @@
 			goto('/dice');
 			return;
 		}
-		// flag dice whose engraving is broken so we can warn and leave them
-		// unselected by default (the user can still opt in).
-		const errs: Record<string, Array<EngravingError>> = {};
-		for (const d of setData.dice) {
-			const model = dice[d.kind];
-			if (model) {
-				errs[d.id] = computeEngravingErrors(model, setData.legends, d);
-			}
-		}
-		dieErrors = errs;
-		selectedIds = setData.dice.filter((d) => (errs[d.id]?.length ?? 0) === 0).map((d) => d.id);
+		const setJson = JSON.stringify({
+			id: setData.id,
+			name: setData.name,
+			updated: setData.updated,
+			dice: setData.dice
+		});
+		await loadEngineSet(setData.id, setJson, legendsJsonForEngine(setData.legends));
+		// build every die once on the first preview pass to discover engraving
+		// errors; selectedIds is narrowed after that (see rebuildPreview).
+		selectedIds = setData.dice.map((d) => d.id);
 	});
 
 	let anyBrokenDice = $derived(Object.values(dieErrors).some((e) => e.length > 0));
@@ -165,11 +162,10 @@
 				[...byDie].map(async ([dieId, items]) => {
 					const reports = await Promise.all(
 						items.map((entry) =>
-							checkMeshInWorker(
-								entry.manifold
-									? manifoldToFlatPositions(entry.manifold, 'y')
-									: toNonIndexed(entry.mesh.geometry).getAttribute('position').array,
-								{ collectBad: true }
+							meshCheckInEngine(
+								toNonIndexed(entry.mesh.geometry).getAttribute('position')
+									.array as Float32Array,
+								true
 							)
 						)
 					);
@@ -246,6 +242,30 @@
 	let fancy = $state(true);
 	let previewMeshes: Array<Mesh> = [];
 	let previewNamed: Array<NamedMesh> = [];
+	// per-die export meshes at the origin; invalidated when that die's export inputs change.
+	const exportMeshCache = new Map<
+		string,
+		{ sig: string; meshes: Array<NamedMesh>; engravingErrors: Array<EngravingError> }
+	>();
+	let errorsInitialized = false;
+
+	function disposeExportCacheEntry(
+		entry: { meshes: Array<NamedMesh> } | undefined
+	) {
+		if (!entry) {
+			return;
+		}
+		for (const n of entry.meshes) {
+			n.mesh.geometry.dispose();
+		}
+	}
+
+	function cloneNamedForLayout(named: Array<NamedMesh>): Array<NamedMesh> {
+		return named.map((n) => ({
+			...n,
+			mesh: new Mesh(n.mesh.geometry.clone(), n.mesh.material)
+		}));
+	}
 
 	// the render tuning panel is exposed in developer mode.
 	const prefs = getPreferences();
@@ -325,26 +345,97 @@
 	}
 
 	let previewGroup: Group | undefined;
-	function rebuildPreview() {
+	async function rebuildPreview() {
 		if (!ctx || !setData) {
 			return;
 		}
 		if (previewGroup) {
 			ctx.scene.remove(previewGroup);
 		}
-		// drop any stale problem overlay; runMeshChecks will rebuild it for the new
-		// layout once the (async) check finishes.
+		// drop display clones from the last layout pass.
+		for (const n of previewNamed) {
+			n.mesh.geometry.dispose();
+		}
 		problemPositions = undefined;
 		updateProblemHighlight();
-		disposeNamedManifolds(previewNamed);
-		const named = buildExportMeshes(setData, {
-			selectedIds,
-			includeDice,
-			optionStates: $state.snapshot(optionStates)
-		});
+
+		const optionSnap = $state.snapshot(optionStates) as OptionStates;
+		const legendsJson = legendsJsonForEngine(setData.legends);
+		const optionStatesJson = JSON.stringify(optionSnap);
+		const named: Array<NamedMesh> = [];
+		const meshCheckSources: Array<NamedMesh> = [];
+		let meshCheckNeeded = false;
+		const buildingAllForErrors = !errorsInitialized;
+
+		for (let idx = 0; idx < setData.dice.length; idx++) {
+			const die = setData.dice[idx];
+			if (!buildingAllForErrors && !selectedIds.includes(die.id)) {
+				continue;
+			}
+			const sig = exportDieCacheSig(die, setData.legends.id, includeDice, optionSnap);
+			let entry = exportMeshCache.get(die.id);
+			if (!entry || entry.sig !== sig) {
+				disposeExportCacheEntry(entry);
+				const result = await exportDieInEngine(
+					dieToJSON(die),
+					legendsJson,
+					includeDice,
+					optionStatesJson
+				);
+				entry = {
+					sig,
+					engravingErrors: result.engravingErrors,
+					meshes: result.meshes.map((m) => ({
+						name: m.name,
+						mesh: m.mesh,
+						dieId: m.dieId,
+						group: m.group
+					}))
+				};
+				exportMeshCache.set(die.id, entry);
+				meshCheckNeeded = true;
+			}
+			if (errorsInitialized) {
+				meshCheckSources.push(...entry.meshes);
+				named.push(...cloneNamedForLayout(entry.meshes));
+			}
+		}
+
+		if (!errorsInitialized) {
+			const errs: Record<string, Array<EngravingError>> = {};
+			for (const d of setData.dice) {
+				errs[d.id] = exportMeshCache.get(d.id)?.engravingErrors ?? [];
+			}
+			dieErrors = errs;
+			selectedIds = setData.dice
+				.filter((d) => (errs[d.id]?.length ?? 0) === 0)
+				.map((d) => d.id);
+			errorsInitialized = true;
+			for (const id of [...exportMeshCache.keys()]) {
+				if (!selectedIds.includes(id)) {
+					disposeExportCacheEntry(exportMeshCache.get(id));
+					exportMeshCache.delete(id);
+				}
+			}
+			for (const id of selectedIds) {
+				const entry = exportMeshCache.get(id);
+				if (!entry) {
+					continue;
+				}
+				meshCheckSources.push(...entry.meshes);
+				named.push(...cloneNamedForLayout(entry.meshes));
+			}
+			meshCheckNeeded = meshCheckSources.length > 0;
+		}
+
+		for (const id of [...exportMeshCache.keys()]) {
+			if (!selectedIds.includes(id)) {
+				disposeExportCacheEntry(exportMeshCache.get(id));
+				exportMeshCache.delete(id);
+			}
+		}
+
 		previewNamed = named;
-		// measure each build-option group's volume from its actual generated meshes
-		// (the dice group is measured analytically, "without legends", elsewhere).
 		const vols: Record<string, number> = {};
 		for (const n of named) {
 			if (n.group === 'dice') {
@@ -353,9 +444,9 @@
 			vols[n.group] = (vols[n.group] ?? 0) + meshVolume(n.mesh) / 1000;
 		}
 		artifactVolumesMl = vols;
-		const meshes = named.map((n) => n.mesh);
 		layoutNamedMeshes(named);
 		const group = new Group();
+		const meshes = named.map((n) => n.mesh);
 		meshes.forEach((mesh) => {
 			fancyRender?.styleMesh(mesh);
 			group.add(mesh);
@@ -363,10 +454,13 @@
 		ctx.scene.add(group);
 		previewGroup = group;
 		previewMeshes = meshes;
-		// kick off the (worker-side) mesh-health check for the dice we just built.
-		runMeshChecks(named);
+		if (meshCheckNeeded) {
+			runMeshChecks(meshCheckSources);
+		}
 	}
-	const schedulePreview = debounce<void>(150, () => rebuildPreview());
+	const schedulePreview = debounce<void>(150, () => {
+		void rebuildPreview();
+	});
 
 	// signature of everything the preview depends on, so the effect re-runs when
 	// any option/selection changes.
@@ -477,11 +571,28 @@
 		}
 		exporting = true;
 		exportError = undefined;
-		const named = buildExportMeshes(setData, {
-			selectedIds,
-			includeDice,
-			optionStates: $state.snapshot(optionStates)
-		});
+		const legendsJson = legendsJsonForEngine(setData.legends);
+		const optionStatesJson = JSON.stringify($state.snapshot(optionStates));
+		const named: Array<NamedMesh> = [];
+		for (const die of setData.dice) {
+			if (!selectedIds.includes(die.id)) {
+				continue;
+			}
+			const result = await exportDieInEngine(
+				dieToJSON(die),
+				legendsJson,
+				includeDice,
+				optionStatesJson
+			);
+			for (const m of result.meshes) {
+				named.push({
+					name: m.name,
+					mesh: m.mesh,
+					dieId: m.dieId,
+					group: m.group
+				});
+			}
+		}
 		try {
 			const name = (setData.name || 'set').replace(/[^a-z0-9-_]+/gi, '_');
 			const groups = groupMeshesByCategory(named, name);
@@ -501,7 +612,9 @@
 			const detail = err instanceof Error ? err.message : String(err);
 			exportError = m.export_failed({ detail });
 		} finally {
-			disposeNamedManifolds(named);
+			for (const n of named) {
+				n.mesh.geometry.dispose();
+			}
 			exporting = false;
 		}
 	}

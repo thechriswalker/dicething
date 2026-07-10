@@ -29,7 +29,7 @@
 		return mergeProps(parent as Record<string, unknown>, tip);
 	}
 
-	let savedSets = getSavedSets();
+	const savedSets = $derived(getSavedSets());
 
 	// how many dice to show as a thumbnail strip on each set / preset card.
 	// 9 means row of 5, row of 4, + extra number

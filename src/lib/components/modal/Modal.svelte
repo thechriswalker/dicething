@@ -10,15 +10,22 @@
 		'transition transition-discrete opacity-0 translate-y-[100px] starting:data-[state=open]:opacity-0 starting:data-[state=open]:translate-y-[100px] data-[state=open]:opacity-100 data-[state=open]:translate-y-0';
 
 	type Props = {
+		open?: boolean;
 		trigger: Snippet<[HTMLButtonAttributes]>;
 		title?: Snippet;
 		inner: Snippet<[() => void]>;
 	};
 
 	let id = $props.id();
-	let { inner, trigger, title }: Props = $props();
+	let { open = $bindable(false), inner, trigger, title }: Props = $props();
 
-	let dialog = useDialog({ id });
+	let dialog = useDialog(() => ({
+		id,
+		open,
+		onOpenChange: (e) => {
+			open = e.open;
+		}
+	}));
 
 	let close = () => {
 		dialog().setOpen(false);
@@ -44,7 +51,9 @@
 					</Dialog.CloseTrigger>
 				</header>
 				<Dialog.Description>
-					{@render inner?.(close)}
+					{#if open}
+						{@render inner?.(close)}
+					{/if}
 				</Dialog.Description>
 			</Dialog.Content>
 		</Dialog.Positioner>

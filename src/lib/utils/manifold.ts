@@ -43,6 +43,12 @@ export function manifold(): ManifoldToplevel {
 	return wasm;
 }
 
+// Deep copy via mesh round-trip. Use when a pipeline needs an owned Manifold
+// (caller will .delete()) but the source is borrowed (e.g. blankCache).
+export function cloneManifold(man: Manifold): Manifold {
+	return new wasm.Manifold(man.getMesh());
+}
+
 // Convert a three BufferGeometry into a Manifold. Welds vertices by position
 // first (see file header). The caller owns the returned Manifold and must
 // `.delete()` it.

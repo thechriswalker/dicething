@@ -72,6 +72,15 @@ function trapezohedron(
 		id,
 		name,
 		parameters: trapezohedronParameters,
+		blankParameters(params, offset) {
+			const h = params.trapezohedron_height ?? defaultTrapezohderonHeight;
+			const r = params.trapezohedron_radius ?? defaultTrapezohderonRadius;
+			return {
+				...params,
+				trapezohedron_height: h - offset * 2,
+				trapezohedron_radius: r - offset
+			};
+		},
 		build(params) {
 			const h = (params.trapezohedron_height ?? defaultTrapezohderonHeight) / 2;
 			const r = params.trapezohedron_radius ?? defaultTrapezohderonRadius;

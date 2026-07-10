@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { manifoldToGeometry, toFlatPositions } from './manifold';
+import { cloneManifold, manifoldToGeometry, toFlatPositions } from './manifold';
 import { buildBlankManifold, buildBlankManifoldFromGeometry, engraveDie, extractFaceGeometry } from './die_manifold';
-import { manifold } from './manifold';
 import { Part } from './engraving';
 import { checkMesh } from './mesh_check';
 import { Builder } from './builder';
@@ -78,14 +77,13 @@ describe('die_manifold engraving', () => {
 			built.faces.map(() => ({ legend: Legend.BLANK }))
 		);
 		const blank = buildBlankManifoldFromGeometry(blankMesh.geometry, built.faces);
-		const wasm = manifold();
 		for (let i = 0; i < built.faces.length; i++) {
 			if (built.faces[i].hidden) {
 				continue;
 			}
-			const copy = new wasm.Manifold(blank.manifold.getMesh());
-			const parts = extractFaceGeometry(copy, built.faces[i], i, 1);
-			copy.delete();
+			const engraved = cloneManifold(blank.manifold);
+			const parts = extractFaceGeometry(engraved, built.faces[i], i, 1);
+			engraved.delete();
 			expect(parts.some((p) => p.userData.diceThingPart === Part.Front), `face ${i} Front`).toBe(
 				true
 			);

@@ -278,8 +278,6 @@
 					})
 				);
 			}
-			blank.manifold.delete();
-
 			dieExport = time('manifold → preview', () => buildManifoldDieExport(engraved));
 			exportReady = true;
 

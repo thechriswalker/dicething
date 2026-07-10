@@ -448,6 +448,10 @@ export function convexPolyhedronDie(opts: ConvexPolyhedronOptions): DieModel {
 		id: opts.id,
 		name: opts.name,
 		parameters,
+		blankParameters(params, offset) {
+			const size = params[SIZE_PARAM] ?? defaultSize;
+			return { ...params, [SIZE_PARAM]: size - offset * 2 };
+		},
 		build(params) {
 			const size = params[SIZE_PARAM] ?? defaultSize;
 

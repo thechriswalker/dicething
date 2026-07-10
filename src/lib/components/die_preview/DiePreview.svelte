@@ -1,52 +1,25 @@
-<script module lang="ts">
-	import { browser } from '$app/environment';
-	import PreviewWorker from '$lib/utils/die-previewer.worker?worker';
-	import { readCustomLegendSerialised } from '$lib/utils/legend_storage';
-	import { serialiseLegendSetForWorker } from '$lib/utils/preview_legends';
-
-	let previewWorker: Worker;
-	if (browser) {
-		previewWorker = new PreviewWorker({ name: 'preview-worker' });
-		previewWorker.addEventListener('message', (e) => {
-			if (e.data?.msg === 'need-legends') {
-				const serialised = readCustomLegendSerialised(e.data.id);
-				if (serialised) {
-					previewWorker.postMessage({ msg: 'legends', id: e.data.id, legends: serialised });
-				}
-			}
-		});
-	}
-</script>
-
 <script lang="ts">
 	import { dieToJSON, type Dice } from '$lib/interfaces/storage.svelte';
+	import { ensureEngineWorker } from '$lib/utils/die_engine_client';
 	import type { LegendSet } from '$lib/utils/legends';
+	import { requestDiePreview } from '$lib/utils/die_preview_client';
 
 	const {
 		die,
 		legends,
+		enabled = true,
 		class: classes = ''
-	}: { die: Dice; legends: LegendSet; class?: string } = $props();
+	}: { die: Dice; legends: LegendSet; enabled?: boolean; class?: string } = $props();
 
 	let imageURL = $state('');
 
 	$effect(() => {
-		const payload = {
-			msg: 'die-preview' as const,
-			die: dieToJSON(die),
-			legendSetId: legends.id,
-			legendUpdated: 'updated' in legends ? legends.updated : undefined,
-			legends: serialiseLegendSetForWorker(legends)
-		};
-		const handleMessage = (e: MessageEvent) => {
-			if (e.data.id === die.id) {
-				if (imageURL) {
-					URL.revokeObjectURL(imageURL);
-				}
-				imageURL = e.data.url;
-			}
-		};
-		previewWorker.addEventListener('message', handleMessage);
+		const payload = { die, legends, enabled };
+		let cancelled = false;
+		if (!payload.enabled) {
+			return;
+		}
+		ensureEngineWorker();
 		const schedule =
 			typeof requestIdleCallback !== 'undefined'
 				? (cb: () => void) => requestIdleCallback(cb, { timeout: 2000 })
@@ -56,20 +29,37 @@
 				? cancelIdleCallback
 				: (id: number) => window.clearTimeout(id);
 		const idleId = schedule(() => {
-			previewWorker.postMessage(payload);
+			void requestDiePreview(payload.die, payload.legends)
+				.then(async (bitmap) => {
+					if (cancelled || bitmap.width === 0 || bitmap.height === 0) {
+						bitmap.close();
+						return;
+					}
+					if (imageURL) {
+						URL.revokeObjectURL(imageURL);
+					}
+					const canvas = document.createElement('canvas');
+					canvas.width = bitmap.width;
+					canvas.height = bitmap.height;
+					const ctx = canvas.getContext('2d');
+					ctx?.drawImage(bitmap, 0, 0);
+					bitmap.close();
+					const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve));
+					if (blob && !cancelled) {
+						imageURL = URL.createObjectURL(blob);
+					}
+				})
+				.catch((e) => console.warn('die preview failed', payload.die.id, e));
 		});
 		return () => {
+			cancelled = true;
 			cancel(idleId);
-			previewWorker.removeEventListener('message', handleMessage);
-			if (imageURL) {
-				URL.revokeObjectURL(imageURL);
-			}
 		};
 	});
 </script>
 
 <div class={classes}>
 	{#if imageURL}
-		<img src={imageURL} alt={die.id} />
+		<img src={imageURL} alt={die.id} class="h-full w-full object-contain" />
 	{/if}
 </div>

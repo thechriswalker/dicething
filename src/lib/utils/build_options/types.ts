@@ -47,7 +47,7 @@ export type ExtraBuildContext = {
 // One artifact produced for a single die. `suffix` is appended to the die's
 // export name, e.g. "die-3_blank", "die-3_platform". When present, `manifold` is
 // the authoritative print solid; the mesh is for preview only.
-export type BuildArtifact = { suffix: string; mesh: Mesh; manifold?: import('./manifold').Manifold };
+export type BuildArtifact = { suffix: string; mesh: Mesh; manifold?: import('../manifold').Manifold };
 
 // An extra build option that plugs into the export flow. Implement this + add it
 // to the registry in `index.ts` to surface a new kind of exportable artifact.

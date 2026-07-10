@@ -10,6 +10,8 @@ import {
 import type { FaceParams } from '$lib/interfaces/dice';
 
 export const DefaultDivisions = 12;
+// Coarser tessellation for live editor / thumbnail previews. Export keeps DefaultDivisions.
+export const PreviewDivisions = 6;
 
 // Points that duplicate their predecessor, or whose perpendicular distance from
 // the line through their neighbours is below this, are removed from every loop

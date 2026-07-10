@@ -11,6 +11,7 @@ import {
 	Float32BufferAttribute,
 	Matrix4,
 	Mesh,
+	Path,
 	Shape,
 	ShapeUtils,
 	Vector2,
@@ -19,7 +20,7 @@ import {
 import { Transform } from './3d';
 import { DefaultDivisions, Part, type SymbolOrientation } from './engraving';
 import { Legend, type LegendSet } from './legends';
-import { deleteAll, geometryToManifold, manifold, manifoldToGeometry } from './manifold';
+import { cloneManifold, deleteAll, geometryToManifold, manifold, manifoldToGeometry } from './manifold';
 import {
 	isContained,
 	rotateShapes,
@@ -35,6 +36,7 @@ const PENETRATION_EPS = 0.05;
 const CUTTER_SURFACE_EPS = 0.1;
 
 export type DieManifoldBlank = {
+	// Borrowed from blankCache — do not .delete(); use clearBlankCache() to evict.
 	manifold: Manifold;
 	faceIds: Uint32Array;
 };
@@ -217,7 +219,7 @@ function pointInPolygon(x: number, y: number, poly: Array<Vector2>): boolean {
 	return inside;
 }
 
-function openFaceLoop(shape: Shape, divisions: number): Array<Vector2> {
+function openFaceLoop(shape: Shape | Path, divisions: number): Array<Vector2> {
 	const pts = shape.getPoints(divisions);
 	if (pts.length > 1 && pts[0].distanceToSquared(pts[pts.length - 1]) < 1e-12) {
 		pts.pop();
@@ -498,7 +500,6 @@ export function canEngraveLegend(
 export function engraveWithCutter(blank: Manifold, cutter: Manifold): Manifold {
 	const wasm = manifold();
 	const result = wasm.Manifold.difference(blank, cutter);
-	blank.delete();
 	cutter.delete();
 	return result;
 }
@@ -514,13 +515,9 @@ export function engraveFace(
 ): Manifold {
 	const cutter = buildLegendCutter(symbols, orientation, depth, face, faceIndex, divisions);
 	if (!cutter) {
-		return blank.manifold;
+		return cloneManifold(blank.manifold);
 	}
-	// Clone blank for single-face ops so the cached blank stays intact.
-	const wasm = manifold();
-	const mesh = blank.manifold.getMesh();
-	const copy = new wasm.Manifold(mesh);
-	return engraveWithCutter(copy, cutter);
+	return engraveWithCutter(blank.manifold, cutter);
 }
 
 export type EngraveDieArgs = {
@@ -568,14 +565,11 @@ export function engraveDie(blank: DieManifoldBlank, args: EngraveDieArgs): Manif
 	}
 
 	if (cutters.length === 0) {
-		const mesh = blank.manifold.getMesh();
-		return new wasm.Manifold(mesh);
+		return cloneManifold(blank.manifold);
 	}
 
-	const mesh = blank.manifold.getMesh();
-	let result = new wasm.Manifold(mesh);
 	const cutUnion = unionManifolds(cutters);
-	result = wasm.Manifold.difference(result, cutUnion);
+	const result = wasm.Manifold.difference(blank.manifold, cutUnion);
 	cutUnion.delete();
 	return result;
 }
@@ -802,12 +796,7 @@ export function getOrBuildBlankManifold(
 	const key = blankCacheKey(modelId, params, stringParams) + `:${source}`;
 	const cached = blankCache.get(key);
 	if (cached) {
-		const wasm = manifold();
-		const mesh = cached.manifold.getMesh();
-		return {
-			manifold: new wasm.Manifold(mesh),
-			faceIds: cached.faceIds
-		};
+		return cached;
 	}
 	let built: DieManifoldBlank;
 	if (source === 'export' && opts.exportGeometry) {
@@ -820,12 +809,7 @@ export function getOrBuildBlankManifold(
 		built = buildBlankManifold(faces, opts.divisions);
 	}
 	blankCache.set(key, built);
-	const wasm = manifold();
-	const mesh = built.manifold.getMesh();
-	return {
-		manifold: new wasm.Manifold(mesh),
-		faceIds: built.faceIds
-	};
+	return built;
 }
 
 export type BuildEngravedDieArgs = {
@@ -857,7 +841,6 @@ export function buildEngravedDieManifold(args: BuildEngravedDieArgs): Manifold {
 		divisions: args.divisions,
 		getScaleForLegend: args.getScaleForLegend
 	});
-	blank.manifold.delete();
 	return engraved;
 }
 
@@ -894,10 +877,10 @@ export type BuildBlankManifoldExportArgs = {
 };
 
 // Morphological inset/outset on a watertight blank solid. Positive offset shrinks
-// (inset); negative offset grows (outset). Consumes and deletes `man`.
+// (inset); negative offset grows (outset). Returns a new manifold; `man` is unchanged.
 export function offsetBlankManifold(man: Manifold, offset: number): Manifold {
 	if (offset === 0) {
-		return man;
+		return cloneManifold(man);
 	}
 	const wasm = manifold();
 	const r = Math.abs(offset);
@@ -905,7 +888,6 @@ export function offsetBlankManifold(man: Manifold, offset: number): Manifold {
 	const sphere = wasm.Manifold.sphere(r, segments);
 	const result = offset > 0 ? man.minkowskiDifference(sphere) : man.minkowskiSum(sphere);
 	sphere.delete();
-	man.delete();
 	return result;
 }
 
@@ -922,7 +904,7 @@ export function buildBlankManifoldSolid(
 		exportGeometry,
 		divisions
 	});
-	return blank.manifold;
+	return cloneManifold(blank.manifold);
 }
 
 export function buildBlankManifoldExport(args: BuildBlankManifoldExportArgs): ManifoldDieExport {
@@ -936,7 +918,9 @@ export function buildBlankManifoldExport(args: BuildBlankManifoldExportArgs): Ma
 	);
 	const offset = args.offset ?? 0;
 	if (offset !== 0) {
-		man = offsetBlankManifold(man, offset);
+		const offsetMan = offsetBlankManifold(man, offset);
+		man.delete();
+		man = offsetMan;
 	}
 	return buildManifoldDieExport(man);
 }

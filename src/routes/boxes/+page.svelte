@@ -6,7 +6,7 @@
 	import { m } from '$lib/paraglide/messages';
 	import { Progress } from '@skeletonlabs/skeleton-svelte';
 
-	let savedSets = getSavedSets();
+	const savedSets = $derived(getSavedSets());
 
 	// how many dice to show as a thumbnail strip on each set card.
 	const PREVIEW_COUNT = 5;

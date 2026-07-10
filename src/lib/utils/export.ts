@@ -72,61 +72,97 @@ export function buildExportMeshes(
 		if (args.selectedIds && !args.selectedIds.includes(die.id)) {
 			return;
 		}
-		const model = dice[die.kind];
-		const baseName = dieExportName(set, die.id, idx);
-
-		// the main numbered die (optional).
-		if (includeDice) {
-			const mainBuilder = new Builder(model, set.legends, die.id);
-			const mainMesh = mainBuilder.export(
-				die.parameters,
-				die.face_parameters,
-				die.string_parameters ?? {},
-				die.legend_ordering
-			);
-			const mainManifold = mainBuilder.takeExportManifold();
-			out.push({
-				name: baseName,
-				mesh: mainMesh,
-				dieId: die.id,
-				group: 'dice',
-				manifold: mainManifold
-			});
-		}
-
-		// extra artifacts. each option gets its own fully-built builder so that
-		// re-exporting (e.g. blanks) can't corrupt another option's read of the
-		// die's faces.
-		for (const option of extraBuildOptions) {
-			const state = optionStates[option.id];
-			if (!state?.enabled) {
-				continue;
-			}
-			const builder = new Builder(model, set.legends, die.id);
-			builder.build(
-				die.parameters,
-				die.face_parameters,
-				{ explode: false, ordering: die.legend_ordering },
-				die.string_parameters ?? {}
-			);
-			const artifacts = option.generate({
-				die,
-				model,
-				builder,
-				legends: set.legends,
-				values: state.values
-			});
-			for (const artifact of artifacts) {
-				out.push({
-					name: `${baseName}_${artifact.suffix}`,
-					mesh: artifact.mesh,
-					dieId: die.id,
-					group: option.id,
-					manifold: artifact.manifold
-				});
-			}
-		}
+		out.push(...buildExportMeshesForDie(set, die, idx, { includeDice, optionStates }));
 	});
+
+	return out;
+}
+
+// Cache key for a single die's export meshes (main die + its enabled artifacts).
+export function exportDieCacheSig(
+	die: Dice,
+	legendsId: string,
+	includeDice: boolean,
+	optionStates: OptionStates
+): string {
+	return JSON.stringify({
+		kind: die.kind,
+		parameters: die.parameters,
+		face_parameters: die.face_parameters,
+		string_parameters: die.string_parameters,
+		legend_ordering: die.legend_ordering,
+		legendsId,
+		includeDice,
+		optionStates
+	});
+}
+
+// Build export meshes for one die. Geometries are at the die origin (not laid out).
+export function buildExportMeshesForDie(
+	set: DiceSet,
+	die: Dice,
+	idx: number,
+	args: Pick<BuildExportMeshesArgs, 'includeDice' | 'optionStates'> & {
+		builders?: Map<string, Builder>;
+	} = {}
+): Array<NamedMesh> {
+	const optionStates = args.optionStates ?? {};
+	const includeDice = args.includeDice ?? true;
+	const out: Array<NamedMesh> = [];
+	const model = dice[die.kind];
+	const baseName = dieExportName(set, die.id, idx);
+
+	let builder = args.builders?.get(die.id);
+	if (!builder) {
+		builder = new Builder(model, set.legends, die.id);
+		args.builders?.set(die.id, builder);
+	}
+
+	if (includeDice) {
+		const mainMesh = builder.export(
+			die.parameters,
+			die.face_parameters,
+			die.string_parameters ?? {},
+			die.legend_ordering
+		);
+		const mainManifold = builder.takeExportManifold();
+		out.push({
+			name: baseName,
+			mesh: mainMesh,
+			dieId: die.id,
+			group: 'dice',
+			manifold: mainManifold
+		});
+	}
+
+	for (const option of extraBuildOptions) {
+		const state = optionStates[option.id];
+		if (!state?.enabled) {
+			continue;
+		}
+		builder.build(
+			die.parameters,
+			die.face_parameters,
+			{ explode: false, ordering: die.legend_ordering },
+			die.string_parameters ?? {}
+		);
+		const artifacts = option.generate({
+			die,
+			model,
+			builder,
+			legends: set.legends,
+			values: state.values
+		});
+		for (const artifact of artifacts) {
+			out.push({
+				name: `${baseName}_${artifact.suffix}`,
+				mesh: artifact.mesh,
+				dieId: die.id,
+				group: option.id,
+				manifold: artifact.manifold
+			});
+		}
+	}
 
 	return out;
 }

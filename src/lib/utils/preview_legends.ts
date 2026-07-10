@@ -19,6 +19,11 @@ export function serialiseLegendSetForWorker(set: LegendSet): SerialisedLegendSet
 	return JSON.parse(JSON.stringify(set)) as SerialisedLegendSet;
 }
 
+export function legendsJsonForEngine(set: LegendSet): string {
+	const serialised = serialiseLegendSetForWorker(set);
+	return serialised ? JSON.stringify(serialised) : JSON.stringify(set.toJSON());
+}
+
 function requestCustomLegends(id: string): Promise<SerialisedLegendSet> {
 	return new Promise((resolve, reject) => {
 		const timeout = setTimeout(() => {

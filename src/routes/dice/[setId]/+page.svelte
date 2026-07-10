@@ -4,13 +4,15 @@
 	import DeleteSetDialog from '$lib/components/delete_set/DeleteSetDialog.svelte';
 	import DiceParameters from '$lib/components/dice_parameters/DiceParameters.svelte';
 	import DiePreview from '$lib/components/die_preview/DiePreview.svelte';
+	import { warmDefaultKindPreviews } from '$lib/utils/die_preview_client';
 	import Layout from '$lib/components/layout/Layout.svelte';
+	import { Progress } from '@skeletonlabs/skeleton-svelte';
 	import Modal from '$lib/components/modal/Modal.svelte';
 	import type { MenuItemSubmenu } from '$lib/components/menu/menu';
 	import Menu from '$lib/components/menu/Menu.svelte';
 	import LegendsModal from '$lib/components/legends_modal/LegendsModal.svelte';
 	import ShareModal from '$lib/components/share/ShareModal.svelte';
-	import Scene from '$lib/components/scene/Scene.svelte';
+	import EngineScene, { type EngineSceneHandle } from '$lib/components/scene/EngineScene.svelte';
 	import Tooltip from '$lib/components/tooltip/Tooltip.svelte';
 	import dice from '$lib/dice';
 	import { isBuiltin, type Builtin } from '$lib/fonts';
@@ -32,18 +34,28 @@
 	import { getPreferences } from '$lib/interfaces/preferences.svelte';
 	import { m } from '$lib/paraglide/messages';
 	import {
-		Builder,
-		engravingErrorsForBuilder,
 		engravingParam,
 		engravingToleranceParam,
 		type EngravingError
 	} from '$lib/utils/builder';
+	import { DieEditorFacade } from '$lib/utils/die_editor_facade';
+	import {
+		buildEngineDie,
+		loadEngineSet,
+		lookAtEngineFace,
+		resetEngineCamera,
+		setEngineActiveDie,
+		setEngineExploded,
+		setEngineFancy,
+		setEngineLegendAreaVisible,
+		setEngineOutline
+	} from '$lib/utils/die_engine_client';
 	import SetConfigModal from '$lib/components/set_config/SetConfigModal.svelte';
 	import { computeLandWarning } from '$lib/utils/stability';
+	import { legendsJsonForEngine } from '$lib/utils/preview_legends';
+	import { engineTrace, engineTraceSpan, resetEngineTraceOrigin } from '$lib/utils/engine_trace';
 	import { debounce } from '$lib/utils/debounce';
 	import { createHistory } from '$lib/utils/history.svelte';
-	import { hoverAndClickEvents } from '$lib/utils/events';
-	import { createFancyRender, createGridHelper, type SceneRenderer } from '$lib/utils/scene';
 	import { download, exportSetJson } from '$lib/utils/export';
 	import { event } from '$lib/utils/use_event';
 	import {
@@ -54,7 +66,6 @@
 		FileCode,
 		Focus,
 		Frame,
-		Grid3x3,
 		LayoutGrid,
 		Plus,
 		Save,
@@ -69,7 +80,7 @@
 	import { Button } from 'bits-ui';
 	import { mergeProps } from 'svelte-toolbelt';
 	import { onDestroy, onMount } from 'svelte';
-	import { type Object3D, Vector2, Vector3 } from 'three';
+	import { Vector2, Vector3 } from 'three';
 	import { degToRad } from 'three/src/math/MathUtils.js';
 
 	// merge a parent trigger's props (e.g. a dialog/modal trigger) with our
@@ -79,25 +90,30 @@
 	}
 
 	let { setId = '' } = page.params;
-	let dieId = $derived(page.url.searchParams.get('die') ?? '');
+	let dieId = $derived.by(() => {
+		page.url;
+		return page.url.searchParams.get('die') ?? '';
+	});
 	let renderPass = $state(0);
 
 	// the loaded set, populated in onMount below. Declared up here because SSR
 	// evaluates `$derived` eagerly at its declaration line, and several deriveds
 	// (e.g. setDepth/setTolerance) read setData before that point would otherwise run.
 	let setData: DiceSet | undefined = $state(undefined);
+	type PageLoadState = 'loading' | 'ready' | 'missing';
+	let pageLoad = $state<PageLoadState>('loading');
 
 	// per-session undo/redo of the dice state (params, face params, add/remove).
 	const history = createHistory(250);
 
 	function gotoDie(id: string) {
-		const p = page.url;
+		const url = new URL(page.url);
 		if (id) {
-			p.searchParams.set('die', id);
+			url.searchParams.set('die', id);
 		} else {
-			p.searchParams.delete('die');
+			url.searchParams.delete('die');
 		}
-		goto(p.href);
+		goto(`${url.pathname}${url.search}`, { replaceState: true, keepFocus: true, noScroll: true });
 	}
 
 	// one entry per available die kind, used to render previews in the "add die"
@@ -185,8 +201,7 @@
 			face_parameters: [],
 			legend_ordering: 'standard'
 		});
-		// mirror the init effect: dice need a builder before they can be rendered.
-		ensureDiceBuilder(id, kind);
+		void engineBuildDie(setData.dice[setData.dice.length - 1], explodeMode);
 		save(setData);
 		gotoDie(id);
 	};
@@ -225,15 +240,10 @@
 		if (setData) {
 			const idx = setData.dice.findIndex((x) => x.id === id);
 			setData.dice.splice(idx, 1);
+			dieFacades.delete(id);
+			buildGeneration.delete(id);
 			if (renderedDice === id) {
-				const g = diceBuilders.get(id)?.diceGroup;
-				if (g) {
-					ctx?.scene.remove(g);
-					diceBuilders.delete(id);
-				}
 				gotoDie(setData?.dice[0]?.id ?? '');
-			} else {
-				diceBuilders.delete(id);
 			}
 			save(setData);
 		}
@@ -241,41 +251,42 @@
 
 	// need to load the set by id, or 404 if it doesn't exist.
 	onMount(async () => {
-		setData = await waitForSet(setId);
-		if (setData) {
-			// legacy sets may predate the engraving params; make them explicit so they
-			// serialise (and survive export/import) rather than silently falling back
-			// to whatever defaults the importing machine happens to have.
-			const prefs = getPreferences();
-			for (const d of setData.dice) {
-				d.parameters[engravingParam.id] ??= prefs.defaultEngravingDepth;
-				d.parameters[engravingToleranceParam.id] ??= prefs.defaultEngravingTolerance;
-			}
-			// seed the undo stack with the loaded state as the baseline.
-			history.reset(diceToJSON(setData.dice));
-			if (setData.dice.length === 0 && dieId !== '') {
-				gotoDie('');
-			} else if (setData.dice.length > 0 && setData.dice.findIndex((d) => d.id === dieId) === -1) {
-				gotoDie(setData.dice[0].id);
-			}
-		} else {
-			goto('/dice');
+		resetEngineTraceOrigin();
+		engineTrace('editor:onMount');
+		const loadSpan = engineTraceSpan('waitForSet');
+		const set = await waitForSet(setId);
+		loadSpan.end({ setId, found: !!set, dice: set?.dice.length ?? 0 });
+		if (!set) {
+			pageLoad = 'missing';
+			await goto('/dice', { replaceState: true });
+			return;
+		}
+		setData = set;
+		pageLoad = 'ready';
+		// legacy sets may predate the engraving params; make them explicit so they
+		// serialise (and survive export/import) rather than silently falling back
+		// to whatever defaults the importing machine happens to have.
+		const prefs = getPreferences();
+		for (const d of setData.dice) {
+			d.parameters[engravingParam.id] ??= prefs.defaultEngravingDepth;
+			d.parameters[engravingToleranceParam.id] ??= prefs.defaultEngravingTolerance;
+		}
+		// seed the undo stack with the loaded state as the baseline.
+		history.reset(diceToJSON(setData.dice));
+		if (setData.dice.length === 0 && dieId !== '') {
+			gotoDie('');
+		} else if (setData.dice.length > 0 && setData.dice.findIndex((d) => d.id === dieId) === -1) {
+			gotoDie(setData.dice[0].id);
 		}
 	});
 
-	let ctx = $state<SceneRenderer>();
-
-	let fancyRender = $state<ReturnType<typeof createFancyRender>>();
+	let ctx = $state<EngineSceneHandle | undefined>();
 	let fancy = $state(false);
 	function toggleFancy() {
 		fancy = !fancy;
-		fancyRender?.setEnabled(fancy);
+		setEngineFancy(fancy);
 	}
-	// keep the current die's materials in sync with the fancy toggle, including
-	// when switching to a different die.
-	$effect(() => {
-		currentBuilder?.setFancy(fancy && fancyRender ? fancyRender.material : undefined);
-	});
+	let hoverFace = $state(-1);
 
 	// we will override this after capturing the initial state.
 	// svelte-ignore non_reactive_update
@@ -284,17 +295,7 @@
 	const camInitialPos = new Vector3(0, 10, 40);
 
 	$effect(() => {
-		if (explodeMode) {
-			camInitialPos.set(0, 0, 100);
-			if (ctx) {
-				ctx.controls.noRotate = true;
-			}
-		} else {
-			camInitialPos.set(0, 10, 40);
-			if (ctx) {
-				ctx.controls.noRotate = false;
-			}
-		}
+		setEngineExploded(explodeMode);
 	});
 
 	// captured at scene mount so camera transitions can restore the base zoom.
@@ -319,46 +320,11 @@
 		start: number;
 	} | null = null;
 
-	function animateCameraTo(endPos: Vector3, endUp: Vector3, endTarget: Vector3, endZoom: number) {
-		if (!ctx) return;
-		camTween = {
-			startPos: ctx.camera.position.clone(),
-			endPos: endPos.clone(),
-			startUp: ctx.camera.up.clone(),
-			endUp: endUp.clone(),
-			startTarget: ctx.controls.target.clone(),
-			endTarget: endTarget.clone(),
-			startZoom: ctx.camera.zoom,
-			endZoom,
-			start: performance.now()
-		};
-	}
-
-	function stepCameraTween() {
-		if (!camTween || !ctx) return;
-		const t = Math.min(1, (performance.now() - camTween.start) / CAMERA_TRANSITION_MS);
-		const e = easeInOut(t);
-		ctx.camera.position.lerpVectors(camTween.startPos, camTween.endPos, e);
-		ctx.camera.up.lerpVectors(camTween.startUp, camTween.endUp, e).normalize();
-		ctx.controls.target.lerpVectors(camTween.startTarget, camTween.endTarget, e);
-		ctx.camera.zoom = camTween.startZoom + (camTween.endZoom - camTween.startZoom) * e;
-		ctx.camera.updateProjectionMatrix();
-		if (t >= 1) {
-			camTween = null;
-		}
-	}
-
-	// the camera position/up used to "look at" a given face (matches lookAtFace).
-	function faceCameraState(idx: number): { pos: Vector3; up: Vector3 } {
-		const pos = new Vector3(0, 10, 40);
-		const up = new Vector3(0, 1, 0);
-		const face = currentBuilder?.getFaces()[idx];
-		if (face) {
-			const q = face.transform.rotation;
-			pos.applyQuaternion(q);
-			up.applyQuaternion(q).normalize();
-		}
-		return { pos, up };
+	// camera transitions are handled in the worker viewport.
+	function animateCameraTo(_endPos: Vector3, _endUp: Vector3, _endTarget: Vector3, _endZoom: number) {}
+	function stepCameraTween() {}
+	function faceCameraState(_idx: number): { pos: Vector3; up: Vector3 } {
+		return { pos: new Vector3(0, 10, 40), up: new Vector3(0, 1, 0) };
 	}
 
 	// inline editing of the set name in the header. a draft holds the in-progress
@@ -416,95 +382,53 @@
 		history.push(diceToJSON(data.dice));
 		saving = false;
 	});
-	const sceneReady = (_ctx: SceneRenderer) => {
-		// this is only called on Scene mount, and not reactive
-		// use it to set up the scene window, but not
-		// to use the reactiveProps directly.
+	const sceneReady = (_ctx: EngineSceneHandle) => {
+		engineTrace('editor:sceneReady');
 		ctx = _ctx;
-		fancyRender = createFancyRender(_ctx);
-		ctx.camera.position.copy(camInitialPos);
-		const camZoom = ctx.camera.zoom;
-		baseZoom = camZoom;
-		const camRot = ctx.camera.rotation.clone();
-		resetCamera = () => {
-			_ctx.controls.reset();
-			_ctx.camera.position.copy(camInitialPos);
-			_ctx.camera.zoom = camZoom;
-			_ctx.camera.rotation.copy(camRot);
-		};
-		ctx.scene.add(gridHelper);
-		ctx.onBeforeRender(() => {
-			currentBuilder?.update();
-			stepCameraTween();
-		});
-		ctx.render();
+		resetCamera = () => resetEngineCamera();
 	};
 
-	$effect(() => {
-		if (ctx && currentBuilder) {
-			return hoverAndClickEvents(
-				ctx.renderer.domElement,
-				ctx.camera,
-				currentBuilder.diceGroup,
-				(ev) => {
-					// don't hover-highlight faces hidden from the UI (e.g. coin rim).
-					if (isHiddenFace(ev.face)) {
-						ctx?.setSecondarySeletedItems([]);
-						return;
-					}
-					// skip already-selected faces: the primary outline already marks
-					// them, so a hover outline would just double up on top.
-					if (targetFaces.includes(ev.face)) {
-						ctx?.setSecondarySeletedItems([]);
-						return;
-					}
-					ctx?.setSecondarySeletedItems(currentBuilder?.getOutlineObjects(ev.face) ?? []);
-				},
-				(ev) => {
-					if (ev.dice !== dieId) {
-						return;
-					}
-					// hidden faces aren't selectable/editable.
-					if (isHiddenFace(ev.face)) {
-						return;
-					}
-					if (formatPaintMode) {
-						paintFace(ev.face);
-						return;
-					}
-					if (ev._shift) {
-						toggleFaceSelection(ev.face);
-					} else if (selectMode !== 'single' || selectedFace !== ev.face) {
-						// plain click → single select.
-						selectMode = 'single';
-						selectedFaces = [];
-						selectedFace = ev.face;
-						lookAtFace(selectedFace);
-					} else {
-						// re-clicking the already-selected face: the selection didn't
-						// change, but the user is asking to see its controls, so nudge
-						// the parameters panel to (re)open the face section.
-						focusFaceRequest++;
-					}
-				}
-			);
+	function handleEngineSelection(ev: {
+		dieId: string;
+		hoverFace: number;
+		clickFace?: number;
+		shiftKey?: boolean;
+	}) {
+		if (ev.clickFace !== undefined) {
+			if (ev.dieId !== dieId) {
+				return;
+			}
+			if (isHiddenFace(ev.clickFace)) {
+				return;
+			}
+			if (formatPaintMode) {
+				paintFace(ev.clickFace);
+				return;
+			}
+			if (ev.shiftKey) {
+				toggleFaceSelection(ev.clickFace);
+			} else if (selectMode !== 'single' || selectedFace !== ev.clickFace) {
+				selectMode = 'single';
+				selectedFaces = [];
+				selectedFace = ev.clickFace;
+				lookAtFace(selectedFace);
+			} else {
+				focusFaceRequest++;
+			}
+		} else {
+			hoverFace = ev.hoverFace;
+			highlightSelectedFace();
 		}
-	});
+	}
 
 	// faces flagged `hidden` (e.g. the coin's rim segments) are part of the
 	// geometry but must never be selected or edited from the UI.
 	function isHiddenFace(idx: number): boolean {
-		return !!currentBuilder?.getFaces()[idx]?.hidden;
+		return !!currentFacade?.getFaces()[idx]?.hidden;
 	}
 
 	function lookAtFace(idx: number) {
-		if (explodeMode) {
-			// in the flat view there's no per-face orientation; keep looking at the plane.
-			animateCameraTo(new Vector3(0, 0, 100), new Vector3(0, 1, 0), new Vector3(0, 0, 0), baseZoom);
-			return;
-		}
-		const { pos, up } = faceCameraState(idx);
-		animateCameraTo(pos, up, new Vector3(0, 0, 0), baseZoom);
+		lookAtEngineFace(idx);
 	}
 
 	// we have a few things to worry about here.
@@ -529,24 +453,42 @@
 	// lets do the builders in a Map<id, builder> and then we can keep the map in sync with the
 	// data that is the source of truth.
 
-	const diceBuilders = new Map<string, Builder>();
-	let renderedDice = $state('');
-	let currentBuilder = $state<Builder | undefined>(undefined);
+	const dieFacades = new Map<string, DieEditorFacade>();
+	const buildGeneration = new Map<string, number>();
+	let currentFacade = $state<DieEditorFacade | undefined>(undefined);
 
-	function ensureDiceBuilder(dieId: string, kind: Dice['kind']): Builder | undefined {
+	async function engineBuildDie(d: Dice, explode: boolean, mountViewport = false) {
 		if (!setData) {
-			return undefined;
+			return;
 		}
-		const model = dice[kind];
-		if (!model) {
-			return undefined;
+		const gen = (buildGeneration.get(d.id) ?? 0) + 1;
+		buildGeneration.set(d.id, gen);
+		const span = engineTraceSpan(mountViewport ? `buildDie:mount:${d.id}` : `buildDie:${d.id}`);
+		const meta = await buildEngineDie(dieToJSON(d), explode, gen, mountViewport);
+		span.end({ kind: d.kind, gen });
+		if (buildGeneration.get(d.id) !== gen) {
+			return;
 		}
-		let builder = diceBuilders.get(dieId);
-		if (!builder) {
-			builder = new Builder(model, setData.legends, dieId);
-			diceBuilders.set(dieId, builder);
+		const facade = new DieEditorFacade(meta);
+		dieFacades.set(d.id, facade);
+		dieEngravingErrors = { ...dieEngravingErrors, [d.id]: meta.engravingErrors };
+		if (d.id === dieId) {
+			currentFacade = facade;
+			renderPass++;
+			highlightSelectedFace();
 		}
-		return builder;
+	}
+
+	async function loadSetInEngine() {
+		if (!setData) {
+			return;
+		}
+		const span = engineTraceSpan('loadSetInEngine');
+		const { legends, ...rest } = setData;
+		const forStorage = { ...rest, legends: legends.id, dice: diceFromJSON(diceToJSON(setData.dice)) };
+		const setJson = JSON.stringify(forStorage);
+		await loadEngineSet(setData.id, setJson, legendsJsonForEngine(legends));
+		span.end({ dice: setData.dice.length, legends: legends.id });
 	}
 
 	// per-die engraving errors: faces whose legend won't engrave and would
@@ -561,59 +503,28 @@
 	// per-die signature of the inputs the engraving check depends on, so we can
 	// skip dice that didn't change. a legend-set swap invalidates every die.
 	const lastEngravingSig = new Map<string, string>();
-	let lastEngravingLegendsId: string | undefined;
 	const recomputeEngravingErrors = () => {
 		if (!setData) {
 			return;
 		}
-		const legends = setData.legends;
-		// a legend change can flip any die's faces between engraving/blank, so it
-		// forces a recompute of every die; a die edit only affects that one die.
-		const legendsChanged =
-			lastEngravingLegendsId !== undefined && legends.id !== lastEngravingLegendsId;
-		lastEngravingLegendsId = legends.id;
-		const next: Record<string, Array<EngravingError>> = {};
 		const nextLand: Record<string, boolean> = {};
-		const liveIds = new Set<string>();
 		for (const d of setData.dice) {
-			liveIds.add(d.id);
-			const builder = ensureDiceBuilder(d.id, d.kind);
-			if (!builder) {
-				continue;
-			}
-			const sig = dieToJSON(d);
-			// reuse the previous pass's result for a die that didn't change.
-			if (!legendsChanged && lastEngravingSig.get(d.id) === sig && d.id in dieEngravingErrors) {
-				next[d.id] = dieEngravingErrors[d.id];
-				nextLand[d.id] = dieLandWarnings[d.id] ?? false;
-				continue;
-			}
-			lastEngravingSig.set(d.id, sig);
-			if (legendsChanged) {
-				builder.reloadLegends(legends);
-			}
-			// Reuse the live scene build for the focused die so the error pass
-			// doesn't rebuild it (and reset explode / camera framing).
-			const isLiveScene = d.id === dieId && builder === currentBuilder && !legendsChanged;
-			next[d.id] = isLiveScene
-				? builder.getEngravingErrors()
-				: engravingErrorsForBuilder(builder, d);
 			nextLand[d.id] = computeLandWarning(dice[d.kind], d.parameters, d.string_parameters ?? {});
-		}
-		// forget cached signatures for dice that were removed.
-		for (const id of [...lastEngravingSig.keys()]) {
-			if (!liveIds.has(id)) {
-				lastEngravingSig.delete(id);
+			const facade = dieFacades.get(d.id);
+			if (facade) {
+				dieEngravingErrors = {
+					...dieEngravingErrors,
+					[d.id]: facade.getEngravingErrors()
+				};
+			} else {
+				void engineBuildDie(d, explodeMode);
 			}
 		}
-		dieEngravingErrors = next;
 		dieLandWarnings = nextLand;
 	};
-	// drop the scene builders when leaving the editor so their geometries can be
-	// collected rather than lingering.
 	onDestroy(() => {
 		lastEngravingSig.clear();
-		diceBuilders.clear();
+		dieFacades.clear();
 	});
 	const debouncedRecomputeErrors = debounce<void>(300, recomputeEngravingErrors);
 	// signature of everything the engraving check depends on, so the effect
@@ -624,83 +535,102 @@
 		}
 		return JSON.stringify(diceToJSON(setData.dice)) + '|' + setData.legends.id;
 	});
+	let engineReady = $state(false);
+	let renderedDice = $state('');
+	let sceneLive = $state(false);
 	$effect(() => {
+		const legends = setData?.legends;
+		if (!legends || !sceneLive) {
+			return;
+		}
+		const schedule =
+			typeof requestIdleCallback !== 'undefined'
+				? (cb: () => void) => requestIdleCallback(cb, { timeout: 5000 })
+				: (cb: () => void) => window.setTimeout(cb, 500);
+		const cancel =
+			typeof cancelIdleCallback !== 'undefined'
+				? cancelIdleCallback
+				: (id: number) => window.clearTimeout(id);
+		const id = schedule(() => {
+			engineTrace('warmDefaultKindPreviews');
+			warmDefaultKindPreviews(legends);
+		});
+		return () => cancel(id);
+	});
+	$effect(() => {
+		if (!sceneLive || !setData) {
+			return;
+		}
 		engravingSig;
 		debouncedRecomputeErrors();
 	});
 
-	let init = false;
 	$effect(() => {
-		if (setData && ctx && !init) {
-			init = true;
-			for (let i = 0; i < setData.dice.length; i++) {
-				const d = setData.dice[i];
-				// ensure the (optional) string-parameter channel exists so it can be
-				// two-way bound and mutated by the parameter UI.
-				d.string_parameters ??= {};
-				const builder = ensureDiceBuilder(d.id, d.kind);
-				if (!builder) {
-					continue;
+		if (setData && ctx && !engineReady) {
+			void (async () => {
+				engineTrace('editor:engineInit');
+				const span = engineTraceSpan('editor:loadSet');
+				try {
+					for (const d of setData!.dice) {
+						d.string_parameters ??= {};
+					}
+					await loadSetInEngine();
+					engineReady = true;
+					engineTrace('editor:engineReady');
+					span.end();
+				} catch (e) {
+					span.end({ error: e instanceof Error ? e.message : String(e) });
+					console.error('editor: engine init failed', e);
 				}
-				builder.changeLegends(setData.legends);
-				if (d.id === dieId) {
-					renderPass = builder.build(
-						{ ...d.parameters },
-						d.face_parameters.slice(),
-						{ explode: explodeMode, ordering: d.legend_ordering },
-						{ ...d.string_parameters }
-					);
-					ctx.scene.add(builder.diceGroup);
-					renderedDice = d.id;
-					currentBuilder = builder;
-				}
-			}
+			})();
 		}
 	});
 	$effect(() => {
-		if (init) {
-			if (dieId == '') {
-				let builder = diceBuilders.get(renderedDice);
-				if (builder && ctx) {
-					ctx.scene.remove(builder.diceGroup);
-				}
-				renderedDice = dieId;
-				currentBuilder = undefined;
-			} else {
-				if (dieId !== renderedDice && ctx) {
-					const builder = diceBuilders.get(renderedDice);
-					if (builder) {
-						ctx.scene.remove(builder.diceGroup);
-					}
-					renderedDice = '';
-					currentBuilder = undefined;
-				}
-				const builder = diceBuilders.get(dieId);
-				if (builder && ctx && setData) {
-					const d = setData?.dice.find((x) => x.id === dieId)!;
-					d.string_parameters ??= {};
-					currentBuilder?.changeLegends(setData!.legends);
-					renderPass = builder.build(
-						{ ...d.parameters },
-						d.face_parameters.slice(),
-						{ explode: explodeMode, ordering: d.legend_ordering },
-						{ ...d.string_parameters }
-					);
-					save(setData); // ensure we save!
-					const updated = dieId != renderedDice;
-					renderedDice = dieId;
-					currentBuilder = builder;
-					if (updated) {
-						selectMode = 'single';
-						selectedFace = 0;
-						selectedFaces = [];
-						resetCamera();
-						ctx.scene.add(builder.diceGroup);
-					}
-					setTimeout(() => highlightSelectedFace());
-				}
-			}
+		if (!engineReady || !setData) {
+			return;
 		}
+		const id = dieId || setData.dice[0]?.id || '';
+		if (!id) {
+			return;
+		}
+		const d = setData.dice.find((x) => x.id === id);
+		if (!d) {
+			return;
+		}
+		const switching = id !== renderedDice;
+		explodeMode;
+		dieToJSON(d);
+		void (async () => {
+			engineTrace('editor:buildActiveDie', { id, switching });
+			const span = engineTraceSpan(switching ? `editor:switch:${id}` : `editor:rebuild:${id}`);
+			try {
+				if (switching) {
+					selectMode = 'single';
+					selectedFace = 0;
+					selectedFaces = [];
+					resetCamera();
+				}
+				await setEngineActiveDie(id);
+				await engineBuildDie(d, explodeMode, true);
+				if (dieId && dieId !== id) {
+					span.end({ cancelled: true });
+					return;
+				}
+				renderedDice = id;
+				if (!sceneLive) {
+					sceneLive = true;
+					engineTrace('editor:sceneLive', { id });
+				}
+				if (switching) {
+					lookAtFace(0);
+				}
+				setEngineExploded(explodeMode);
+				span.end();
+			} catch (e) {
+				span.end({ error: e instanceof Error ? e.message : String(e) });
+				console.error('editor: build active die failed', id, e);
+			}
+		})();
 	});
 
 	// React to legend set edits (from the legend editor route/modal, or another
@@ -714,20 +644,12 @@
 			}
 			const fresh = await loadLegends(id);
 			setData.legends = fresh;
-			for (const b of diceBuilders.values()) {
-				b.reloadLegends(fresh);
-			}
-			if (currentBuilder && dieId) {
-				const d = setData.dice.find((x) => x.id === dieId);
-				if (d) {
-					d.string_parameters ??= {};
-					renderPass = currentBuilder.build(
-						{ ...d.parameters },
-						d.face_parameters.slice(),
-						{ explode: explodeMode, ordering: d.legend_ordering },
-						{ ...d.string_parameters }
-					);
-				}
+			await loadSetInEngine();
+			const d = setData.dice.find((x) => x.id === dieId);
+			if (d) {
+				await setEngineActiveDie(d.id);
+				renderedDice = d.id;
+				await engineBuildDie(d, explodeMode, true);
 			}
 		};
 		window.addEventListener(LEGENDS_CHANGED_EVENT, handler);
@@ -741,15 +663,14 @@
 			return;
 		}
 		for (const d of setData.dice) {
-			ensureDiceBuilder(d.id, d.kind);
+			if (!dieFacades.has(d.id)) {
+				void engineBuildDie(d, explodeMode);
+			}
 		}
-		for (const id of [...diceBuilders.keys()]) {
+		for (const id of [...dieFacades.keys()]) {
 			if (!setData.dice.find((d) => d.id === id)) {
-				const g = diceBuilders.get(id)?.diceGroup;
-				if (g) {
-					ctx?.scene.remove(g);
-				}
-				diceBuilders.delete(id);
+				dieFacades.delete(id);
+				buildGeneration.delete(id);
 			}
 		}
 	}
@@ -816,31 +737,11 @@
 		return () => window.removeEventListener('keydown', onKeyDown);
 	});
 
-	const gridHelper = createGridHelper(50);
-	let gridVisible = $state(true);
-	function toggleGridHelper() {
-		gridVisible = !gridVisible;
-	}
-
 	// outline of the available legend area (face fit-shape inset by the engraving
 	// tolerance) on every die. A design aid, always available in the editor.
 	let legendAreaVisible = $state(false);
 	$effect(() => {
-		// re-apply when the active die changes so freshly-built builders pick it up.
-		currentBuilder;
-		renderPass;
-		const glow: Object3D[] = [];
-		const glowError: Object3D[] = [];
-		for (const b of diceBuilders.values()) {
-			b.setLegendAreaVisible(legendAreaVisible);
-			if (legendAreaVisible) {
-				glow.push(...b.getLegendAreaGlowObjects());
-				glowError.push(...b.getLegendAreaGlowErrorObjects());
-			}
-		}
-		// feed the invisible fills into the lime (ok) and red (bad) glow passes.
-		ctx?.setLegendAreaItems(glow);
-		ctx?.setLegendAreaErrorItems(glowError);
+		setEngineLegendAreaVisible(legendAreaVisible);
 	});
 
 	// developer-mode wireframe toggle for the scene (shown only in developer mode).
@@ -848,19 +749,10 @@
 	let devMode = $derived(prefs.developerMode);
 	let wireframeOn = $state(false);
 	$effect(() => {
-		// turning developer mode off also clears the wireframe.
 		if (!devMode && wireframeOn) {
 			wireframeOn = false;
 		}
 		ctx?.setWireframe(wireframeOn);
-	});
-	$effect(() => {
-		const show = gridVisible && !explodeMode;
-		if (!show) {
-			ctx?.scene.remove(gridHelper);
-		} else {
-			ctx?.scene.add(gridHelper);
-		}
 	});
 
 	// face selection has three modes:
@@ -888,9 +780,16 @@
 	});
 
 	function highlightSelectedFace() {
-		ctx?.setPrimarySelectedItems(
-			targetFaces.flatMap((f) => currentBuilder?.getOutlineObjects(f) ?? [])
-		);
+		const secondary =
+			hoverFace >= 0 && !targetFaces.includes(hoverFace) && !isHiddenFace(hoverFace)
+				? [hoverFace]
+				: [];
+		setEngineOutline({
+			primaryFaces: targetFaces,
+			secondaryFaces: secondary,
+			legendAreaFaces: [],
+			legendErrorFaces: []
+		});
 	}
 
 	// --- format painter ---------------------------------------------------
@@ -921,15 +820,6 @@
 			`</svg>`;
 		return `url("data:image/svg+xml,${encodeURIComponent(svg)}") 12 22, crosshair`;
 	})();
-
-	// swap the 3D canvas cursor to the paintbrush while format-painting.
-	$effect(() => {
-		const canvas = ctx?.renderer.domElement;
-		if (!canvas) {
-			return;
-		}
-		canvas.style.cursor = formatPaintMode ? paintCursor : '';
-	});
 
 	// copy a face's params, dropping the legend and cloning the offset vector.
 	function copyFaceParamsExcludingLegend(fp: FaceParams | undefined): FaceParams {
@@ -969,7 +859,7 @@
 			return;
 		}
 		const source = copyFaceParamsExcludingLegend(die.face_parameters[face]);
-		const faceCount = currentBuilder?.getFaces().length ?? 0;
+		const faceCount = currentFacade?.getFaces().length ?? 0;
 		for (let i = 0; i < faceCount; i++) {
 			if (isHiddenFace(i)) {
 				continue;
@@ -1061,8 +951,8 @@
 				p.rotation = clamp((p.rotation ?? 0) + degToRad(opts.dRotDeg), -Math.PI, Math.PI);
 			}
 			if (opts.dScale) {
-				const legend = p.legend ?? currentBuilder?.getFaces()[i]?.defaultLegend;
-				const def = legend ? (currentBuilder?.getDefaultScaleForLegend(legend) ?? 1) : 1;
+				const legend = p.legend ?? currentFacade?.getFaces()[i]?.defaultLegend;
+				const def = legend ? (currentFacade?.getDefaultScaleForLegend(legend) ?? 1) : 1;
 				p.scale = clamp((p.scale ?? def) + opts.dScale, SCALE_MIN, SCALE_MAX);
 			}
 			die.face_parameters[i] = p;
@@ -1229,34 +1119,35 @@
 
 <Layout>
 	{#snippet header()}
-		{#if saving}
-			<Save class="size-4" />
-		{/if}
-		{#if editingName}
-			<input
-				bind:this={nameInput}
-				bind:value={nameDraft}
-				class="text-primary-500 h4 bg-transparent outline-none"
-				onblur={commitName}
-				onkeydown={onNameKeydown}
-			/>
-		{:else}
-			<Tooltip content={m.set_name_edit_hint()} side="bottom">
-				{#snippet children(props)}
-					<button
-						{...props}
-						type="button"
-						class="text-primary-500 h4 cursor-text bg-transparent"
-						onclick={startEditName}
-					>
-						{setData?.name}
-					</button>
-				{/snippet}
-			</Tooltip>
-		{/if}
-		{#if setData}
+		{#if pageLoad === 'ready' && setData}
+			{@const loadedSet = setData}
+			{#if saving}
+				<Save class="size-4" />
+			{/if}
+			{#if editingName}
+				<input
+					bind:this={nameInput}
+					bind:value={nameDraft}
+					class="text-primary-500 h4 bg-transparent outline-none"
+					onblur={commitName}
+					onkeydown={onNameKeydown}
+				/>
+			{:else}
+				<Tooltip content={m.set_name_edit_hint()} side="bottom">
+					{#snippet children(props)}
+						<button
+							{...props}
+							type="button"
+							class="text-primary-500 h4 cursor-text bg-transparent"
+							onclick={startEditName}
+						>
+							{loadedSet.name}
+						</button>
+					{/snippet}
+				</Tooltip>
+			{/if}
 			<LegendsModal
-				current={setData.legends}
+				current={loadedSet.legends}
 				{savedLegends}
 				onEdit={editOrCloneLegends}
 				onSelectCustom={(set) => setLegends(set)()}
@@ -1270,13 +1161,9 @@
 				onChangeDepth={(v) => setEngravingForAllDice(engravingParam.id, v)}
 				onChangeTolerance={(v) => setEngravingForAllDice(engravingToleranceParam.id, v)}
 			/>
-		{/if}
-		{#if setData}
-			<ShareModal set={setData} />
-		{/if}
-		<Menu data={exportMenu} submenuOnLeft></Menu>
-		{#if setData}
-			<DeleteSetDialog {setId} setName={setData.name} onDeleted={() => goto('/dice')}>
+			<ShareModal set={loadedSet} />
+			<Menu data={exportMenu} submenuOnLeft></Menu>
+			<DeleteSetDialog {setId} setName={loadedSet.name} onDeleted={() => goto('/dice')}>
 				{#snippet trigger(props)}
 					<Tooltip content={m.delete_set_button()} side="bottom">
 						{#snippet children(tipProps)}
@@ -1291,6 +1178,11 @@
 			</DeleteSetDialog>
 		{/if}
 	{/snippet}
+	{#if pageLoad === 'loading'}
+		<div class="flex min-h-[60vh] items-center justify-center p-8">
+			<Progress value={null} />
+		</div>
+	{:else if pageLoad === 'ready' && setData}
 	<div class="flex h-full flex-col">
 		<div
 			class={'flex flex-row flex-wrap items-center justify-start gap-4 pb-4' +
@@ -1365,7 +1257,7 @@
 									<TriangleAlert size={16} />
 								</div>
 							{/if}
-							<DiePreview {die} legends={setData?.legends!} />
+							<DiePreview {die} legends={setData?.legends!} enabled={sceneLive} />
 						</div>
 					{/snippet}
 				</Tooltip>
@@ -1438,7 +1330,7 @@
 													}}
 												>
 													{#if setData}
-														<DiePreview die={preview} legends={setData.legends} />
+														<DiePreview die={preview} legends={setData.legends} enabled={sceneLive} />
 													{/if}
 													<span class="text-sm">{m.dice_name({ kind: preview.kind })}</span>
 												</button>
@@ -1452,7 +1344,7 @@
 				{/snippet}
 			</Modal>
 		</div>
-		<Scene class="relative w-full grow" {sceneReady}>
+		<EngineScene class="relative w-full grow" {sceneReady} onSelection={handleEngineSelection}>
 			<ul class="list-style-type-none absolute top-2 left-2 flex flex-col gap-2">
 				<li>
 					<Tooltip content={m.controls_reset_camera()} side="right">
@@ -1464,20 +1356,6 @@
 								onclick={() => {
 									lookAtFace(selectedFace);
 								}}><Focus /></Button.Root
-							>
-						{/snippet}
-					</Tooltip>
-				</li>
-				<li>
-					<Tooltip content={m.controls_toggle_gridlines()} side="right">
-						{#snippet children(props)}
-							<Button.Root
-								{...props}
-								class="btn-icon preset-filled-primary-500"
-								aria-label={m.controls_toggle_gridlines()}
-								onclick={() => {
-									toggleGridHelper();
-									}}><Grid3x3 /></Button.Root
 							>
 						{/snippet}
 					</Tooltip>
@@ -1523,19 +1401,9 @@
 								aria-label={m.controls_toggle_explode_mode()}
 								onclick={() => {
 									explodeMode = !explodeMode;
-									currentBuilder?.setExploded(explodeMode);
-									if (explodeMode) {
-										// transition to looking straight at the flat plane of faces.
-										animateCameraTo(
-											new Vector3(0, 0, 100),
-											new Vector3(0, 1, 0),
-											new Vector3(0, 0, 0),
-											baseZoom
-										);
-									} else {
-										// transition back to the "look at face" direction.
-										const { pos, up } = faceCameraState(selectedFace);
-										animateCameraTo(pos, up, new Vector3(0, 0, 0), baseZoom);
+									setEngineExploded(explodeMode);
+									if (!explodeMode) {
+										lookAtFace(selectedFace);
 									}
 								}}
 								>{#if explodeMode}<Box />{:else}<LayoutGrid />{/if}</Button.Root
@@ -1576,7 +1444,7 @@
 				class="absolute top-2 right-2 flex flex-col {formatPaintMode ? 'hidden' : ''}"
 				inert={formatPaintMode}
 			>
-				{#if setData && currentBuilder}
+				{#if setData && currentFacade}
 					{@const die = setData.dice!.find((x) => x.id === dieId)}
 					{#if die}
 						<DiceParameters
@@ -1586,7 +1454,7 @@
 							bind:fparams={die.face_parameters}
 							bind:ordering={die.legend_ordering}
 							kind={die.kind}
-							builder={currentBuilder}
+							builder={currentFacade}
 							legends={setData.legends}
 							landWarning={dieLandWarnings[die.id] ?? false}
 							engravingErrors={dieEngravingErrors[die.id] ?? []}
@@ -1607,6 +1475,7 @@
 					{/if}
 				{/if}
 			</div>
-		</Scene>
-	</div></Layout
->
+		</EngineScene>
+	</div>
+	{/if}
+</Layout>

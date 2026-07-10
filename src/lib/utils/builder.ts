@@ -24,11 +24,12 @@ import {
 	Vector2,
 	DoubleSide
 } from 'three';
-import { DefaultDivisions, Part } from './engraving';
+import { DefaultDivisions, Part, PreviewDivisions } from './engraving';
 import {
 	buildBlankFaceCapGeometry,
 	buildEngravedDieExport,
 	canEngraveLegend,
+	engraveDie,
 	engraveFace,
 	extractFaceGeometry,
 	getOrBuildBlankManifold,
@@ -37,7 +38,7 @@ import {
 	transformToMat4
 } from './die_manifold';
 import type { Manifold } from './manifold';
-import { manifold } from './manifold';
+import { cloneManifold, manifold } from './manifold';
 import { debugLegendName, Legend, type LegendSet } from './legends';
 import { applyOrderingToFaces, STANDARD_ORDERING } from '$lib/utils/legend_orderings';
 
@@ -53,7 +54,8 @@ export type EngravingError = {
 };
 import { mergeGeometries, mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { removeDuplicateTriangles, repairDegenerateTriangles } from './bad_edges';
-import { findBestLegendScalingFactor, insetPolygon } from './shapes';
+import { insetPolygon } from './shapes';
+import { getOrComputeLegendScaling } from './legend_scaling_cache';
 import { uuid } from './uuid';
 import { toNonIndexed, Transform } from './3d';
 
@@ -438,7 +440,11 @@ export class Builder {
 			return;
 		}
 		this.legends = set;
-		this.recalculateLegendScaling();
+		this.recalculateLegendScaling(
+			this.lastDieParams,
+			this.lastStringParams,
+			this.lastOrdering
+		);
 		this.forceRerenderFaces = true;
 	}
 
@@ -446,7 +452,11 @@ export class Builder {
 	// *contents* of a custom legend set have been edited (same id, new shapes).
 	reloadLegends(set: LegendSet) {
 		this.legends = set;
-		this.recalculateLegendScaling();
+		this.recalculateLegendScaling(
+			this.lastDieParams,
+			this.lastStringParams,
+			this.lastOrdering
+		);
 		this.forceRerenderFaces = true;
 	}
 
@@ -531,7 +541,7 @@ export class Builder {
 			// the ordering rewrites the number faces' default legends, and the
 			// legend scaling reads those, so apply it before recalculating.
 			applyOrderingToFaces(this.model.id, ordering, this.faces, dieParams);
-			this.recalculateLegendScaling();
+			this.recalculateLegendScaling(dieParams, stringParams, ordering);
 			this.computeFaceTransforms();
 			this.lastDieParams = dieParams;
 			this.lastStringParams = stringParams;
@@ -544,7 +554,29 @@ export class Builder {
 			// face params (they're always blank), so only the blank changing matters.
 			this.rebuildHiddenClump(dieParams.engraving_depth);
 		}
-		for (let i = 0; i < this.faces.length; i++) {
+		let sharedEngraved: Manifold | undefined;
+		if (this.useManifoldEngraving) {
+			for (let i = 0; i < this.faces.length; i++) {
+				if (this.faces[i].hidden) {
+					continue;
+				}
+				const newFaceParams = simplifyFaceParams(faceParams[i], this.faces[i]);
+				if (
+					dieChanged ||
+					this.forceRerenderFaces ||
+					faceParamsNotEqual(this.lastFaceParams[i], newFaceParams, this.faces[i])
+				) {
+					sharedEngraved = this.buildEngravedManifoldOnce(
+						dieParams.engraving_depth,
+						faceParams,
+						PreviewDivisions
+					);
+					break;
+				}
+			}
+		}
+		try {
+			for (let i = 0; i < this.faces.length; i++) {
 			// hidden faces are handled by the merged clump above; make sure no stale
 			// individual group lingers for this index, then skip it.
 			if (this.faces[i].hidden) {
@@ -567,7 +599,10 @@ export class Builder {
 					this.faceObjects[i].remove(...this.faceObjects[i].children);
 				}
 				this.lastFaceParams[i] = newFaceParams;
-				this.buildFace(i, dieParams.engraving_depth, newFaceParams, { forExport: false }).forEach(
+				this.buildFace(i, dieParams.engraving_depth, newFaceParams, {
+					forExport: false,
+					sharedEngraved
+				}).forEach(
 					(g) => {
 						g.userData.diceThingFace = i;
 						g.userData.diceThingId = this.id;
@@ -600,6 +635,9 @@ export class Builder {
 				);
 				this.refreshLegendAreaOutline(i);
 			}
+		}
+		} finally {
+			sharedEngraved?.delete();
 		}
 		this.forceRerenderBlank = false;
 		this.forceRerenderFaces = false;
@@ -688,13 +726,11 @@ export class Builder {
 			if (!face.hidden) {
 				continue;
 			}
-			// hidden faces are always blank, so build with empty params and bake the
-			// face's solid transform into the geometry (the clump group is the thing
-			// that animates).
-			this.buildFace(i, engravingDepth, {}, { forExport: false }).forEach((g) => {
-				face.transform.applyToGeometry(g);
-				geos.push(g);
-			});
+			// hidden faces are always blank — cap geometry is enough for preview and
+			// avoids a manifold engrave pass per rim segment on high-segment coins.
+			const g = buildBlankFaceCapGeometry(face, PreviewDivisions);
+			face.transform.applyToGeometry(g);
+			geos.push(g);
 		}
 		if (geos.length === 0) {
 			return;
@@ -735,11 +771,16 @@ export class Builder {
 	private computeFaceTransforms() {
 		this.faceTransforms = this.faces.map((f) => {
 			const explode = f.explodeTransform ?? f.transform;
+			const nQuat = f.transform.rotation;
+			let eQuat = explode.rotation;
+			if (nQuat.dot(eQuat) < 0) {
+				eQuat = new Quaternion(-eQuat.x, -eQuat.y, -eQuat.z, -eQuat.w);
+			}
 			return {
 				nPos: f.transform.translation,
-				nQuat: f.transform.rotation,
+				nQuat,
 				ePos: explode.translation,
-				eQuat: explode.rotation
+				eQuat
 			};
 		});
 	}
@@ -792,49 +833,29 @@ export class Builder {
 		}
 	}
 
-	private recalculateLegendScaling() {
+	private recalculateLegendScaling(
+		dieParams: Record<string, number>,
+		stringParams: Record<string, string>,
+		ordering: string
+	) {
 		const face = this.faces.find((x) => x.isNumberFace);
-		if (face) {
-			let smallest = 1;
-			this.currentLegendScaling.clear();
-			// get the legends we want, and find the smallest scaling factor.
-			// only consider legends on the number faces
-			const allLegends = Array.from(
-				new Set(
-					this.faces.map((f, i) => {
-						if (f.isNumberFace) {
-							return this.lastFaceParams[i]?.legend ?? f.defaultLegend;
-						}
-						return Legend.BLANK;
-					})
-				)
-			);
-
-			// fit against the face shape; a concave face (custom coin outline) uses
-			// the general containment maths so the whole outline is usable.
-			const convex = face.convex !== false;
-			allLegends.forEach((l) => {
-				const shapes = this.legends.get(l);
-				if (shapes.length > 0) {
-					const scale = findBestLegendScalingFactor(
-						face.shape,
-						shapes,
-						this.currentTolerance,
-						convex
-					);
-					this.currentLegendScaling.set(l, scale); // save for later
-					if (scale < smallest) {
-						smallest = scale;
-					}
-				}
-			});
-
-			this.currentSmallestLegendScaling = smallest;
-			console.log('scaling', this.model.id, {
-				individualLegendScaling: this.individualLegendScaling,
-				smallest: this.currentSmallestLegendScaling,
-				legends: this.currentLegendScaling
-			});
+		if (!face) {
+			return;
+		}
+		const result = getOrComputeLegendScaling({
+			modelId: this.model.id,
+			legends: this.legends,
+			dieParams,
+			stringParams,
+			ordering,
+			tolerance: this.currentTolerance,
+			faces: this.faces,
+			faceLegend: (i, f) => this.lastFaceParams[i]?.legend ?? f.defaultLegend
+		});
+		this.currentSmallestLegendScaling = result.smallest;
+		this.currentLegendScaling.clear();
+		for (const [legend, scale] of result.perLegend) {
+			this.currentLegendScaling.set(legend, scale);
 		}
 	}
 
@@ -868,7 +889,7 @@ export class Builder {
 			// before scaling (which reads those defaults).
 			applyOrderingToFaces(this.model.id, ordering, this.faces, dieParams);
 			this.lastOrdering = ordering;
-			this.recalculateLegendScaling();
+			this.recalculateLegendScaling(dieParams, stringParams, ordering);
 			// most dice omit this today; default to identity so export still works.
 			this.printingTransform = x.printingTransform ?? new Transform();
 			this.faceObjects.forEach((g) => g.children?.forEach((c) => g.remove(c)));
@@ -963,6 +984,40 @@ export class Builder {
 		return exported.previewMesh;
 	}
 
+	// One manifold subtract for the whole die, then per-face extraction in build().
+	private buildEngravedManifoldOnce(
+		engravingDepth: number,
+		faceParams: Array<FaceParams>,
+		divisions: number
+	): Manifold {
+		const dieParams = {
+			...this.lastDieParams,
+			engraving_depth: engravingDepth,
+			engraving_tolerance: this.currentTolerance
+		};
+		const blankGeo = this.blankExportGeometry(dieParams);
+		const blank = getOrBuildBlankManifold(
+			this.model.id,
+			this.faces,
+			dieParams,
+			this.lastStringParams,
+			{ source: 'export', exportGeometry: blankGeo, divisions }
+		);
+		const simplified = this.faces.map((face, i) =>
+			simplifyFaceParams(faceParams[i], face)
+		);
+		const engraved = engraveDie(blank, {
+			faces: this.faces,
+			legends: this.legends,
+			faceParams: simplified,
+			depth: engravingDepth,
+			tolerance: this.currentTolerance,
+			divisions,
+			getScaleForLegend: (l) => this.getDefaultScaleForLegend(l)
+		});
+		return engraved;
+	}
+
 	private geometryToFaceLocal(geo: BufferGeometry, face: DieFaceModel): BufferGeometry {
 		const inv = new Matrix4().fromArray(transformToMat4(face.transform)).invert();
 		const local = geo.clone();
@@ -974,7 +1029,7 @@ export class Builder {
 		i: number,
 		engravingDepth: number,
 		params: FaceParams,
-		opts: { forExport: boolean }
+		opts: { forExport: boolean; sharedEngraved?: Manifold }
 	): Array<BufferGeometry> {
 		const face = this.faces[i];
 		const legend = params.legend ?? face.defaultLegend;
@@ -984,7 +1039,7 @@ export class Builder {
 		}
 		let error: EngravingError | null = null;
 		const depth = engravingDepth + (params.extraDepth ?? 0);
-		const divisions = opts.forExport ? DefaultDivisions : 2 * DefaultDivisions;
+		const divisions = opts.forExport ? DefaultDivisions : PreviewDivisions;
 
 		if (
 			legend !== Legend.BLANK &&
@@ -999,31 +1054,33 @@ export class Builder {
 		}
 		this.faceEngravingErrors[i] = error;
 
-		const dieParams = {
-			...this.lastDieParams,
-			engraving_depth: engravingDepth,
-			engraving_tolerance: this.currentTolerance
-		};
-		const blankGeo = this.blankExportGeometry(dieParams);
-		const blank = getOrBuildBlankManifold(
-			this.model.id,
-			this.faces,
-			dieParams,
-			this.lastStringParams,
-			{ source: 'export', exportGeometry: blankGeo }
-		);
-
-		let man;
-		if (legend === Legend.BLANK || error) {
-			const wasm = manifold();
-			man = new wasm.Manifold(blank.manifold.getMesh());
+		let parts: Array<BufferGeometry>;
+		if (opts.sharedEngraved) {
+			parts = extractFaceGeometry(opts.sharedEngraved, face, i, depth);
 		} else {
-			man = engraveFace(blank, face, i, symbols, params, depth, divisions);
-		}
-		blank.manifold.delete();
+			const dieParams = {
+				...this.lastDieParams,
+				engraving_depth: engravingDepth,
+				engraving_tolerance: this.currentTolerance
+			};
+			const blankGeo = this.blankExportGeometry(dieParams);
+			const blank = getOrBuildBlankManifold(
+				this.model.id,
+				this.faces,
+				dieParams,
+				this.lastStringParams,
+				{ source: 'export', exportGeometry: blankGeo, divisions }
+			);
 
-		let parts = extractFaceGeometry(man, face, i, depth);
-		man.delete();
+			let man;
+			if (legend === Legend.BLANK || error) {
+				man = cloneManifold(blank.manifold);
+			} else {
+				man = engraveFace(blank, face, i, symbols, params, depth, divisions);
+			}
+			parts = extractFaceGeometry(man, face, i, depth);
+			man.delete();
+		}
 
 		if (!opts.forExport) {
 			parts = parts.map((g) => this.geometryToFaceLocal(g, face));
@@ -1051,11 +1108,15 @@ export class Builder {
 		}
 	}
 
+	public getIndividualLegendScaling(): boolean {
+		return this.individualLegendScaling;
+	}
+
 	private buildFace(
 		i: number,
 		engravingDepth: number,
 		params: FaceParams,
-		opts: { forExport: boolean } = { forExport: false }
+		opts: { forExport: boolean; sharedEngraved?: Manifold } = { forExport: false }
 	): Array<BufferGeometry> {
 		return this.buildFaceManifold(i, engravingDepth, params, opts);
 	}

@@ -94,6 +94,10 @@ export function polyhedron(
 		id,
 		name,
 		parameters,
+		blankParameters(params, offset) {
+			const size = params.polyhedron_size ?? defaultF2F;
+			return { ...params, polyhedron_size: size - offset * 2 };
+		},
 		build(params) {
 			const d = params.polyhedron_size ?? defaultF2F;
 			const face = shaper(d);

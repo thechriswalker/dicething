@@ -8,9 +8,9 @@
 	import {
 		engravingParam,
 		engravingToleranceParam,
-		type Builder,
 		type EngravingError
 	} from '$lib/utils/builder';
+	import type { DieEditorFacade } from '$lib/utils/die_editor_facade';
 	import { Legend, type LegendSet } from '$lib/utils/legends';
 	import { getOrderings, CUSTOM_ORDERING, STANDARD_ORDERING } from '$lib/utils/legend_orderings';
 	import { Vector2 } from 'three';
@@ -45,7 +45,7 @@
 		selectMode: SelectMode;
 		selectedFace: number;
 		selectedFaces: number[];
-		builder: Builder;
+		builder: DieEditorFacade;
 		renderPass: number;
 		// true when this die can come to rest on an inconclusive face (see
 		// stability.ts). surfaced as a card at the top of the panel; the message is

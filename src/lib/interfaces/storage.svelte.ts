@@ -13,6 +13,16 @@ import { defaultSources } from '$lib/utils/create_legends';
 import { browser } from '$app/environment';
 import { deferred } from '$lib/utils/deferred';
 import { deleteFont, getFont, putFont } from './fontstore';
+import {
+	initEngineStorage,
+	onEngineStorageUpdated,
+	saveLegendInEngine,
+	saveSetInEngine,
+	deleteSetInEngine,
+	deleteLegendInEngine
+} from '$lib/utils/die_engine_client';
+import type { StorageUpdatedPayload } from '$lib/utils/die_engine_protocol';
+import { engineTrace, engineTraceSpan } from '$lib/utils/engine_trace';
 
 // fired (same-tab) whenever a custom legend set is saved or deleted, with the
 // affected id as the event detail. Cross-tab changes arrive via the localStorage
@@ -105,17 +115,78 @@ let savedSets = $state<Array<DiceSet>>([]);
 // listener below. Used by the legend manager UI.
 let savedLegends = $state<Array<MutableLegendSet>>([]);
 let initialLoad = deferred();
+let initialLoadSettled = false;
+
+function settleInitialLoad() {
+	if (!initialLoadSettled) {
+		initialLoadSettled = true;
+		initialLoad.resolve(undefined);
+	}
+}
 
 export async function waitForInitialLoad() {
+	const span = engineTraceSpan('waitForInitialLoad');
 	await initialLoad.promise;
+	span.end();
 }
 
 export async function waitForSet(id: string): Promise<DiceSet | undefined> {
 	await waitForInitialLoad();
-	return savedSets.find((set) => set.id === id);
+	const set = savedSets.find((s) => s.id === id);
+	engineTrace('waitForSet', { id, found: !!set, total: savedSets.length });
+	return set;
+}
+
+async function hydrateFromEngineSnapshot(payload: StorageUpdatedPayload): Promise<Array<DiceSet>> {
+	const customById = new Map(
+		payload.legends.map((l) => [l.id, loadMutableLegends(l)] as const)
+	);
+	const sets: Array<DiceSet> = [];
+	for (const snap of payload.sets) {
+		try {
+			let legendSet: LegendSet;
+			if (isBuiltin(snap.legendsId)) {
+				legendSet = await loadBuiltinById(snap.legendsId);
+			} else {
+				legendSet = customById.get(snap.legendsId) ?? (await loadLegends(snap.legendsId));
+			}
+			const diceArr = JSON.parse(snap.dice, reviver) as Dice[];
+			sets.push({
+				id: snap.id,
+				name: snap.name,
+				updated: snap.updated,
+				dice: diceArr,
+				legends: legendSet
+			});
+		} catch (e) {
+			console.warn('failed to hydrate set from engine storage', snap.id, e);
+		}
+	}
+	return sets;
+}
+
+function applyEngineLegends(payload: StorageUpdatedPayload) {
+	savedLegends.length = 0;
+	for (const l of payload.legends) {
+		try {
+			savedLegends.push(loadMutableLegends(l));
+		} catch {
+			// skip corrupt
+		}
+	}
 }
 
 if (browser) {
+	const INITIAL_LOAD_TIMEOUT_MS = 10_000;
+	setTimeout(() => {
+		if (!initialLoadSettled) {
+			console.warn(
+				`initial storage load timed out after ${INITIAL_LOAD_TIMEOUT_MS}ms; continuing with ${savedSets.length} saved set(s)`
+			);
+			settleInitialLoad();
+		}
+	}, INITIAL_LOAD_TIMEOUT_MS);
+
 	const storageListener = async (ev: StorageEvent) => {
 		if (ev.storageArea !== localStorage) {
 			return;
@@ -153,12 +224,37 @@ if (browser) {
 		}
 	};
 
-	getListOfSets()
-		.then((sets) => {
-			savedSets.push(...sets);
-			initialLoad.resolve(undefined);
+	initEngineStorage()
+		.then(async (snapshot) => {
+			const span = engineTraceSpan('initEngineStorage');
+			try {
+				const lsSets = await getListOfSets();
+				for (const set of lsSets) {
+					if (!savedSets.find((x) => x.id === set.id)) {
+						savedSets.push(set);
+					}
+				}
+				span.end({ sets: savedSets.length, legends: snapshot.legends.length });
+			} catch (e) {
+				span.end({ error: e instanceof Error ? e.message : String(e) });
+			} finally {
+				settleInitialLoad();
+			}
 		})
-		.catch((e) => console.warn(e));
+		.catch(async (e) => {
+			console.warn('engine storage init failed, using localStorage', e);
+			savedSets.length = 0;
+			savedSets.push(...(await getListOfSets()));
+			settleInitialLoad();
+		});
+
+	onEngineStorageUpdated(async (payload) => {
+		applyEngineLegends(payload);
+		const engineSets = await hydrateFromEngineSnapshot(payload);
+		savedSets.length = 0;
+		savedSets.push(...engineSets);
+	});
+
 	savedLegends.push(...getListOfCustomLegends());
 	window.addEventListener('storage', storageListener);
 }
@@ -203,9 +299,8 @@ export function saveSet(set: DiceSet) {
 	const data = diceSetToJSON(forStorage as DiceSetForStorage);
 	const key = DICE_SETS_PREFIX + set.id;
 	set.updated = Date.now();
-	localStorage.setItem(key, data);
+	void saveSetInEngine(data).catch(() => localStorage.setItem(key, data));
 	if (!savedSets.find((x) => x.id === set.id)) {
-		// wasn't in the saved set array, so add it.
 		savedSets.push(set);
 	}
 }
@@ -214,12 +309,16 @@ function ensureLegendsPersisted(legends: LegendSet) {
 	if (isBuiltin(legends.id)) {
 		return;
 	}
-	localStorage.setItem(LEGENDS_PREFIX + legends.id, JSON.stringify(legends));
+	const json = JSON.stringify(legends);
+	void saveLegendInEngine(json).catch(() =>
+		localStorage.setItem(LEGENDS_PREFIX + legends.id, json)
+	);
 }
 
 export function deleteSet(setID: string) {
 	const key = DICE_SETS_PREFIX + setID;
 	localStorage.removeItem(key);
+	void deleteSetInEngine(setID);
 	const idx = savedSets.findIndex((x) => x.id === setID);
 	if (idx > -1) {
 		savedSets.splice(idx, 1);
@@ -268,7 +367,10 @@ export function getCustomLegendSet(id: string): MutableLegendSet | undefined {
 // Persist a custom legend set and notify listeners (same-tab + cross-tab).
 export function saveLegendSet(set: MutableLegendSet) {
 	set.updated = Date.now();
-	localStorage.setItem(LEGENDS_PREFIX + set.id, JSON.stringify(set));
+	const json = JSON.stringify(set);
+	void saveLegendInEngine(json).catch(() =>
+		localStorage.setItem(LEGENDS_PREFIX + set.id, json)
+	);
 	upsertLegendsInList(set);
 	dispatchLegendsChanged(set.id);
 }
@@ -276,6 +378,7 @@ export function saveLegendSet(set: MutableLegendSet) {
 // Remove a custom legend set and its uploaded font blob (if any).
 export async function deleteLegendSet(id: string) {
 	localStorage.removeItem(LEGENDS_PREFIX + id);
+	void deleteLegendInEngine(id);
 	removeLegendsFromList(id);
 	try {
 		await deleteFont(id);
