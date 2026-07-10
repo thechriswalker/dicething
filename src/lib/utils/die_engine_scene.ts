@@ -7,7 +7,6 @@ import {
 	DirectionalLight,
 	HemisphereLight,
 	type Material,
-	Matrix4,
 	Mesh,
 	MeshPhysicalMaterial,
 	Object3D,
@@ -42,11 +41,11 @@ import {
 const defaultCameraPosition = new Vector3(0, 10, 40);
 const explodeCameraPosition = new Vector3(0, 0, 100);
 const CAMERA_TRANSITION_MS = 1000;
+// Hold camera distance while the view direction eases; distance only changes in the tail.
+const EXPLODE_CAMERA_DIST_DELAY = 0.4;
 
 const easeInOut = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
 
-const _lookAtMatrix = new Matrix4();
-const _lookAtQuat = new Quaternion();
 const _origin = new Vector3(0, 0, 0);
 const _defaultUp = new Vector3(0, 1, 0);
 const _tweenTarget = new Vector3();
@@ -60,9 +59,13 @@ const _qAlign = new Quaternion();
 const _qTwist = new Quaternion();
 const _slerpQuat = new Quaternion();
 
-function quaternionFromLookAt(pos: Vector3, up: Vector3, target: Vector3): Quaternion {
-	_lookAtMatrix.lookAt(pos, target, up);
-	return _lookAtQuat.setFromRotationMatrix(_lookAtMatrix).clone();
+function faceCameraPose(face: DieFaceModel): { pos: Vector3; up: Vector3 } {
+	const pos = defaultCameraPosition.clone();
+	const up = _defaultUp.clone();
+	const q = face.transform.rotation;
+	pos.applyQuaternion(q);
+	up.applyQuaternion(q).normalize();
+	return { pos, up };
 }
 
 // Inverse of applyRotationToCamera / faceCameraState: the rotation that maps the
@@ -107,20 +110,21 @@ type FaceCameraTween = {
 	start: number;
 };
 
-type FreeCameraTween = {
-	kind: 'free';
-	startPos: Vector3;
-	endPos: Vector3;
+type QuatDistanceTween = {
+	kind: 'quatDist';
 	startQuat: Quaternion;
 	endQuat: Quaternion;
+	startDist: number;
+	endDist: number;
 	startTarget: Vector3;
 	endTarget: Vector3;
 	startZoom: number;
 	endZoom: number;
+	distDelay: number;
 	start: number;
 };
 
-type CameraTween = FaceCameraTween | FreeCameraTween;
+type CameraTween = FaceCameraTween | QuatDistanceTween;
 
 type TrackballInternals = TrackballControls & {
 	_eye: Vector3;
@@ -311,8 +315,12 @@ export class EngineViewport {
 		this.exploded = explode;
 		this.controls.noRotate = explode;
 		if (explode) {
-			this.animateFreeCameraTo(explodeCameraPosition, new Vector3(0, 1, 0), new Vector3(0, 0, 0));
+			this.animateQuatDistanceTo(explodeCameraPosition, _defaultUp, _origin);
 		}
+	}
+
+	private isExplodeCameraPose(): boolean {
+		return this.camera.position.distanceToSquared(explodeCameraPosition) < 100;
 	}
 
 	private syncTrackballEye() {
@@ -343,26 +351,39 @@ export class EngineViewport {
 		};
 	}
 
-	private animateFreeCameraTo(endPos: Vector3, endUp: Vector3, endTarget: Vector3, endZoom = 1) {
-		const startQuat = quaternionFromLookAt(
+	private animateQuatDistanceTo(
+		endPos: Vector3,
+		endUp: Vector3,
+		endTarget: Vector3,
+		endQuat?: Quaternion,
+		endZoom = 1,
+		distDelay = EXPLODE_CAMERA_DIST_DELAY
+	) {
+		const startTarget = this.controls.target;
+		const startQuat = extractFaceViewQuat(
 			this.camera.position,
 			this.camera.up,
-			this.controls.target
+			startTarget
 		);
-		let endQuat = quaternionFromLookAt(endPos, endUp, endTarget);
-		if (startQuat.dot(endQuat) < 0) {
-			endQuat = new Quaternion(-endQuat.x, -endQuat.y, -endQuat.z, -endQuat.w);
+		let eq = (endQuat ?? extractFaceViewQuat(endPos, endUp, endTarget)).clone();
+		if (startQuat.dot(eq) < 0) {
+			eq = new Quaternion(-eq.x, -eq.y, -eq.z, -eq.w);
 		}
+		_offset.copy(this.camera.position).sub(startTarget);
+		const startDist = _offset.length();
+		_offset.copy(endPos).sub(endTarget);
+		const endDist = _offset.length();
 		this.camTween = {
-			kind: 'free',
-			startPos: this.camera.position.clone(),
-			endPos: endPos.clone(),
+			kind: 'quatDist',
 			startQuat,
-			endQuat,
-			startTarget: this.controls.target.clone(),
+			endQuat: eq,
+			startDist,
+			endDist,
+			startTarget: startTarget.clone(),
 			endTarget: endTarget.clone(),
 			startZoom: this.camera.zoom,
 			endZoom,
+			distDelay,
 			start: performance.now()
 		};
 	}
@@ -382,10 +403,18 @@ export class EngineViewport {
 			this.controls.target.copy(_tweenTarget);
 			this.camera.lookAt(_tweenTarget);
 		} else {
-			this.camera.position.lerpVectors(tw.startPos, tw.endPos, e);
-			this.camera.quaternion.slerpQuaternions(tw.startQuat, tw.endQuat, e);
-			this.camera.up.set(0, 1, 0).applyQuaternion(this.camera.quaternion).normalize();
-			this.controls.target.lerpVectors(tw.startTarget, tw.endTarget, e);
+			_tweenTarget.lerpVectors(tw.startTarget, tw.endTarget, e);
+			_slerpQuat.slerpQuaternions(tw.startQuat, tw.endQuat, e);
+			const distT =
+				tw.distDelay > 0
+					? easeInOut(Math.min(1, Math.max(0, (t - tw.distDelay) / (1 - tw.distDelay))))
+					: e;
+			const dist = tw.startDist + (tw.endDist - tw.startDist) * distT;
+			_offset.copy(defaultCameraPosition).applyQuaternion(_slerpQuat).normalize().multiplyScalar(dist);
+			this.camera.position.copy(_offset).add(_tweenTarget);
+			this.camera.up.copy(_defaultUp).applyQuaternion(_slerpQuat).normalize();
+			this.controls.target.copy(_tweenTarget);
+			this.camera.lookAt(_tweenTarget);
 		}
 		this.camera.zoom = tw.startZoom + (tw.endZoom - tw.startZoom) * e;
 		this.camera.updateProjectionMatrix();
@@ -434,11 +463,16 @@ export class EngineViewport {
 
 	lookAtFace(faceIndex: number, getFace: (face: number) => DieFaceModel | undefined) {
 		if (this.exploded) {
-			this.animateFreeCameraTo(explodeCameraPosition, new Vector3(0, 1, 0), new Vector3(0, 0, 0));
+			this.animateQuatDistanceTo(explodeCameraPosition, _defaultUp, _origin);
 			return;
 		}
 		const face = getFace(faceIndex);
 		if (!face) {
+			return;
+		}
+		if (this.isExplodeCameraPose()) {
+			const { pos, up } = faceCameraPose(face);
+			this.animateQuatDistanceTo(pos, up, _origin, face.transform.rotation.clone());
 			return;
 		}
 		this.animateFaceView(face);

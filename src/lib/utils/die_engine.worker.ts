@@ -39,6 +39,7 @@ let outlineState: EngineOutlineState = {
 	legendErrorFaces: []
 };
 let legendAreaVisible = false;
+let fancyEnabled = false;
 let currentSet: DiceSet | undefined;
 
 function post(msg: EngineResponse | { type: 'selection'; state: EngineSelectionState }, transfer?: Transferable[]) {
@@ -62,6 +63,17 @@ function setActiveDieId(dieId: string) {
 	}
 }
 
+function styleActiveDieMeshes() {
+	if (!viewport || !activeBuilder) {
+		return;
+	}
+	activeBuilder.diceGroup.traverse((o) => {
+		if ((o as import('three').Mesh).isMesh) {
+			viewport!.styleMesh(o as import('three').Mesh);
+		}
+	});
+}
+
 function mountActiveDie(builder: Builder, dieId: string) {
 	if (!viewport) {
 		return;
@@ -77,11 +89,7 @@ function mountActiveDie(builder: Builder, dieId: string) {
 	if (builder.diceGroup.parent !== viewport.scene) {
 		viewport.scene.add(builder.diceGroup);
 	}
-	builder.diceGroup.traverse((o) => {
-		if ((o as import('three').Mesh).isMesh) {
-			viewport!.styleMesh(o as import('three').Mesh);
-		}
-	});
+	styleActiveDieMeshes();
 	viewport.picker.setTarget({
 		dieId,
 		root: builder.diceGroup,
@@ -162,6 +170,7 @@ async function handleRequest(msg: EngineRequest) {
 				viewport?.dispose();
 				viewport = new EngineViewport(msg.canvas, msg.width, msg.height, msg.dpr);
 				viewport.setBackground(msg.backgroundColor);
+				viewport.setFancy(fancyEnabled);
 				viewport.onBeforeRender(() => activeBuilder?.update());
 				viewport.start();
 				if (activeDieId) {
@@ -231,7 +240,9 @@ async function handleRequest(msg: EngineRequest) {
 				post({ reqId, type: 'ok' });
 				break;
 			case 'setFancy':
-				viewport?.setFancy(msg.enabled);
+				fancyEnabled = msg.enabled;
+				viewport?.setFancy(fancyEnabled);
+				styleActiveDieMeshes();
 				post({ reqId, type: 'ok' });
 				break;
 			case 'setWireframe':

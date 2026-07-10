@@ -54,13 +54,15 @@ export type EngravingError = {
 };
 import { mergeGeometries, mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { removeDuplicateTriangles, repairDegenerateTriangles } from './bad_edges';
-import { insetPolygon } from './shapes';
+import { insetPolygon, rotateShapes, scaleShapes, translateShapes } from './shapes';
+import { shapeGeometry } from './tessellate';
 import { getOrComputeLegendScaling } from './legend_scaling_cache';
 import { uuid } from './uuid';
 import { toNonIndexed, Transform } from './3d';
 
 const _genericNormalMaterial = new MeshNormalMaterial({ wireframe: !true });
 const _engraveBackMaterial = new MeshBasicMaterial({ color: 0x666666 });
+const _flatLegendMaterial = new MeshBasicMaterial({ color: 0x000000 });
 const _badElementMaterial = new MeshBasicMaterial({ color: 0xff0000, side: DoubleSide });
 // outline of the available legend area (face fit-shape inset by the tolerance).
 // a thin line drawn over the face (depthTest off) in a vivid colour. it stays
@@ -226,6 +228,9 @@ export class Builder {
 
 	// Manifold cross-section subtract engraving (production default).
 	public useManifoldEngraving = true;
+
+	// Thumbnail / catalogue previews: blank caps + flat legend overlays (no manifold).
+	public flatLegendPreview = false;
 
 	// Cached blank export geometry for manifold blank builds (invalidated on die change).
 	private cachedBlankExportGeometry: BufferGeometry | undefined;
@@ -555,7 +560,7 @@ export class Builder {
 			this.rebuildHiddenClump(dieParams.engraving_depth);
 		}
 		let sharedEngraved: Manifold | undefined;
-		if (this.useManifoldEngraving) {
+		if (this.useManifoldEngraving && !this.flatLegendPreview) {
 			for (let i = 0; i < this.faces.length; i++) {
 				if (this.faces[i].hidden) {
 					continue;
@@ -610,7 +615,7 @@ export class Builder {
 						let visible = true;
 						switch (g.userData.diceThingPart) {
 							case Part.Engraved:
-								m = this.engraveMaterial;
+								m = this.flatLegendPreview ? _flatLegendMaterial : this.engraveMaterial;
 								break;
 							case Part.Walls:
 								m = this.wallMaterial;
@@ -1112,12 +1117,63 @@ export class Builder {
 		return this.individualLegendScaling;
 	}
 
+	private buildFaceFlatPreview(
+		i: number,
+		params: FaceParams
+	): Array<BufferGeometry> {
+		const face = this.faces[i];
+		const legend = params.legend ?? face.defaultLegend;
+		const symbols = this.legends.get(legend);
+		if (!params.scale) {
+			params.scale = this.getDefaultScaleForLegend(legend);
+		}
+		let error: EngravingError | null = null;
+		if (
+			legend !== Legend.BLANK &&
+			!canEngraveLegend(face.shape, symbols, params, this.currentTolerance, face.convex !== false)
+		) {
+			error = {
+				faceIndex: i,
+				legend,
+				legendName: this.legends.getLegendName(legend),
+				reason: 'symbol-too-large'
+			};
+		}
+		this.faceEngravingErrors[i] = error;
+
+		const divisions = PreviewDivisions;
+		const faceFront = buildBlankFaceCapGeometry(face, divisions);
+		faceFront.userData = { diceThingPart: Part.Front };
+		const parts: Array<BufferGeometry> = [faceFront];
+
+		if (legend !== Legend.BLANK && symbols.length > 0) {
+			let oriented = symbols;
+			if (params.scale && params.scale !== 1) {
+				oriented = scaleShapes(params.scale, ...oriented);
+			}
+			if (params.rotation) {
+				oriented = rotateShapes(params.rotation, ...oriented);
+			}
+			if (params.offset && params.offset.lengthSq() !== 0) {
+				oriented = translateShapes(params.offset, ...oriented);
+			}
+			const symbolFlat = shapeGeometry(oriented, divisions);
+			symbolFlat.userData = { diceThingPart: Part.Engraved };
+			symbolFlat.translate(0, 0, 0.1);
+			parts.push(symbolFlat);
+		}
+		return parts;
+	}
+
 	private buildFace(
 		i: number,
 		engravingDepth: number,
 		params: FaceParams,
 		opts: { forExport: boolean; sharedEngraved?: Manifold } = { forExport: false }
 	): Array<BufferGeometry> {
+		if (this.flatLegendPreview && !opts.forExport) {
+			return this.buildFaceFlatPreview(i, params);
+		}
 		return this.buildFaceManifold(i, engravingDepth, params, opts);
 	}
 }

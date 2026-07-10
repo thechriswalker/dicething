@@ -386,6 +386,7 @@
 		engineTrace('editor:sceneReady');
 		ctx = _ctx;
 		resetCamera = () => resetEngineCamera();
+		setEngineFancy(fancy);
 	};
 
 	function handleEngineSelection(ev: {

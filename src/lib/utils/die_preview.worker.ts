@@ -135,6 +135,7 @@ async function renderPreview(
 				}
 				const legends = await resolveWorkerLegends(legendsJson, legendSetId);
 				const builder = new Builder(dice[die.kind], legends, die.id);
+				builder.flatLegendPreview = true;
 				builder.build(
 					die.parameters,
 					die.face_parameters,
