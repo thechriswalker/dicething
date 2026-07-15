@@ -200,6 +200,11 @@ function dieExportName(set: DiceSet, dieId: string, idx: number): string {
 // Arrange meshes in a roughly-square grid using X/Z translations only (Y is left
 // untouched so every die stays on the same level). Mutates the meshes'
 // geometries in place. Used for the on-screen preview and the all-in-one file.
+//
+// When the list spans multiple export groups (dice / blanks / platforms / ...),
+// each group is laid out as its own congruent section — same item order and the
+// same (col, row) slots — then sections are stacked along Z with `gap` between
+// them. Within a single group the behaviour is the simple uniform grid.
 export function layoutGrid(meshes: Array<Mesh>, gap = 4): void {
 	layoutNamedMeshes(
 		meshes.map((mesh) => ({ name: '', mesh, group: '' })),
@@ -208,17 +213,75 @@ export function layoutGrid(meshes: Array<Mesh>, gap = 4): void {
 }
 
 export function layoutNamedMeshes(named: Array<NamedMesh>, gap = 4): void {
-	const meshes = named.map((n) => n.mesh);
-	const n = meshes.length;
+	if (named.length === 0) {
+		return;
+	}
+
+	const sections = partitionNamedByGroup(named);
+	const maxN = Math.max(...sections.map((s) => s.length));
+	const cols = Math.ceil(Math.sqrt(maxN));
+	const rows = Math.ceil(maxN / cols);
+
+	for (const section of sections) {
+		layoutNamedMeshesInGrid(section, cols, rows, gap);
+	}
+
+	if (sections.length === 1) {
+		return;
+	}
+
+	// Stack sections along +Z, then re-centre the whole assembly on the origin
+	// so the preview / single-file export still sits mid-bed.
+	let cursorZ = 0;
+	const overall = new Box3();
+	for (const section of sections) {
+		const box = namedMeshesBounds(section);
+		const dz = cursorZ - box.min.z;
+		translateNamedMeshes(section, 0, dz);
+		box.min.z += dz;
+		box.max.z += dz;
+		overall.union(box);
+		cursorZ = box.max.z + gap;
+	}
+
+	const center = new Vector3();
+	overall.getCenter(center);
+	if (center.x !== 0 || center.z !== 0) {
+		translateNamedMeshes(named, -center.x, -center.z);
+	}
+}
+
+// Partition preserving first-appearance order of `group` (typically dice, then
+// blanks, then platforms — matching build/export order).
+function partitionNamedByGroup(named: Array<NamedMesh>): Array<Array<NamedMesh>> {
+	const order: Array<string> = [];
+	const byGroup = new Map<string, Array<NamedMesh>>();
+	for (const n of named) {
+		let bucket = byGroup.get(n.group);
+		if (!bucket) {
+			bucket = [];
+			byGroup.set(n.group, bucket);
+			order.push(n.group);
+		}
+		bucket.push(n);
+	}
+	return order.map((g) => byGroup.get(g)!);
+}
+
+function layoutNamedMeshesInGrid(
+	named: Array<NamedMesh>,
+	cols: number,
+	rows: number,
+	gap: number
+): void {
+	const n = named.length;
 	if (n === 0) {
 		return;
 	}
-	const cols = Math.ceil(Math.sqrt(n));
-	const rows = Math.ceil(n / cols);
 
-	const footprints = meshes.map((m) => {
-		m.geometry.computeBoundingBox();
-		const box = m.geometry.boundingBox ?? new Box3();
+	const footprints = named.map((entry) => {
+		entry.mesh.geometry.computeBoundingBox();
+		const box = entry.mesh.geometry.boundingBox ?? new Box3();
 		const size = new Vector3();
 		box.getSize(size);
 		const center = new Vector3();
@@ -246,6 +309,27 @@ export function layoutNamedMeshes(named: Array<NamedMesh>, gap = 4): void {
 		entry.mesh.geometry.translate(dx, 0, dz);
 		entry.manifold?.translate(dx, 0, dz);
 	});
+}
+
+function namedMeshesBounds(named: Array<NamedMesh>): Box3 {
+	const box = new Box3();
+	for (const n of named) {
+		n.mesh.geometry.computeBoundingBox();
+		if (n.mesh.geometry.boundingBox) {
+			box.union(n.mesh.geometry.boundingBox);
+		}
+	}
+	return box;
+}
+
+function translateNamedMeshes(named: Array<NamedMesh>, dx: number, dz: number): void {
+	if (dx === 0 && dz === 0) {
+		return;
+	}
+	for (const entry of named) {
+		entry.mesh.geometry.translate(dx, 0, dz);
+		entry.manifold?.translate(dx, 0, dz);
+	}
 }
 
 // --- STL -------------------------------------------------------------------

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
 	import UnsupportedBrowser from '$lib/components/browser_support/UnsupportedBrowser.svelte';
+	import SmallScreenWarning from '$lib/components/small_screen/SmallScreenWarning.svelte';
 	import { checkBrowserSupport } from '$lib/utils/browser_support';
 	import type { Snippet } from 'svelte';
 
@@ -20,5 +21,8 @@
 {#if browser && !support.ok}
 	<UnsupportedBrowser missing={support.missing} />
 {:else}
+	{#if browser}
+		<SmallScreenWarning />
+	{/if}
 	{@render children()}
 {/if}

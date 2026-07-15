@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { Box3, Vector3 } from 'three';
 import {
 	buildExportMeshes,
 	checkExportMesh,
@@ -124,5 +125,64 @@ describe('laid-out dice stay printable', () => {
 			]
 		} as unknown as DiceSet;
 		expectAllPrintable(buildExportMeshes(set, { selectedIds: ['d20'] }));
+	});
+});
+
+function meshCenterXZ(named: { mesh: { geometry: { computeBoundingBox: () => void; boundingBox: Box3 | null } } }) {
+	named.mesh.geometry.computeBoundingBox();
+	const c = new Vector3();
+	named.mesh.geometry.boundingBox!.getCenter(c);
+	return { x: c.x, z: c.z };
+}
+
+// Dice / blanks / platforms should occupy separate Z bands, and matching dies
+// should share the same relative (col, row) within each band.
+describe('layoutNamedMeshes groups congruent sections', () => {
+	it('stacks dice then blanks then platforms with matching in-section slots', () => {
+		const named = buildExportMeshes(makeSet(), {
+			selectedIds: ['d24', 'd6'],
+			optionStates: {
+				blanks: { enabled: true, values: {} },
+				platforms: { enabled: true, values: {} }
+			}
+		});
+		try {
+			expect(named.map((n) => n.group)).toEqual([
+				'dice',
+				'blanks',
+				'platforms',
+				'dice',
+				'blanks',
+				'platforms'
+			]);
+
+			layoutNamedMeshes(named, 4);
+
+			const byGroup = {
+				dice: named.filter((n) => n.group === 'dice'),
+				blanks: named.filter((n) => n.group === 'blanks'),
+				platforms: named.filter((n) => n.group === 'platforms')
+			};
+			expect(byGroup.dice.map((n) => n.dieId)).toEqual(['d24', 'd6']);
+			expect(byGroup.blanks.map((n) => n.dieId)).toEqual(['d24', 'd6']);
+			expect(byGroup.platforms.map((n) => n.dieId)).toEqual(['d24', 'd6']);
+
+			const diceZ = byGroup.dice.map((n) => meshCenterXZ(n).z);
+			const blanksZ = byGroup.blanks.map((n) => meshCenterXZ(n).z);
+			const platformsZ = byGroup.platforms.map((n) => meshCenterXZ(n).z);
+			expect(Math.max(...diceZ)).toBeLessThan(Math.min(...blanksZ));
+			expect(Math.max(...blanksZ)).toBeLessThan(Math.min(...platformsZ));
+
+			const diceDx = meshCenterXZ(byGroup.dice[1]).x - meshCenterXZ(byGroup.dice[0]).x;
+			const blanksDx = meshCenterXZ(byGroup.blanks[1]).x - meshCenterXZ(byGroup.blanks[0]).x;
+			const platformsDx =
+				meshCenterXZ(byGroup.platforms[1]).x - meshCenterXZ(byGroup.platforms[0]).x;
+			// Same slot order: second item is to the right of the first in every section.
+			expect(diceDx).toBeGreaterThan(0);
+			expect(blanksDx).toBeGreaterThan(0);
+			expect(platformsDx).toBeGreaterThan(0);
+		} finally {
+			disposeNamedManifolds(named);
+		}
 	});
 });
