@@ -40,12 +40,12 @@
 		aria-labelledby="small-screen-title"
 	>
 		<div
-			class="card preset-glass-surface text-surface-900 flex w-full max-w-lg flex-col items-center gap-4 rounded-2xl p-8 text-center"
+			class="card preset-filled-surface-100-900 text-surface-950-50 flex w-full max-w-lg flex-col items-center gap-4 rounded-2xl p-8 text-center shadow-xl"
 		>
 			<h1 class="h2">{m.meta_app_name()}</h1>
 			<h2 id="small-screen-title" class="h4">{m.small_screen_title()}</h2>
-			<p class="text-surface-700">{m.small_screen_message()}</p>
-			<p class="text-surface-600 text-sm">{m.small_screen_hint()}</p>
+			<p>{m.small_screen_message()}</p>
+			<p class="text-sm opacity-90">{m.small_screen_hint()}</p>
 			<button type="button" class="btn preset-filled-primary-500" onclick={dismiss}>
 				{m.small_screen_continue()}
 			</button>
