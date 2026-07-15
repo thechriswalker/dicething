@@ -1,5 +1,13 @@
 // Create a legend set from a font.
-import { parse, type RenderOptions } from 'opentype.js';
+import {
+	Font,
+	UnicodeBuffer,
+	getGlyphPath,
+	glyphBufferToShapedGlyphs,
+	kerning,
+	shape,
+	type PathCommand
+} from 'text-shaper';
 import {
 	Box2,
 	Curve,
@@ -14,10 +22,16 @@ import {
 } from 'three';
 import { SVGLoader } from 'three/examples/jsm/loaders/SVGLoader.js';
 import { m } from '$lib/paraglide/messages';
+import type { FontRenderOptions } from '$lib/fonts/builtins/type';
 import { resolveShapeBoundaries } from './path_resolve';
 import { centerShapes, scaleShapes } from './shapes';
 import { unionBoundaryLoops } from './tessellate';
 import { shapeFromJSON, shapeToJSON } from './to_json';
+
+export type { FontRenderOptions };
+
+// Legend glyphs are authored at this em size (matches historical opentype getPaths fontSize).
+const LEGEND_FONT_SIZE = 10;
 
 // The combined character set for a legend set, in slot order.
 //
@@ -36,7 +50,7 @@ const remainingNumbers: string = Array.from({ length: 99 - 21 + 1 }, (_, i) => i
 
 export const defaultStrings = baseStrings + ' ' + remainingNumbers;
 
-export const defaultRenderOptions: Record<string, RenderOptions> = {
+export const defaultRenderOptions: Record<string, FontRenderOptions> = {
 	'6.': { letterSpacing: -0.1 },
 	'9.': { letterSpacing: -0.1 }
 };
@@ -79,7 +93,7 @@ export function numberStringToWords(s: string): string {
 
 export function addRenderOptions(
 	strings: string,
-	fontRenderOptions: Record<string, RenderOptions> = defaultRenderOptions
+	fontRenderOptions: Record<string, FontRenderOptions> = defaultRenderOptions
 ): Array<FontString> {
 	return strings.split(' ').map((s) => {
 		const o: FontString = { text: s };
@@ -92,7 +106,7 @@ export function addRenderOptions(
 
 export type FontString = {
 	text: string;
-	renderOptions?: RenderOptions;
+	renderOptions?: FontRenderOptions;
 };
 
 const _svg = new SVGLoader();
@@ -458,20 +472,104 @@ function loopsToShapes(loops: Array<Array<Vector2>>): Array<Shape> {
 }
 
 export function createShapesFromFont(fontData: ArrayBufferLike, strings: Array<FontString>) {
-	const font = parse(fontData);
+	const font = Font.load(asArrayBuffer(fontData));
+	const scale = LEGEND_FONT_SIZE / font.unitsPerEm;
+	const uBuffer = new UnicodeBuffer();
 
 	const legendShapes: Array<Array<Shape>> = strings.map((s) => {
-		const opts = { kerning: true, ...(s.renderOptions || {}) };
-		const paths = font.getPaths(s.text, 0, 0, 10, opts);
-		// This is a massive inefficient hack, but it works...
-		// We pregenerate these anyway...
-		const svgText = `<svg width="30" height="20" viewBox="0 0 20 20">${paths
-			.map((p) => p.toSVG(6))
-			.join('\n')}</svg>`;
-		return createShapesFromSVG(svgText);
+		uBuffer.clear();
+		uBuffer.addStr(s.text);
+		const glyphBuffer = shape(font, uBuffer, { features: [kerning()] });
+		const shaped = glyphBufferToShapedGlyphs(glyphBuffer);
+
+		const letterSpacing = s.renderOptions?.letterSpacing ?? 0;
+		const spacing = letterSpacing * LEGEND_FONT_SIZE;
+
+		const shapes: Array<Shape> = [];
+		let x = 0;
+		let y = 0;
+		for (const glyph of shaped) {
+			const path = getGlyphPath(font, glyph.glyphId);
+			if (path) {
+				const ox = x + glyph.xOffset * scale;
+				const oy = y - glyph.yOffset * scale;
+				shapes.push(...glyphPathToShapes(path.commands, ox, oy, scale));
+			}
+			x += glyph.xAdvance * scale + spacing;
+			y += glyph.yAdvance * scale;
+		}
+
+		if (shapes.length === 0) {
+			return [];
+		}
+		const cleaned = preprocessShapes(shapes);
+		return centerShapes(...cleaned).map(shapeToJSON);
 	});
 
 	return legendShapes;
+}
+
+function asArrayBuffer(data: ArrayBufferLike): ArrayBuffer {
+	if (data instanceof ArrayBuffer) {
+		return data;
+	}
+	return new Uint8Array(data).slice().buffer;
+}
+
+// Convert text-shaper path commands into one Shape per contour (Y flipped to
+// match legend space). Contour nesting / holes are resolved afterwards by
+// preprocessShapes → resolveShapeBoundaries.
+function glyphPathToShapes(
+	commands: PathCommand[],
+	offsetX: number,
+	offsetY: number,
+	scale: number
+): Array<Shape> {
+	const shapes: Array<Shape> = [];
+	let current: Shape | null = null;
+
+	const tx = (x: number) => offsetX + x * scale;
+	const ty = (y: number) => offsetY - y * scale;
+
+	const flush = () => {
+		if (current && current.curves.length > 0) {
+			current.autoClose = true;
+			shapes.push(current);
+		}
+		current = null;
+	};
+
+	for (const cmd of commands) {
+		switch (cmd.type) {
+			case 'M':
+				flush();
+				current = new Shape();
+				current.moveTo(tx(cmd.x), ty(cmd.y));
+				break;
+			case 'L':
+				current?.lineTo(tx(cmd.x), ty(cmd.y));
+				break;
+			case 'Q':
+				current?.quadraticCurveTo(tx(cmd.x1), ty(cmd.y1), tx(cmd.x), ty(cmd.y));
+				break;
+			case 'C':
+				current?.bezierCurveTo(
+					tx(cmd.x1),
+					ty(cmd.y1),
+					tx(cmd.x2),
+					ty(cmd.y2),
+					tx(cmd.x),
+					ty(cmd.y)
+				);
+				break;
+			case 'Z':
+				current?.closePath();
+				flush();
+				break;
+		}
+	}
+	flush();
+	return shapes;
 }
 
 function preprocessShapes(shapes: Array<Shape>): Array<Shape> {

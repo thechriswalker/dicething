@@ -13,7 +13,7 @@ See `README.md` for the product-level overview, feature checklist and history.
 - SvelteKit (Svelte 5, runes) building to a static site via `@sveltejs/adapter-static` (all data is client side).
 - Three.js for 3D rendering, geometry, and STL output.
 - `libtess` for polygon triangulation (NOT three's default earcut - see below).
-- opentype.js for font handling; three's `SVGLoader` for SVG import.
+- text-shaper for font→outline conversion; three's `SVGLoader` for SVG import.
 - skeleton-ui (`@skeletonlabs/skeleton`) + Tailwind v4 for UI/theming.
 - `@lucide/svelte` / `lucide-static` for icons.
 - `fflate` for zipping multi-file exports; `xmldom` for SVG parsing off the DOM.
