@@ -16,6 +16,9 @@
 	<div class="flex min-h-full flex-col items-center justify-center">
 		<div class="card preset-filled-surface-100-900 p-4">
 			<h2 class="h2 my-4">{m.boxes_pick_set_header()}</h2>
+			<p class="card preset-filled-warning-500 mb-4 px-3 py-2" role="note">
+				{m.boxes_wip_warning()}
+			</p>
 			{#await waitForInitialLoad()}
 				<Progress value={null} />
 			{:then}

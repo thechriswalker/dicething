@@ -741,6 +741,7 @@
 	"home_create_boxes": "Build Boxes",
 	"boxes_title": "Box Builder",
 	"boxes_pick_set_header": "Choose a set to build a box for",
+	"boxes_wip_warning": "Box building is still a work in progress and might not produce great results yet!",
 	"boxes_no_sets": "You don't have any saved sets yet. Create a dice set first.",
 	"boxes_open": "Build box",
 	"boxes_back_to_sets": "Back to sets",

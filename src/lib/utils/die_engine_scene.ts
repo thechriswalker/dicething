@@ -129,6 +129,14 @@ type CameraTween = FaceCameraTween | QuatDistanceTween;
 type TrackballInternals = TrackballControls & {
 	_eye: Vector3;
 	_lastPosition: Vector3;
+	_lastZoom: number;
+	_lastAngle: number;
+	_movePrev: Vector2;
+	_moveCurr: Vector2;
+	_zoomStart: Vector2;
+	_zoomEnd: Vector2;
+	_panStart: Vector2;
+	_panEnd: Vector2;
 };
 
 export class EngineViewport {
@@ -327,6 +335,13 @@ export class EngineViewport {
 		const controls = this.controls as TrackballInternals;
 		controls._eye.subVectors(this.camera.position, this.controls.target);
 		controls._lastPosition.copy(this.camera.position);
+		controls._lastZoom = this.camera.zoom;
+		// Collapse pointer deltas so damping doesn't keep panning/zooming/rotating
+		// after a programmatic camera move.
+		controls._panStart.copy(controls._panEnd);
+		controls._zoomStart.copy(controls._zoomEnd);
+		controls._movePrev.copy(controls._moveCurr);
+		controls._lastAngle = 0;
 	}
 
 	private animateFaceView(face: DieFaceModel) {

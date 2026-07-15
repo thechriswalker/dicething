@@ -4,9 +4,13 @@
 	import { Box, TypeOutline, GitBranch, Package } from '@lucide/svelte';
 	import BouncyDice from '$lib/components/bouncy_dice/BouncyDice.svelte';
 	import { PUBLIC_APP_REPO_URL, PUBLIC_APP_VERSION } from '$env/static/public';
+	import { getPreferences } from '$lib/interfaces/preferences.svelte';
 	import type { Snippet } from 'svelte';
 
 	let { children }: { children: Snippet } = $props();
+
+	const prefs = getPreferences();
+	let devMode = $derived(prefs.developerMode);
 </script>
 
 <Layout>
@@ -29,18 +33,20 @@
 					<TypeOutline class="inline-block size-[1em]" />
 					{m.home_create_legends()}
 				</a>
-				<a
-					href="/boxes"
-					class="btn btn-lg preset-filled-tertiary-500 relative flex-1 rounded-xl text-2xl"
-				>
-					<Package class="inline-block size-[1em]" />
-					{m.home_create_boxes()}
-					<span
-						class="badge preset-filled-warning-500 absolute -top-2 -right-2 rounded-full px-2 py-0.5 text-xs uppercase"
+				{#if devMode}
+					<a
+						href="/boxes"
+						class="btn btn-lg preset-filled-tertiary-500 relative flex-1 rounded-xl text-2xl"
 					>
-						{m.beta_label()}
-					</span>
-				</a>
+						<Package class="inline-block size-[1em]" />
+						{m.home_create_boxes()}
+						<span
+							class="badge preset-filled-warning-500 absolute -top-2 -right-2 rounded-full px-2 py-0.5 text-xs uppercase"
+						>
+							{m.beta_label()}
+						</span>
+					</a>
+				{/if}
 			</div>
 			<div class="text-surface-700 flex w-full flex-row items-center justify-center gap-4 text-sm">
 				<span>{PUBLIC_APP_VERSION}</span>

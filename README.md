@@ -88,7 +88,10 @@ But only visually...
 
 There were still problems with the exported STLs, and I have discovered that this is almost always due to the fonts. The font conversion to paths is not always "clean", and sometimes paths overlap. This doesn't cause a rendering problem on screen, but the meshes get complicated and sometime appear non-manifold. Careful handling of the fonts before legend creation helps.
 
-After much work, the geometry on the engraving still wasn't correct, and I flipped from three.js's earcut `ShapeGeometry` triangulation to `libtess` a more forgiving algorithm that works better with holes and non-convex shapes. This work also helped fix a lot of the font issues I was seeing and font-loading now works on many fonts that it previously failed on. The more I test the more edge-case I find that can be fixed.
+After much work, the geometry on the engraving still wasn't correct, and I flipped from three.js's earcut `ShapeGeometry` triangulation to `libtess` a more forgiving algorithm that works better with holes and non-convex shapes. This work also helped fix a lot of the font issues I was seeing and font-loading now works on many fonts that it previously failed on. 
+
+However, is was not perfect. Then I found [manifold](https://github.com/elalish/manifold) a library focussed on exactly this, that has a WASM version we can use on the web. The three.js code is still used for previews (it is fast), and for display, but the engraving and font/shape to cross-section for extrusion is done by manifold and
+I have had no font issues since that. The manifold library ensures that all produced object are fully manifold. It meant dropping STL output, as I could not get manifold STLs from the data, but 3MF is a better format all round.
 
 ## Features
 
@@ -139,7 +142,7 @@ So if you need those features, DiceThing probably isn't for you. However it can 
   - [x] "Landing" warning if your shape can rest in an invalid position (e.g. truncated dice, or dice with caps)
 - [x] Export
   - [x] As JSON to share
-  - [x] As STL/3MF
+  - [x] As ~STL~ just *3MF*
     - [x] Dice
     - [x] Auto-Blank generation with configurable inset
     - [x] Auto-Platform generation (parameterised)
@@ -171,13 +174,3 @@ Some of the code here was produced by LLMs. I actually built the majority before
 ## Contributing
 
 I started this project because I was unhappy I could not contibute to DiceMaker to add new shapes or features. I want you to be able to add features to this software, so not only is open source and MIT licensed, but it you have worthwhile contributions I'd be happy to accept them. Please reach out / open an issue first however, I may be working on something similar or want to implement the feature myself. If not though, I will say and I will welcome thoughtful PRs. Please keep slop and time-wasting to a minimum, nobody wants that.
-
-
-# Rewrite
-
-I think I need to rewrite the entire thing using manifold as a base, not threejs.
-
-That would likely simplify so many things, cut many edges cases, allow many improvements.
-
-But it's so much work...1
-

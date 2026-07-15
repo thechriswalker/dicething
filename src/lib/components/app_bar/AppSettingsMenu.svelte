@@ -2,7 +2,8 @@
 	import AboutDialog from '$lib/components/about/AboutDialog.svelte';
 	import PreferencesDialog from '$lib/components/preferences/PreferencesDialog.svelte';
 	import Menu from '$lib/components/menu/Menu.svelte';
-	import type { MenuItemSubmenu } from '$lib/components/menu/menu';
+	import type { MenuItem, MenuItemSubmenu } from '$lib/components/menu/menu';
+	import { getPreferences } from '$lib/interfaces/preferences.svelte';
 	import { m } from '$lib/paraglide/messages';
 	import {
 		Box,
@@ -16,7 +17,10 @@
 	let aboutOpen = $state(false);
 	let prefsOpen = $state(false);
 
-	const settingsMenu: MenuItemSubmenu = {
+	const prefs = getPreferences();
+	let devMode = $derived(prefs.developerMode);
+
+	const settingsMenu: MenuItemSubmenu = $derived({
 		type: 'submenu',
 		title: '',
 		icon: Settings,
@@ -41,12 +45,16 @@
 				icon: TypeOutline,
 				href: '/legends'
 			},
-			{
-				type: 'link',
-				title: boxesTitle,
-				icon: Package,
-				href: '/boxes'
-			},
+			...(devMode
+				? ([
+						{
+							type: 'link',
+							title: boxesTitle,
+							icon: Package,
+							href: '/boxes'
+						}
+					] satisfies MenuItem[])
+				: []),
 			{
 				type: 'action',
 				title: m.splash_about(),
@@ -56,7 +64,7 @@
 				}
 			}
 		]
-	};
+	});
 </script>
 
 {#snippet boxesTitle()}

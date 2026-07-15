@@ -492,6 +492,23 @@
 		span.end({ dice: setData.dice.length, legends: legends.id });
 	}
 
+	// Reload legends into the engine worker (clearing sticky builders) and rebuild
+	// the active die. Needed after a legend-set swap or in-place edit — the
+	// normal rebuild effect only tracks die params / explode, not legends.
+	async function reloadEngineLegendsAndRebuild() {
+		if (!setData || !engineReady) {
+			return;
+		}
+		await loadSetInEngine();
+		const id = dieId || setData.dice[0]?.id || '';
+		const d = setData.dice.find((x) => x.id === id);
+		if (d) {
+			await setEngineActiveDie(d.id);
+			renderedDice = d.id;
+			await engineBuildDie(d, explodeMode, true);
+		}
+	}
+
 	// per-die engraving errors: faces whose legend won't engrave and would
 	// therefore export blank/broken. recomputed off the render path (debounced)
 	// so dragging a slider doesn't rebuild every die every frame. keyed by die id
@@ -645,13 +662,7 @@
 			}
 			const fresh = await loadLegends(id);
 			setData.legends = fresh;
-			await loadSetInEngine();
-			const d = setData.dice.find((x) => x.id === dieId);
-			if (d) {
-				await setEngineActiveDie(d.id);
-				renderedDice = d.id;
-				await engineBuildDie(d, explodeMode, true);
-			}
+			await reloadEngineLegendsAndRebuild();
 		};
 		window.addEventListener(LEGENDS_CHANGED_EVENT, handler);
 		return () => window.removeEventListener(LEGENDS_CHANGED_EVENT, handler);
@@ -1056,15 +1067,17 @@
 			if (setData) {
 				setData.legends = fnt;
 				save(setData);
+				await reloadEngineLegendsAndRebuild();
 			}
 		};
 	}
 
 	function setLegends(set: LegendSet) {
-		return () => {
+		return async () => {
 			if (setData) {
 				setData.legends = set;
 				save(setData);
+				await reloadEngineLegendsAndRebuild();
 			}
 		};
 	}

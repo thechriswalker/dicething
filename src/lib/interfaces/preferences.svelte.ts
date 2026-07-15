@@ -17,8 +17,8 @@ export type Preferences = {
 	// default minimum inset (clearance) of legends from a face edge, seeded into
 	// new dice. Matches the historical hardcoded engrave() clearance of 0.5.
 	defaultEngravingTolerance: number;
-	// developer/debug mode: enables wireframe + FPS stats on scenes and the raw /
-	// JSON parameter editors.
+	// developer/debug mode: enables wireframe + FPS stats on scenes, the raw /
+	// JSON parameter editors, and unfinished features like the box builder.
 	developerMode: boolean;
 };
 

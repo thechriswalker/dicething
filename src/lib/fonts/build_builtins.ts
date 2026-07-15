@@ -8,15 +8,13 @@ import {
 	defaultStrings,
 	defaultRenderOptions,
 	type FontString,
-	legendNameForText,
 	svgIconScale
 } from '$lib/utils/font';
 import { MAKER_LOGO_SLOT } from '$lib/utils/legends';
-import { dirname, sep } from 'node:path';
+import { dirname } from 'node:path';
 
 import { DOMParser } from 'xmldom';
 import type { Shape } from 'three';
-import type { RenderOptions } from 'opentype.js';
 import { shapesToSVGData } from '$lib/utils/shapes';
 import { shapeFromJSON } from '$lib/utils/to_json';
 
@@ -90,39 +88,36 @@ async function buildAll() {
 	const icons = await Promise.all([loadSVGIcon(baseDir + '/icons/dicething.svg', 'Logo')]);
 
 	const fontMeta = [];
-	for (const d of await readdir(builtins)) {
+	for (const entry of await readdir(builtins, { withFileTypes: true })) {
+		if (!entry.isDirectory()) {
+			continue;
+		}
+		const d = entry.name;
 		const fontDir = d;
-		const src = builtins + '/' + d + '/' + d + '.ttf';
+		console.log("loading font:", d)
+		const {default: mod } = await import(builtins + '/' + d + '/index.ts');
+		console.log("font:", mod)
+		const src = builtins + '/' + d + '/' + mod.font_file;
 		const dst = generated + '/' + d + '.json';
-		// un_snake_case the name.
-		const name = d
-			.split('_')
-			.map((s) => s[0].toUpperCase() + s.slice(1))
-			.join(' ');
-		// load the font specifics.
-		let renderOptions = defaultRenderOptions;
-		try {
-			const { renderOptions: modRenderOptions } = await import(builtins + '/' + d + '/index.ts');
-			renderOptions = modRenderOptions;
-		} catch {}
+		const renderOptions = mod.render_options ?? defaultRenderOptions;
 		const strings = addRenderOptions(defaultStrings, renderOptions);
-		await createFontBasedLegends(src, dst, d, name, strings, icons);
+		await createFontBasedLegends(src, dst, d, mod.display_name, strings, icons);
 		fontMeta.push({
 			varname: d,
 			fontDir,
-			name: JSON.stringify(name),
+			fontFile: mod.font_file,
+			licenseFile: mod.license_file,
+			licenseKind: JSON.stringify(mod.license_kind),
+			name: JSON.stringify(mod.display_name),
 			import: JSON.stringify('.' + genSuffix + '/' + d + '.json')
 		});
 	}
 
-	// the source font + license imports are per source directory.
-	const fontDirs = [...new Set(fontMeta.map((f) => f.fontDir))];
-
 	let indexTemplate = `// AUTO-GENERATED FILE - DO NOT EDIT MANUALLY
 import { loadImmutableLegends, type LegendSet } from "$lib/utils/legends";
 ${fontMeta.map((f) => `import ${f.varname}SVG from './generated/${f.varname}.svg';`).join('\n')}
-${fontDirs.map((d) => `import ${d}FontUrl from './builtins/${d}/${d}.ttf?url';`).join('\n')}
-${fontDirs.map((d) => `import ${d}License from './builtins/${d}/license.txt?raw';`).join('\n')}
+${fontMeta.map((d) => `import ${d.varname}FontUrl from './builtins/${d.fontDir}/${d.fontFile}?url';`).join('\n')}
+${fontMeta.map((d) => `import ${d.varname}License from './builtins/${d.fontDir}/${d.licenseFile}?raw';`).join('\n')}
 
 const deferredFontLoader = (fontname: string) => {
 	const fn = async () => {
@@ -166,13 +161,14 @@ export type Builtin = {
 	readonly fontUrl: string;
 	// the font's license text, for attribution/display. Empty for blanks.
 	readonly license: string;
+	readonly licenseKind: string;
     readonly load: () => Promise<ReturnType<typeof loadImmutableLegends>>;
 }
 
 type BuiltinID = "blanks"|"${fontMeta.map((x) => x.varname).join('"|"')}";
 
 const builtins: Record<BuiltinID, Builtin> = {
-	blanks: { id: "blanks", name: "Blanks", fontUrl: "", license: "", load: async () => blanks, preview: "" } as Builtin,
+	blanks: { id: "blanks", name: "Blanks", fontUrl: "", license: "", licenseKind: "", load: async () => blanks, preview: "" } as Builtin,
 ${fontMeta
 	.map((x) => {
 		return (
@@ -191,6 +187,8 @@ ${fontMeta
 			', license: ' +
 			x.fontDir +
 			'License' +
+			', licenseKind: ' +
+			x.licenseKind +
 			', load: deferredFontLoader("' +
 			x.varname +
 			'")' +

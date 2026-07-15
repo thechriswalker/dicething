@@ -1019,16 +1019,14 @@ function cutToGeometry(
 	const wasm = manifold();
 	let solid = base;
 	if (cutters.length > 0) {
-		const union = wasm.Manifold.union(cutters);
-		const diff = wasm.Manifold.difference(solid, union);
-		deleteAll(solid, union, ...cutters);
+		const diff = wasm.Manifold.difference([solid, ...cutters]);
+		deleteAll(solid, ...cutters);
 		solid = diff;
 	}
 	if (adds.length > 0) {
-		const union = wasm.Manifold.union(adds);
-		const merged = wasm.Manifold.union(solid, union);
-		deleteAll(solid, union, ...adds);
-		solid = merged;
+		const union = wasm.Manifold.union([solid, ...adds]);
+		deleteAll(solid, ...adds);
+		solid = union;
 	}
 	const cleaned = solid.simplify(CLEAN_TOLERANCE);
 	const geo = manifoldToGeometry(cleaned);
