@@ -24,7 +24,8 @@ import {
 	manifold,
 	geometryToManifold,
 	manifoldToGeometry,
-	deleteAll
+	deleteAll,
+	simplifyForMeshCheck
 } from '$lib/utils/manifold';
 import { repairDegenerateTriangles } from '$lib/utils/bad_edges';
 import { orientDieSolid } from './orient';
@@ -996,12 +997,6 @@ function buildHinge(
 	return { baseCutters, baseAdds, lidCutters, lidAdds, clusters: clusters.length, partingGap, barrelZ };
 }
 
-// mesh_check welds coincident corners on a 1e-4 mm grid; Manifold's working
-// tolerance can be finer, so it leaves slivers that read as degenerate after
-// that weld. Simplifying just above the weld grid collapses those short edges
-// (surfaces move < tolerance) without touching real features.
-const CLEAN_TOLERANCE = 3e-4;
-
 // Subtract a list of cutters from a base manifold, returning the result
 // geometry. Deletes base + all cutters.
 //
@@ -1028,9 +1023,9 @@ function cutToGeometry(
 		deleteAll(solid, ...adds);
 		solid = union;
 	}
-	const cleaned = solid.simplify(CLEAN_TOLERANCE);
+	const cleaned = simplifyForMeshCheck(solid);
 	const geo = manifoldToGeometry(cleaned);
-	deleteAll(solid, cleaned);
+	cleaned.delete();
 	return repairDegenerateTriangles(geo);
 }
 

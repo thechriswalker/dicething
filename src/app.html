@@ -6,6 +6,84 @@
 		<link rel="icon" href="%sveltekit.assets%/favicon.png" />
 		<link rel="icon" href="%sveltekit.assets%/favicon.svg" type="image/svg+xml" />
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<style>
+			/* Pre-boot / no-JS fallback. Starts in the DOM (so noscript can see
+			   it) at opacity 0 and fades in shortly after. The blocking script
+			   below sets [hidden] when JS runs and features are OK, so supported
+			   browsers never paint it — no FOUC. Without JS the fade completes. */
+			#app-fallback {
+				box-sizing: border-box;
+				position: fixed;
+				inset: 0;
+				z-index: 9999;
+				margin: 0;
+				padding: 1.5rem;
+				display: flex;
+				align-items: center;
+				justify-content: center;
+				font-family: Avenir, Montserrat, Corbel, 'URW Gothic', source-sans-pro, sans-serif;
+				background: #f4f6f7;
+				color: #1a1f22;
+				opacity: 0;
+				animation: dt-fallback-in 0.35s ease 0.2s forwards;
+			}
+			#app-fallback[hidden] {
+				display: none !important;
+				animation: none;
+			}
+			@keyframes dt-fallback-in {
+				to {
+					opacity: 1;
+				}
+			}
+			@media (prefers-reduced-motion: reduce) {
+				#app-fallback {
+					animation: none;
+					opacity: 1;
+				}
+			}
+			#app-fallback .card {
+				max-width: 32rem;
+				width: 100%;
+				padding: 2rem;
+				border-radius: 1rem;
+				background: rgba(255, 255, 255, 0.72);
+				box-shadow: inset 0 0 30px rgba(255, 255, 255, 0.35);
+				text-align: center;
+			}
+			#app-fallback h1 {
+				font-size: 1.75rem;
+				margin: 0 0 0.75rem;
+			}
+			#app-fallback h2 {
+				font-size: 1.15rem;
+				margin: 0 0 0.75rem;
+			}
+			#app-fallback p {
+				margin: 0.5rem 0;
+				line-height: 1.45;
+				opacity: 0.85;
+			}
+			#app-fallback ul {
+				margin: 0.75rem 0;
+				padding-left: 1.25rem;
+				text-align: left;
+				font-size: 0.9rem;
+			}
+			#app-fallback a {
+				color: #2a9fad;
+			}
+			@media (prefers-color-scheme: dark) {
+				#app-fallback {
+					background: #3a4248;
+					color: #f4f6f7;
+				}
+				#app-fallback .card {
+					background: rgba(30, 35, 38, 0.55);
+					box-shadow: inset 0 0 30px rgba(0, 0, 0, 0.2);
+				}
+			}
+		</style>
 		<script>
 			if (typeof crypto === 'undefined') {
 				global.crypto = {};
@@ -23,6 +101,136 @@
 	</head>
 
 	<body data-sveltekit-preload-data="hover">
+		<!-- Not [hidden] in markup: without JS it fades in via CSS. The blocking
+		     script sets [hidden] when JS is present and features are OK (before
+		     the fade paints). On feature failure it stays visible and the compat
+		     block is revealed. Root layout removes this once the app boots. -->
+		<div id="app-fallback">
+			<div class="card">
+				<h1>DiceThing</h1>
+				<noscript>
+					<h2>JavaScript is required</h2>
+					<p>
+						DiceThing is a client-side 3D modelling app and can't run with JavaScript disabled.
+						Enable JavaScript for this site, then reload.
+					</p>
+				</noscript>
+				<div id="compat-message" hidden>
+					<h2>This browser can't run DiceThing</h2>
+					<p>
+						DiceThing needs a relatively recent browser. It uses WebAssembly, OffscreenCanvas,
+						WebGL, and ES module workers for 3D modelling in the page.
+					</p>
+					<ul id="compat-missing"></ul>
+					<p>Please update your browser, or try the latest Chrome, Firefox, Edge, or Safari.</p>
+				</div>
+			</div>
+		</div>
+		<script>
+			(function () {
+				var fallback = document.getElementById('app-fallback');
+				var msg = document.getElementById('compat-message');
+				var list = document.getElementById('compat-missing');
+				if (!fallback || !msg || !list) return;
+
+				// Hide immediately while we probe. If everything is OK we leave it
+				// hidden (and the layout removes it). If something is missing we
+				// unhide so the CSS fade-in can run.
+				fallback.hidden = true;
+
+				function fail(label) {
+					var li = document.createElement('li');
+					li.textContent = label;
+					list.appendChild(li);
+				}
+
+				var missing = 0;
+
+				if (
+					typeof WebAssembly !== 'object' ||
+					typeof WebAssembly.instantiate !== 'function' ||
+					typeof WebAssembly.Module !== 'function'
+				) {
+					fail('WebAssembly');
+					missing++;
+				}
+
+				if (typeof OffscreenCanvas === 'undefined') {
+					fail('OffscreenCanvas');
+					missing++;
+				}
+
+				if (
+					typeof HTMLCanvasElement === 'undefined' ||
+					typeof HTMLCanvasElement.prototype.transferControlToOffscreen !== 'function'
+				) {
+					fail('Offscreen canvas transfer');
+					missing++;
+				}
+
+				if (
+					typeof Worker === 'undefined' ||
+					typeof Blob === 'undefined' ||
+					typeof URL === 'undefined'
+				) {
+					fail('ES module Web Workers');
+					missing++;
+				} else {
+					var moduleWorkers = false;
+					try {
+						var url = URL.createObjectURL(new Blob([''], { type: 'text/javascript' }));
+						try {
+							var worker = new Worker(url, {
+								get type() {
+									moduleWorkers = true;
+									return 'classic';
+								}
+							});
+							worker.terminate();
+						} finally {
+							URL.revokeObjectURL(url);
+						}
+					} catch (e) {
+						moduleWorkers = false;
+					}
+					if (!moduleWorkers) {
+						fail('ES module Web Workers');
+						missing++;
+					}
+				}
+
+				var webglOk = false;
+				try {
+					if (typeof OffscreenCanvas !== 'undefined') {
+						var oc = new OffscreenCanvas(1, 1);
+						webglOk = !!(oc.getContext('webgl2') || oc.getContext('webgl'));
+					}
+				} catch (e) {}
+				if (!webglOk) {
+					try {
+						var c = document.createElement('canvas');
+						webglOk = !!(c.getContext('webgl2') || c.getContext('webgl'));
+					} catch (e) {}
+				}
+				if (!webglOk) {
+					fail('WebGL');
+					missing++;
+				}
+
+				if (typeof createImageBitmap !== 'function') {
+					fail('createImageBitmap');
+					missing++;
+				}
+
+				if (missing > 0) {
+					msg.hidden = false;
+					fallback.hidden = false;
+					document.documentElement.dataset.dtCompat = 'fail';
+				} else {
+					document.documentElement.dataset.dtCompat = 'ok';
+				}
+			})();
+		</script>
 		<div style="display: contents">%sveltekit.body%</div>
 	</body>
 </html>

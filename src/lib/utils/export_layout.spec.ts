@@ -1,10 +1,14 @@
 import { describe, it, expect } from 'vitest';
-import { buildExportMeshes, disposeNamedManifolds, layoutNamedMeshes, manifoldToFlatPositions } from './export';
-import { checkMesh } from './mesh_check';
-import { toNonIndexed } from './3d';
+import {
+	buildExportMeshes,
+	checkExportMesh,
+	disposeNamedManifolds,
+	layoutNamedMeshes
+} from './export';
 import { loadImmutableLegends, type SerialisedLegendSet } from './legends';
 import tektur from '../fonts/generated/tektur.json';
 import germania from '../fonts/generated/germania_one.json';
+import alice from '../fonts/generated/alice_in_wonderland.json';
 import type { DiceSet } from '../interfaces/storage.svelte';
 
 function makeSet(): DiceSet {
@@ -39,10 +43,7 @@ describe('laid-out dice stay printable', () => {
 		layoutNamedMeshes(named);
 		try {
 			for (const n of named) {
-				const positions = n.manifold
-					? manifoldToFlatPositions(n.manifold, 'y')
-					: toNonIndexed(n.mesh.geometry).getAttribute('position').array;
-				const r = checkMesh(positions);
+				const r = checkExportMesh(n);
 				expect(r.boundaryEdgeCount, `${n.name} boundary edges`).toBe(0);
 				expect(r.nonManifoldEdgeCount, `${n.name} non-manifold edges`).toBe(0);
 				expect(r.degenerateTriangleCount, `${n.name} degenerate triangles`).toBe(0);
@@ -101,4 +102,27 @@ describe('laid-out dice stay printable', () => {
 			expectAllPrintable(buildExportMeshes(set, { selectedIds: [...order] }));
 		});
 	}
+
+	// Regression: fonts with dense glyph outlines produce Manifold edges shorter
+	// than checkMesh's geometric weld (1e-4 mm). Indexed topology stays printable;
+	// welding the expanded float buffer used to false-flag hundreds of "degenerate"
+	// triangles (and cascading open edges) on the export page.
+	it('alice_in_wonderland d20 stays printable via indexed Manifold check', () => {
+		const legends = loadImmutableLegends(alice as unknown as SerialisedLegendSet);
+		const set = {
+			id: 'test',
+			name: 'test',
+			updated: 0,
+			legends,
+			dice: [
+				{
+					id: 'd20',
+					kind: 'd20_icosahedron',
+					parameters: { engraving_depth: 0.8, engraving_tolerance: 0.5 },
+					face_parameters: []
+				}
+			]
+		} as unknown as DiceSet;
+		expectAllPrintable(buildExportMeshes(set, { selectedIds: ['d20'] }));
+	});
 });

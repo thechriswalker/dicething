@@ -193,6 +193,8 @@ export type EngineResponse =
 			type: 'exportResult';
 			meshes: Array<SerialisedExportMesh>;
 			engravingErrors: Array<EngravingError>;
+			// Indexed Manifold topology when available (avoids weld false-positives).
+			meshReport: MeshCheckReport;
 	  }
 	| { reqId: number; type: 'meshCheckResult'; report: MeshCheckReport }
 	| { reqId: number; type: 'ok' }

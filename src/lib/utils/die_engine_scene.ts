@@ -99,19 +99,7 @@ function extractFaceViewQuat(position: Vector3, up: Vector3, target: Vector3): Q
 	return _qTwist.clone().multiply(_qAlign);
 }
 
-type FaceCameraTween = {
-	kind: 'face';
-	startQuat: Quaternion;
-	endQuat: Quaternion;
-	startTarget: Vector3;
-	endTarget: Vector3;
-	startZoom: number;
-	endZoom: number;
-	start: number;
-};
-
-type QuatDistanceTween = {
-	kind: 'quatDist';
+type CameraTween = {
 	startQuat: Quaternion;
 	endQuat: Quaternion;
 	startDist: number;
@@ -120,11 +108,10 @@ type QuatDistanceTween = {
 	endTarget: Vector3;
 	startZoom: number;
 	endZoom: number;
+	// 0..1 fraction of the transition spent holding startDist before easing toward endDist.
 	distDelay: number;
 	start: number;
 };
-
-type CameraTween = FaceCameraTween | QuatDistanceTween;
 
 type TrackballInternals = TrackballControls & {
 	_eye: Vector3;
@@ -345,25 +332,14 @@ export class EngineViewport {
 	}
 
 	private animateFaceView(face: DieFaceModel) {
-		const startQuat = extractFaceViewQuat(
-			this.camera.position,
-			this.camera.up,
-			this.controls.target
-		);
-		let endQuat = face.transform.rotation.clone();
-		if (startQuat.dot(endQuat) < 0) {
-			endQuat = new Quaternion(-endQuat.x, -endQuat.y, -endQuat.z, -endQuat.w);
-		}
-		this.camTween = {
-			kind: 'face',
-			startQuat,
-			endQuat,
-			startTarget: this.controls.target.clone(),
-			endTarget: _origin.clone(),
-			startZoom: this.camera.zoom,
-			endZoom: this.camera.zoom,
-			start: performance.now()
-		};
+		// Trackball zooms a perspective camera by dollying (eye length), not camera.zoom.
+		// Keep that distance through the orientation ease so a zoomed-in view doesn't
+		// snap back to defaultCameraPosition on the first tween frame.
+		const { pos, up } = faceCameraPose(face);
+		const dist = this.camera.position.distanceTo(this.controls.target);
+		const endDist = dist > 1e-6 ? dist : defaultCameraPosition.length();
+		const endPos = pos.clone().normalize().multiplyScalar(endDist);
+		this.animateQuatDistanceTo(endPos, up, _origin, face.transform.rotation.clone(), this.camera.zoom, 0);
 	}
 
 	private animateQuatDistanceTo(
@@ -389,7 +365,6 @@ export class EngineViewport {
 		_offset.copy(endPos).sub(endTarget);
 		const endDist = _offset.length();
 		this.camTween = {
-			kind: 'quatDist',
 			startQuat,
 			endQuat: eq,
 			startDist,
@@ -410,27 +385,18 @@ export class EngineViewport {
 		const t = Math.min(1, (performance.now() - this.camTween.start) / CAMERA_TRANSITION_MS);
 		const e = easeInOut(t);
 		const tw = this.camTween;
-		if (tw.kind === 'face') {
-			_tweenTarget.lerpVectors(tw.startTarget, tw.endTarget, e);
-			_slerpQuat.slerpQuaternions(tw.startQuat, tw.endQuat, e);
-			this.camera.position.copy(defaultCameraPosition).applyQuaternion(_slerpQuat).add(_tweenTarget);
-			this.camera.up.copy(_defaultUp).applyQuaternion(_slerpQuat).normalize();
-			this.controls.target.copy(_tweenTarget);
-			this.camera.lookAt(_tweenTarget);
-		} else {
-			_tweenTarget.lerpVectors(tw.startTarget, tw.endTarget, e);
-			_slerpQuat.slerpQuaternions(tw.startQuat, tw.endQuat, e);
-			const distT =
-				tw.distDelay > 0
-					? easeInOut(Math.min(1, Math.max(0, (t - tw.distDelay) / (1 - tw.distDelay))))
-					: e;
-			const dist = tw.startDist + (tw.endDist - tw.startDist) * distT;
-			_offset.copy(defaultCameraPosition).applyQuaternion(_slerpQuat).normalize().multiplyScalar(dist);
-			this.camera.position.copy(_offset).add(_tweenTarget);
-			this.camera.up.copy(_defaultUp).applyQuaternion(_slerpQuat).normalize();
-			this.controls.target.copy(_tweenTarget);
-			this.camera.lookAt(_tweenTarget);
-		}
+		_tweenTarget.lerpVectors(tw.startTarget, tw.endTarget, e);
+		_slerpQuat.slerpQuaternions(tw.startQuat, tw.endQuat, e);
+		const distT =
+			tw.distDelay > 0
+				? easeInOut(Math.min(1, Math.max(0, (t - tw.distDelay) / (1 - tw.distDelay))))
+				: e;
+		const dist = tw.startDist + (tw.endDist - tw.startDist) * distT;
+		_offset.copy(defaultCameraPosition).applyQuaternion(_slerpQuat).normalize().multiplyScalar(dist);
+		this.camera.position.copy(_offset).add(_tweenTarget);
+		this.camera.up.copy(_defaultUp).applyQuaternion(_slerpQuat).normalize();
+		this.controls.target.copy(_tweenTarget);
+		this.camera.lookAt(_tweenTarget);
 		this.camera.zoom = tw.startZoom + (tw.endZoom - tw.startZoom) * e;
 		this.camera.updateProjectionMatrix();
 		if (t >= 1) {

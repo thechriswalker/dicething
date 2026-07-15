@@ -24,15 +24,10 @@
 	import Collapsible from '$lib/components/collapsible/Collapsible.svelte';
 	import Tooltip from '$lib/components/tooltip/Tooltip.svelte';
 	import dice from '$lib/dice';
-	import {
-		approximateDieVolume,
-		meshVolume,
-		type EngravingError
-	} from '$lib/utils/builder';
-	import { exportDieInEngine, loadEngineSet, meshCheckInEngine } from '$lib/utils/die_engine_client';
+	import { approximateDieVolume, meshVolume, type EngravingError } from '$lib/utils/builder';
+	import { exportDieInEngine, loadEngineSet } from '$lib/utils/die_engine_client';
 	import { legendsJsonForEngine } from '$lib/utils/preview_legends';
-	import { mergeMeshReports, type MeshCheckReport } from '$lib/utils/mesh_check';
-	import { toNonIndexed } from '$lib/utils/3d';
+	import type { MeshCheckReport } from '$lib/utils/mesh_check';
 	import { onMount } from 'svelte';
 	import {
 		BufferAttribute,
@@ -87,8 +82,9 @@
 	let anyBrokenDice = $derived(Object.values(dieErrors).some((e) => e.length > 0));
 
 	// per-die mesh-health report (manifold / watertight / degenerate), keyed by
-	// die id, produced off the main thread by the mesh-check worker after each
-	// preview rebuild. used to warn about dice that won't slice/print cleanly.
+	// die id. Produced in the export worker from Manifold index topology (when
+	// present) alongside the mesh build. Used to warn about dice that won't
+	// slice/print cleanly.
 	let meshReports = $state<Record<string, MeshCheckReport>>({});
 	let checkingMesh = $state(false);
 	// bumped on every preview rebuild so stale async check results are ignored.
@@ -135,57 +131,16 @@
 		return issues;
 	}
 
-	// Check every freshly-built export mesh for manifold/watertight/degenerate
-	// problems in the worker, aggregating per die. Results from superseded builds
-	// (older generation) are dropped so rapid option changes don't race.
-	async function runMeshChecks(named: Array<NamedMesh>) {
-		const generation = ++checkGeneration;
-		const byDie = new Map<string, Array<NamedMesh>>();
-		for (const entry of named) {
-			if (!entry.dieId) {
-				continue;
-			}
-			let list = byDie.get(entry.dieId);
-			if (!list) {
-				list = [];
-				byDie.set(entry.dieId, list);
-			}
-			list.push(entry);
-		}
-		if (byDie.size === 0) {
-			meshReports = {};
+	// Apply per-die mesh reports produced with the export build (indexed Manifold
+	// topology when available). Results from superseded builds are dropped.
+	function applyMeshReports(entries: Array<[string, MeshCheckReport]>, generation: number) {
+		if (generation !== checkGeneration) {
 			return;
 		}
-		checkingMesh = true;
-		try {
-			const entries = await Promise.all(
-				[...byDie].map(async ([dieId, items]) => {
-					const reports = await Promise.all(
-						items.map((entry) =>
-							meshCheckInEngine(
-								toNonIndexed(entry.mesh.geometry).getAttribute('position')
-									.array as Float32Array,
-								true
-							)
-						)
-					);
-					return [dieId, mergeMeshReports(reports)] as const;
-				})
-			);
-			// a newer rebuild started while we were checking: discard these results.
-			if (generation !== checkGeneration) {
-				return;
-			}
-			meshReports = Object.fromEntries(entries);
-			problemPositions = concatBadPositions(entries.map(([, r]) => r.badPositions));
-			updateProblemHighlight();
-		} catch (err) {
-			console.warn('mesh check failed', err);
-		} finally {
-			if (generation === checkGeneration) {
-				checkingMesh = false;
-			}
-		}
+		meshReports = Object.fromEntries(entries);
+		problemPositions = concatBadPositions(entries.map(([, r]) => r.badPositions));
+		updateProblemHighlight();
+		checkingMesh = false;
 	}
 
 	// flatten every die's problem-triangle buffer into one (or undefined when
@@ -245,13 +200,16 @@
 	// per-die export meshes at the origin; invalidated when that die's export inputs change.
 	const exportMeshCache = new Map<
 		string,
-		{ sig: string; meshes: Array<NamedMesh>; engravingErrors: Array<EngravingError> }
+		{
+			sig: string;
+			meshes: Array<NamedMesh>;
+			engravingErrors: Array<EngravingError>;
+			meshReport: MeshCheckReport;
+		}
 	>();
 	let errorsInitialized = false;
 
-	function disposeExportCacheEntry(
-		entry: { meshes: Array<NamedMesh> } | undefined
-	) {
+	function disposeExportCacheEntry(entry: { meshes: Array<NamedMesh> } | undefined) {
 		if (!entry) {
 			return;
 		}
@@ -363,99 +321,105 @@
 		const legendsJson = legendsJsonForEngine(setData.legends);
 		const optionStatesJson = JSON.stringify(optionSnap);
 		const named: Array<NamedMesh> = [];
-		const meshCheckSources: Array<NamedMesh> = [];
-		let meshCheckNeeded = false;
 		const buildingAllForErrors = !errorsInitialized;
+		const generation = ++checkGeneration;
+		checkingMesh = true;
 
-		for (let idx = 0; idx < setData.dice.length; idx++) {
-			const die = setData.dice[idx];
-			if (!buildingAllForErrors && !selectedIds.includes(die.id)) {
-				continue;
+		try {
+			for (let idx = 0; idx < setData.dice.length; idx++) {
+				const die = setData.dice[idx];
+				if (!buildingAllForErrors && !selectedIds.includes(die.id)) {
+					continue;
+				}
+				const sig = exportDieCacheSig(die, setData.legends.id, includeDice, optionSnap);
+				let entry = exportMeshCache.get(die.id);
+				if (!entry || entry.sig !== sig) {
+					disposeExportCacheEntry(entry);
+					const result = await exportDieInEngine(
+						dieToJSON(die),
+						legendsJson,
+						includeDice,
+						optionStatesJson
+					);
+					entry = {
+						sig,
+						engravingErrors: result.engravingErrors,
+						meshReport: result.meshReport,
+						meshes: result.meshes.map((m) => ({
+							name: m.name,
+							mesh: m.mesh,
+							dieId: m.dieId,
+							group: m.group
+						}))
+					};
+					exportMeshCache.set(die.id, entry);
+				}
+				if (errorsInitialized) {
+					named.push(...cloneNamedForLayout(entry.meshes));
+				}
 			}
-			const sig = exportDieCacheSig(die, setData.legends.id, includeDice, optionSnap);
-			let entry = exportMeshCache.get(die.id);
-			if (!entry || entry.sig !== sig) {
-				disposeExportCacheEntry(entry);
-				const result = await exportDieInEngine(
-					dieToJSON(die),
-					legendsJson,
-					includeDice,
-					optionStatesJson
-				);
-				entry = {
-					sig,
-					engravingErrors: result.engravingErrors,
-					meshes: result.meshes.map((m) => ({
-						name: m.name,
-						mesh: m.mesh,
-						dieId: m.dieId,
-						group: m.group
-					}))
-				};
-				exportMeshCache.set(die.id, entry);
-				meshCheckNeeded = true;
-			}
-			if (errorsInitialized) {
-				meshCheckSources.push(...entry.meshes);
-				named.push(...cloneNamedForLayout(entry.meshes));
-			}
-		}
 
-		if (!errorsInitialized) {
-			const errs: Record<string, Array<EngravingError>> = {};
-			for (const d of setData.dice) {
-				errs[d.id] = exportMeshCache.get(d.id)?.engravingErrors ?? [];
+			if (!errorsInitialized) {
+				const errs: Record<string, Array<EngravingError>> = {};
+				for (const d of setData.dice) {
+					errs[d.id] = exportMeshCache.get(d.id)?.engravingErrors ?? [];
+				}
+				dieErrors = errs;
+				selectedIds = setData.dice.filter((d) => (errs[d.id]?.length ?? 0) === 0).map((d) => d.id);
+				errorsInitialized = true;
+				for (const id of [...exportMeshCache.keys()]) {
+					if (!selectedIds.includes(id)) {
+						disposeExportCacheEntry(exportMeshCache.get(id));
+						exportMeshCache.delete(id);
+					}
+				}
+				for (const id of selectedIds) {
+					const entry = exportMeshCache.get(id);
+					if (!entry) {
+						continue;
+					}
+					named.push(...cloneNamedForLayout(entry.meshes));
+				}
 			}
-			dieErrors = errs;
-			selectedIds = setData.dice
-				.filter((d) => (errs[d.id]?.length ?? 0) === 0)
-				.map((d) => d.id);
-			errorsInitialized = true;
+
 			for (const id of [...exportMeshCache.keys()]) {
 				if (!selectedIds.includes(id)) {
 					disposeExportCacheEntry(exportMeshCache.get(id));
 					exportMeshCache.delete(id);
 				}
 			}
-			for (const id of selectedIds) {
-				const entry = exportMeshCache.get(id);
-				if (!entry) {
+
+			previewNamed = named;
+			const vols: Record<string, number> = {};
+			for (const n of named) {
+				if (n.group === 'dice') {
 					continue;
 				}
-				meshCheckSources.push(...entry.meshes);
-				named.push(...cloneNamedForLayout(entry.meshes));
+				vols[n.group] = (vols[n.group] ?? 0) + meshVolume(n.mesh) / 1000;
 			}
-			meshCheckNeeded = meshCheckSources.length > 0;
-		}
-
-		for (const id of [...exportMeshCache.keys()]) {
-			if (!selectedIds.includes(id)) {
-				disposeExportCacheEntry(exportMeshCache.get(id));
-				exportMeshCache.delete(id);
+			artifactVolumesMl = vols;
+			layoutNamedMeshes(named);
+			const group = new Group();
+			const meshes = named.map((n) => n.mesh);
+			meshes.forEach((mesh) => {
+				fancyRender?.styleMesh(mesh);
+				group.add(mesh);
+			});
+			ctx.scene.add(group);
+			previewGroup = group;
+			previewMeshes = meshes;
+			const reports: Array<[string, MeshCheckReport]> = selectedIds
+				.map((id) => {
+					const entry = exportMeshCache.get(id);
+					return entry ? ([id, entry.meshReport] as const) : undefined;
+				})
+				.filter((e): e is [string, MeshCheckReport] => !!e);
+			applyMeshReports(reports, generation);
+		} catch (err) {
+			console.warn('export preview rebuild failed', err);
+			if (generation === checkGeneration) {
+				checkingMesh = false;
 			}
-		}
-
-		previewNamed = named;
-		const vols: Record<string, number> = {};
-		for (const n of named) {
-			if (n.group === 'dice') {
-				continue;
-			}
-			vols[n.group] = (vols[n.group] ?? 0) + meshVolume(n.mesh) / 1000;
-		}
-		artifactVolumesMl = vols;
-		layoutNamedMeshes(named);
-		const group = new Group();
-		const meshes = named.map((n) => n.mesh);
-		meshes.forEach((mesh) => {
-			fancyRender?.styleMesh(mesh);
-			group.add(mesh);
-		});
-		ctx.scene.add(group);
-		previewGroup = group;
-		previewMeshes = meshes;
-		if (meshCheckNeeded) {
-			runMeshChecks(meshCheckSources);
 		}
 	}
 	const schedulePreview = debounce<void>(150, () => {

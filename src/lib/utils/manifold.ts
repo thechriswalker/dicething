@@ -49,6 +49,22 @@ export function cloneManifold(man: Manifold): Manifold {
 	return new wasm.Manifold(man.getMesh());
 }
 
+// mesh_check welds coincident corners on a 1e-4 mm grid. Manifold's working
+// tolerance can be finer, so CSG output may keep edges shorter than that weld
+// which then read as "degenerate triangles" (and, once those tris are excluded
+// from edge counts, as false open boundaries). Simplifying just above the weld
+// grid collapses those short edges; surfaces move by less than the tolerance
+// and real features are untouched. Same rationale as box_builder's clean pass.
+export const MESH_CHECK_WELD_TOLERANCE = 1e-4;
+export const MANIFOLD_CLEAN_TOLERANCE = 3e-4;
+
+// Collapse micro-edges, take ownership of `man` (deleted), return the cleaned copy.
+export function simplifyForMeshCheck(man: Manifold): Manifold {
+	const cleaned = man.simplify(MANIFOLD_CLEAN_TOLERANCE);
+	man.delete();
+	return cleaned;
+}
+
 // Convert a three BufferGeometry into a Manifold. Welds vertices by position
 // first (see file header). The caller owns the returned Manifold and must
 // `.delete()` it.

@@ -4,6 +4,11 @@ import { svelteTesting } from '@testing-library/svelte/vite';
 import { sveltekit } from '@sveltejs/kit/vite';
 import { defineConfig } from 'vite';
 
+// Browser floor for the features this app actually uses (top-level await for
+// Manifold WASM init, OffscreenCanvas + transferControlToOffscreen for the die
+// engine, ES module workers). Keep in sync with `src/lib/utils/browser_support.ts`.
+const browserTargets = ['es2022', 'chrome111', 'edge111', 'firefox114', 'safari16.4'];
+
 export default defineConfig({
 	plugins: [
 		tailwindcss(),
@@ -13,12 +18,18 @@ export default defineConfig({
 			outdir: './src/lib/paraglide'
 		})
 	],
+	build: {
+		target: browserTargets
+	},
 	// Emit workers as ES modules. The default "iife" format can't be used once a
 	// worker shares code-split chunks with the main bundle (e.g. box.worker.ts
 	// pulling in common geometry utils), which fails the production build. ES
 	// module workers are supported by all the browsers this app targets.
 	worker: {
 		format: 'es'
+	},
+	esbuild: {
+		target: browserTargets
 	},
 	test: {
 		workspace: [

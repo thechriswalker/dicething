@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { checkMesh, mergeMeshReports } from './mesh_check';
+import { checkIndexedMesh, checkMesh, mergeMeshReports } from './mesh_check';
 
 // flat non-indexed position buffer (9 numbers per triangle) for a closed
 // tetrahedron: 4 faces, every edge shared by exactly two triangles.
@@ -91,6 +91,20 @@ describe('checkMesh', () => {
 		const report = checkMesh([0, 0, 0, 1, 0, 0, 1, 0, 0], { collectBad: true });
 		expect(report.badPositions).toBeInstanceOf(Float32Array);
 		expect(report.badPositions?.length).toBe(9);
+	});
+});
+
+describe('checkIndexedMesh', () => {
+	it('uses vertex indices (no geometric weld) so near-coincident verts stay distinct', () => {
+		// Two corners 5e-5 mm apart — under checkMesh's 1e-4 weld that collapses the
+		// triangle, but distinct Manifold indices so index topology stays sound.
+		const positions = new Float32Array([0, 0, 0, 5e-5, 0, 0, 0, 1, 0]);
+		const indices = new Uint32Array([0, 1, 2]);
+		expect(checkMesh(positions).degenerateTriangleCount).toBe(1);
+		const indexed = checkIndexedMesh(positions, indices);
+		expect(indexed.degenerateTriangleCount).toBe(0);
+		expect(indexed.boundaryEdgeCount).toBe(3);
+		expect(indexed.isManifold).toBe(true);
 	});
 });
 

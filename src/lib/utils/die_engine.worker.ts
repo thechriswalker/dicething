@@ -22,8 +22,8 @@ import type {
 import { engineTrace, engineTraceSpan } from './engine_trace';
 import { resolveWorkerLegends } from './die_worker_legends';
 import { parseDieJson, dieJsonReviver } from './die_worker_parse';
-import { buildExportMeshesForDie } from './export';
-import { checkMesh } from './mesh_check';
+import { buildExportMeshesForDie, checkExportMesh, disposeNamedManifolds } from './export';
+import { checkMesh, mergeMeshReports } from './mesh_check';
 import { engravingErrorsForBuilder } from './builder';
 import type { LegendSet } from './legends';
 import type { DiceSet } from '$lib/interfaces/storage.svelte';
@@ -42,7 +42,10 @@ let legendAreaVisible = false;
 let fancyEnabled = false;
 let currentSet: DiceSet | undefined;
 
-function post(msg: EngineResponse | { type: 'selection'; state: EngineSelectionState }, transfer?: Transferable[]) {
+function post(
+	msg: EngineResponse | { type: 'selection'; state: EngineSelectionState },
+	transfer?: Transferable[]
+) {
 	(self as unknown as Worker).postMessage(msg, transfer ?? []);
 }
 
@@ -276,15 +279,30 @@ async function handleRequest(msg: EngineRequest) {
 					builders.get(die.id) ?? ensureBuilder(die, legends),
 					die
 				);
+				// Prefer Manifold index topology while the solids are still alive —
+				// geometric welding of the Three.js buffer false-flags micro-edges.
+				const meshReport = mergeMeshReports(
+					named.map((n) => checkExportMesh(n, { collectBad: true }))
+				);
 				const meshes = named.map((n) => ({
 					name: n.name,
 					dieId: n.dieId ?? die.id,
 					group: n.group,
 					geometry: geometryToEngineBuffers(n.mesh.geometry)
 				}));
+				disposeNamedManifolds(named);
+				for (const n of named) {
+					n.mesh.geometry.dispose();
+				}
 				const { meshes: out, transfer } = exportMeshTransferables(meshes);
 				(self as unknown as Worker).postMessage(
-					{ reqId, type: 'exportResult', meshes: out, engravingErrors } satisfies EngineResponse,
+					{
+						reqId,
+						type: 'exportResult',
+						meshes: out,
+						engravingErrors,
+						meshReport
+					} satisfies EngineResponse,
 					transfer
 				);
 				break;

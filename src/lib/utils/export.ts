@@ -13,6 +13,13 @@ import { uuid } from './uuid';
 import type { Manifold } from './manifold';
 import { geometryToIndexedMesh, manifoldToIndexedMesh, type IndexedMesh } from './manifold';
 import {
+	checkIndexedMesh,
+	checkMesh,
+	type MeshCheckOptions,
+	type MeshCheckReport
+} from './mesh_check';
+import { toNonIndexed } from './3d';
+import {
 	buildThreeMf,
 	buildThreeMfGrouped,
 	buildThreeMfGroupZip,
@@ -43,6 +50,23 @@ export type NamedMesh = {
 	group: string;
 	manifold?: Manifold;
 };
+
+// Structural check for an export mesh. Prefers Manifold's indexed topology when
+// present (no geometric weld — see checkIndexedMesh); falls back to welding the
+// Three.js position buffer for legacy / preview-only geometry.
+export function checkExportMesh(
+	named: NamedMesh,
+	options: Pick<MeshCheckOptions, 'collectBad'> = {}
+): MeshCheckReport {
+	if (named.manifold) {
+		const { positions, indices } = manifoldToIndexedMesh(named.manifold);
+		return checkIndexedMesh(positions, indices, options);
+	}
+	const pos = toNonIndexed(named.mesh.geometry).getAttribute('position');
+	const array = pos.array as Float32Array;
+	const tightlySized = array.length === pos.count * 3 ? array : array.subarray(0, pos.count * 3);
+	return checkMesh(tightlySized, options);
+}
 
 // per-option UI state: whether it's enabled and the current values for its controls.
 export type OptionState = { enabled: boolean; values: OptionValues };
@@ -228,7 +252,12 @@ export function layoutNamedMeshes(named: Array<NamedMesh>, gap = 4): void {
 
 const _exporter = new STLExporter();
 
-function vertexForExport(x: number, y: number, z: number, upAxis: UpAxis): [number, number, number] {
+function vertexForExport(
+	x: number,
+	y: number,
+	z: number,
+	upAxis: UpAxis
+): [number, number, number] {
 	// Match the 3MF writer: dice are Y-up, print bed is Z-up.
 	if (upAxis === 'y') {
 		return [x, -z, y];

@@ -20,7 +20,14 @@ import {
 import { Transform } from './3d';
 import { DefaultDivisions, Part, type SymbolOrientation } from './engraving';
 import { Legend, type LegendSet } from './legends';
-import { cloneManifold, deleteAll, geometryToManifold, manifold, manifoldToGeometry } from './manifold';
+import {
+	cloneManifold,
+	deleteAll,
+	geometryToManifold,
+	manifold,
+	manifoldToGeometry,
+	simplifyForMeshCheck
+} from './manifold';
 import {
 	isContained,
 	rotateShapes,
@@ -850,10 +857,12 @@ export type ManifoldDieExport = {
 };
 
 // Preview mesh is a Three.js copy for display only; export should use manifold.
+// Takes ownership of `man` (may replace it with a cleaned copy).
 export function buildManifoldDieExport(man: Manifold): ManifoldDieExport {
+	const cleaned = simplifyForMeshCheck(man);
 	return {
-		manifold: man,
-		previewMesh: new Mesh(manifoldDieToGeometry(man))
+		manifold: cleaned,
+		previewMesh: new Mesh(manifoldDieToGeometry(cleaned))
 	};
 }
 
@@ -965,8 +974,9 @@ export function buildPlatformViaCrossSection(
 	if (baseCs !== topCs) {
 		baseCs.delete();
 	}
-	const geo = manifoldToGeometry(solid);
-	solid.delete();
+	const cleaned = simplifyForMeshCheck(solid);
+	const geo = manifoldToGeometry(cleaned);
+	cleaned.delete();
 	// CrossSection extrudes along +Z; the platform convention uses +Y up.
 	geo.rotateX(-Math.PI / 2);
 	return geo;

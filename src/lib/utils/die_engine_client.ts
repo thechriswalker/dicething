@@ -83,7 +83,9 @@ function getWorker(): Worker {
 		worker = new DieEngineWorker({ name: 'die-engine' });
 		worker.addEventListener('message', onWorkerMessage);
 		worker.addEventListener('error', (e) => console.error('die-engine worker error', e));
-		worker.addEventListener('messageerror', (e) => console.error('die-engine worker message error', e));
+		worker.addEventListener('messageerror', (e) =>
+			console.error('die-engine worker message error', e)
+		);
 		try {
 			const channel = new BroadcastChannel(ENGINE_STORAGE_CHANNEL);
 			channel.addEventListener('message', (e: MessageEvent<StorageUpdatedPayload>) => {
@@ -99,7 +101,13 @@ function getWorker(): Worker {
 	return worker;
 }
 
-function onWorkerMessage(event: MessageEvent<EngineResponse | { type: 'selection'; state: EngineSelectionState } | { type: 'engineWorkerReady' }>) {
+function onWorkerMessage(
+	event: MessageEvent<
+		| EngineResponse
+		| { type: 'selection'; state: EngineSelectionState }
+		| { type: 'engineWorkerReady' }
+	>
+) {
 	const msg = event.data;
 	if (msg && typeof msg === 'object' && 'type' in msg && msg.type === 'engineWorkerReady') {
 		engineTraceSpan('client:workerReady').end();
@@ -194,7 +202,10 @@ async function handleStorageOnMain(
 	return snapshot;
 }
 
-function request<T>(kind: EngineRequest['kind'], payload: Omit<EngineRequest, 'reqId' | 'kind'> = {}): Promise<T> {
+function request<T>(
+	kind: EngineRequest['kind'],
+	payload: Omit<EngineRequest, 'reqId' | 'kind'> = {}
+): Promise<T> {
 	if (kind.startsWith('storage.')) {
 		const span = engineTraceSpan(`client:${kind}`);
 		return handleStorageOnMain(kind, payload).then(
@@ -399,6 +410,7 @@ export function deleteLegendInEngine(legendId: string): Promise<StorageUpdatedPa
 export type EngineExportResult = {
 	meshes: Array<{ name: string; dieId: string; group: string; mesh: Mesh }>;
 	engravingErrors: Array<import('./builder').EngravingError>;
+	meshReport: MeshCheckReport;
 };
 
 export function exportDieInEngine(
@@ -411,6 +423,7 @@ export function exportDieInEngine(
 		type: 'exportResult';
 		meshes: SerialisedExportMesh[];
 		engravingErrors: EngineExportResult['engravingErrors'];
+		meshReport: MeshCheckReport;
 	}>('exportDie', {
 		dieJson,
 		legendsJson,
@@ -420,6 +433,7 @@ export function exportDieInEngine(
 		const mat = new MeshNormalMaterial();
 		return {
 			engravingErrors: r.engravingErrors,
+			meshReport: r.meshReport,
 			meshes: r.meshes.map((m) => ({
 				name: m.name,
 				dieId: m.dieId,
@@ -430,7 +444,10 @@ export function exportDieInEngine(
 	});
 }
 
-export function meshCheckInEngine(positions: Float32Array, collectBad?: boolean): Promise<MeshCheckReport> {
+export function meshCheckInEngine(
+	positions: Float32Array,
+	collectBad?: boolean
+): Promise<MeshCheckReport> {
 	return request<{ type: 'meshCheckResult'; report: MeshCheckReport }>('meshCheck', {
 		positions,
 		collectBad
