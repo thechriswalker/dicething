@@ -2,10 +2,11 @@
 import {
 	Font,
 	UnicodeBuffer,
-	getGlyphPath,
+	contourToPath,
 	glyphBufferToShapedGlyphs,
 	kerning,
 	shape,
+	type Contour,
 	type PathCommand
 } from 'text-shaper';
 import {
@@ -489,11 +490,18 @@ export function createShapesFromFont(fontData: ArrayBufferLike, strings: Array<F
 		let x = 0;
 		let y = 0;
 		for (const glyph of shaped) {
-			const path = getGlyphPath(font, glyph.glyphId);
-			if (path) {
+			const contours = font.getGlyphContours(glyph.glyphId);
+			if (contours) {
 				const ox = x + glyph.xOffset * scale;
-				const oy = y - glyph.yOffset * scale;
-				shapes.push(...glyphPathToShapes(path.commands, ox, oy, scale));
+				const oy = y + glyph.yOffset * scale;
+				for (const contour of contours) {
+					// text-shaper's contourToPathQuadratic breaks early when the
+					// contour starts with consecutive duplicate on-curve points
+					// (current === startPoint), emitting a degenerate M/L/Z. Some
+					// fonts (e.g. TitleRen) do this; strip those duplicates first.
+					const commands = contourToPath(dedupeContourPoints(contour));
+					shapes.push(...glyphPathToShapes(commands, ox, oy, scale));
+				}
 			}
 			x += glyph.xAdvance * scale + spacing;
 			y += glyph.yAdvance * scale;
@@ -516,9 +524,27 @@ function asArrayBuffer(data: ArrayBufferLike): ArrayBuffer {
 	return new Uint8Array(data).slice().buffer;
 }
 
-// Convert text-shaper path commands into one Shape per contour (Y flipped to
-// match legend space). Contour nesting / holes are resolved afterwards by
-// preprocessShapes → resolveShapeBoundaries.
+// Drop consecutive coincident points. Harmless for clean contours; required for
+// text-shaper contourToPath when a contour repeats its start point (see above).
+function dedupeContourPoints(contour: Contour): Contour {
+	if (contour.length < 2) {
+		return contour;
+	}
+	const out: Contour = [contour[0]];
+	for (let i = 1; i < contour.length; i++) {
+		const p = contour[i];
+		const prev = out[out.length - 1];
+		if (prev.x === p.x && prev.y === p.y) {
+			continue;
+		}
+		out.push(p);
+	}
+	return out;
+}
+
+// Convert text-shaper path commands into one Shape per contour. Contour
+// nesting / holes are resolved afterwards by preprocessShapes →
+// resolveShapeBoundaries.
 function glyphPathToShapes(
 	commands: PathCommand[],
 	offsetX: number,
@@ -529,7 +555,7 @@ function glyphPathToShapes(
 	let current: Shape | null = null;
 
 	const tx = (x: number) => offsetX + x * scale;
-	const ty = (y: number) => offsetY - y * scale;
+	const ty = (y: number) => offsetY + y * scale;
 
 	const flush = () => {
 		if (current && current.curves.length > 0) {

@@ -171,9 +171,12 @@ export function resolveShapeBoundaries(
 		}
 	}
 
-	// Nothing overlaps: the input is already clean, keep curves verbatim.
+	// Contours don't cross: still nest counters (disjoint outer + hole pairs,
+	// common in font glyphs) by containment. Returning the input verbatim left
+	// sibling shapes without `.holes`, which fills solid in SVG / flat previews
+	// even though EvenOdd engraving still looked correct.
 	if (!anyIntersection) {
-		return shapes;
+		return nestDisjointContours(contours, polylines, shapes);
 	}
 
 	// Split every curve at its intersection parameters into fragments and
@@ -675,6 +678,98 @@ function makeLoop(fragments: Fragment[]): Loop {
 // ---------------------------------------------------------------------------
 // Grouping into Shapes
 // ---------------------------------------------------------------------------
+
+// Nest closed contours that don't intersect (no fragment splitting needed) into
+// outline + holes by even-odd containment depth. Curve primitives are kept.
+function nestDisjointContours(
+	contours: Array<Array<Curve<Vector2>>>,
+	polylines: Vector2[][],
+	inputShapes: Array<Shape>
+): Array<Shape> {
+	const ls = contours
+		.map((curves, i) => {
+			const pts = polylines[i];
+			const area = signedArea(pts);
+			return { curves, pts, area, abs: Math.abs(area) };
+		})
+		.filter((l) => l.abs > 1e-12);
+	if (ls.length === 0) {
+		return [];
+	}
+
+	const depth = ls.map((l, i) => {
+		const sample = l.pts[0];
+		let d = 0;
+		for (let j = 0; j < ls.length; j++) {
+			if (j === i || ls[j].abs <= l.abs) {
+				continue;
+			}
+			if (pointInPolygon(sample, ls[j].pts)) {
+				d++;
+			}
+		}
+		return d;
+	});
+
+	const wantOuterClockwise = inputOuterClockwise(inputShapes);
+
+	type Outer = { shape: Shape; pts: Vector2[]; abs: number };
+	const outers: Outer[] = [];
+
+	ls.forEach((l, i) => {
+		if (depth[i] % 2 !== 0) {
+			return;
+		}
+		const shape = new Shape();
+		shape.curves = orientCurves(l.curves, l.pts, wantOuterClockwise);
+		shape.autoClose = false;
+		outers.push({ shape, pts: l.pts, abs: l.abs });
+	});
+
+	ls.forEach((l, i) => {
+		if (depth[i] % 2 === 0) {
+			return;
+		}
+		let best: Outer | null = null;
+		for (const o of outers) {
+			if (o.abs <= l.abs) {
+				continue;
+			}
+			if (!pointInPolygon(l.pts[0], o.pts)) {
+				continue;
+			}
+			if (!best || o.abs < best.abs) {
+				best = o;
+			}
+		}
+		const path = new Path();
+		path.curves = orientCurves(l.curves, l.pts, !wantOuterClockwise);
+		if (best) {
+			best.shape.holes.push(path);
+		} else {
+			const shape = new Shape();
+			shape.curves = orientCurves(l.curves, l.pts, wantOuterClockwise);
+			shape.autoClose = false;
+			outers.push({ shape, pts: l.pts, abs: l.abs });
+		}
+	});
+
+	return outers.map((o) => o.shape);
+}
+
+function orientCurves(
+	curves: Array<Curve<Vector2>>,
+	pts: Vector2[],
+	clockwise: boolean
+): Array<Curve<Vector2>> {
+	if (ShapeUtils.isClockWise(pts) === clockwise) {
+		return curves.slice();
+	}
+	return curves
+		.slice()
+		.reverse()
+		.map((c) => reverseCurve(c));
+}
 
 function buildShapes(loops: Loop[], inputShapes: Array<Shape>): Array<Shape> {
 	if (loops.length === 0) {

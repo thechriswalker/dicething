@@ -42,4 +42,10 @@ describe('resolveShapeBoundaries figure-8 glyphs (josefin)', () => {
 	it('"9." keeps the nine and the dot', () => {
 		expect(resolve('9.')).toHaveLength(2);
 	});
+
+	it('"0" nests its counter as a hole (disjoint contours)', () => {
+		const shapes = resolve('0');
+		expect(shapes).toHaveLength(1);
+		expect(shapes[0].holes).toHaveLength(1);
+	});
 });
