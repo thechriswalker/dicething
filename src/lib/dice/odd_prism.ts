@@ -11,6 +11,7 @@
 
 import type { DiceParameter, DieFaceModel, DieModel } from '$lib/interfaces/dice';
 import { Transform } from '$lib/utils/3d';
+import { PRINT_CLEARANCE_MM } from '$lib/utils/printing';
 import { stackedExplode } from '$lib/utils/explode';
 import { Legend, pickForNumber } from '$lib/utils/legends';
 import { orientCoplanarVertices, rotateShapes } from '$lib/utils/shapes';
@@ -245,9 +246,12 @@ function build(sides: number, defaultParameters: Record<string, number>): DieMod
 			});
 		}
 
-		// crystals/prisms stand on a tip; raise so the lowest point sits on the
-		// xz plane for printing.
-		const printingTransform = new Transform().translateBy(0, (y + h) / 2, 0);
+		// crystals/prisms stand on a tip; raise so the tip clears the plate.
+		const printingTransform = new Transform().translateBy(
+			0,
+			(y + h) / 2 + PRINT_CLEARANCE_MM,
+			0
+		);
 
 		stackedExplode(faces);
 

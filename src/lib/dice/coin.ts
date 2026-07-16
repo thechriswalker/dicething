@@ -9,6 +9,7 @@
 
 import type { DiceParameter, DieFaceModel, DieModel, StringParameter } from '$lib/interfaces/dice';
 import { Transform } from '$lib/utils/3d';
+import { computeOutlineVertexDownPrintingTransform } from '$lib/utils/printing';
 import { parseCoinPath, validateCoinPath } from '$lib/utils/coin_path';
 import { stackedExplode } from '$lib/utils/explode';
 import { Legend } from '$lib/utils/legends';
@@ -514,11 +515,10 @@ export const CoinD2: DieModel = {
 		// segments tucked underneath (they're hidden in the UI but still drawn).
 		stackedExplode(faces, { numberColumns: 2 });
 
-		// print lying flat on a face: rotate the disc so its axis is vertical,
-		// then raise it to rest on the build plate.
-		const printingTransform = new Transform()
-			.rotateByAxisAngle(xAxis, Math.PI / 2)
-			.translateBy(0, ht, 0);
+		// print standing on an outline vertex (faces vertical — as-built in XY).
+		// rotates in-plane so a corner / custom tip points down rather than resting
+		// on a flat edge.
+		const printingTransform = computeOutlineVertexDownPrintingTransform(outerRing, faces);
 
 		return {
 			faces,

@@ -59,6 +59,7 @@ import { shapeGeometry } from './tessellate';
 import { getOrComputeLegendScaling } from './legend_scaling_cache';
 import { uuid } from './uuid';
 import { toNonIndexed, Transform } from './3d';
+import { computePointDownPrintingTransform } from './printing';
 
 const _genericNormalMaterial = new MeshNormalMaterial({ wireframe: !true });
 const _engraveBackMaterial = new MeshBasicMaterial({ color: 0x666666 });
@@ -440,6 +441,10 @@ export class Builder {
 		this.printingTransform.applyToGeometry(geometry);
 	}
 
+	getPrintingTransform(): Transform {
+		return this.printingTransform;
+	}
+
 	changeLegends(set: LegendSet) {
 		if (set.id === this.legends.id) {
 			return;
@@ -542,7 +547,8 @@ export class Builder {
 			// too: a build option (e.g. blanks) builds a builder then re-exports it
 			// with the SAME params, so export()'s dieChanged guard would otherwise
 			// skip recomputing this and the artifact would export un-oriented.
-			this.printingTransform = x.printingTransform ?? new Transform();
+			this.printingTransform =
+				x.printingTransform ?? computePointDownPrintingTransform(x.faces);
 			// the ordering rewrites the number faces' default legends, and the
 			// legend scaling reads those, so apply it before recalculating.
 			applyOrderingToFaces(this.model.id, ordering, this.faces, dieParams);
@@ -895,8 +901,9 @@ export class Builder {
 			applyOrderingToFaces(this.model.id, ordering, this.faces, dieParams);
 			this.lastOrdering = ordering;
 			this.recalculateLegendScaling(dieParams, stringParams, ordering);
-			// most dice omit this today; default to identity so export still works.
-			this.printingTransform = x.printingTransform ?? new Transform();
+			// most dice omit this; default is sharpest-vertex-down + clearance.
+			this.printingTransform =
+				x.printingTransform ?? computePointDownPrintingTransform(x.faces);
 			this.faceObjects.forEach((g) => g.children?.forEach((c) => g.remove(c)));
 			// drop any stale per-face errors from a previous (larger) blank; the loop
 			// below repopulates index 0..faces.length-1.
@@ -983,7 +990,12 @@ export class Builder {
 			blankExportGeometry: blankGeo
 		});
 		this.exportManifold?.delete();
-		this.exportManifold = exported.manifold;
+		// Bake print orientation into both the preview mesh and the Manifold solid
+		// (3MF prefers the manifold; without this it would export un-oriented).
+		const printMat = transformToMat4(this.printingTransform);
+		const oriented = exported.manifold.transform(printMat);
+		exported.manifold.delete();
+		this.exportManifold = oriented;
 		this.printingTransform.applyToGeometry(exported.previewMesh.geometry);
 		exported.previewMesh.material = _genericNormalMaterial;
 		return exported.previewMesh;

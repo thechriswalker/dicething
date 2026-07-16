@@ -1,5 +1,6 @@
 import type { DieModel, DieFaceModel, DiceParameter } from '$lib/interfaces/dice';
 import { Transform, previewTilt } from '$lib/utils/3d';
+import { PRINT_CLEARANCE_MM } from '$lib/utils/printing';
 import { stackedExplode } from '$lib/utils/explode';
 import { Legend, pickForDoublesByIndex, pickForNumber } from '$lib/utils/legends';
 import { orientCoplanarVertices, rotateShapes } from '$lib/utils/shapes';
@@ -141,10 +142,12 @@ function build(
 		const h = params.crystal_cap ?? defaultParameters['crystal_cap'] ?? defaultCapHeight;
 		const isTwisted = rot !== 0;
 
-		// crystals sit upright on their tips.
-		// so the transform to print them is simply raise it so the tip is on
-		// the xz plane.
-		const printingTransform = new Transform().translateBy(0, (y + h) / 2, 0);
+		// crystals sit upright on their tips; raise so the tip clears the plate.
+		const printingTransform = new Transform().translateBy(
+			0,
+			(y + h) / 2 + PRINT_CLEARANCE_MM,
+			0
+		);
 
 		// I think I need to construct this in 3-space and then project each face onto the plane +z on the origin.
 		// but I only need to construct the cap faces, as the front face is already

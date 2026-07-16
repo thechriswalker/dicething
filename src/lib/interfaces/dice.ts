@@ -39,9 +39,11 @@ export type DieModel = {
 		// how to transform the model for printing
 		// the model is usually centered on the origin, so this will be a rotation
 		// to move the object to the correct orientation and then a y translation to
-		// raise the object so the tip is on the xz plane.
+		// raise the object so the lowest point sits PRINT_CLEARANCE_MM above the xz
+		// plane. Default (when omitted): sharpest vertex pointing down (−Y), then
+		// lifted — see computePointDownPrintingTransform.
 		// this is the orientation we want to use to print, keeping all dice on the same level, for when / if they are grouped.
-		// optional: when omitted the exporter treats it as the identity (no-op).
+		// optional: when omitted the exporter computes a point-down default.
 		printingTransform?: Transform;
 
 		// extra rotation for the catalogue/thumbnail preview camera. the previewer

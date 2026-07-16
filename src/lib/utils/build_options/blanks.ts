@@ -1,5 +1,5 @@
 import { m } from '$lib/paraglide/messages';
-import { buildBlankManifoldExport } from '../die_manifold';
+import { buildBlankManifoldExport, transformToMat4 } from '../die_manifold';
 import { engravingParam } from '../builder';
 import { controlValue, type ExtraBuildContext, type ExtraBuildOption } from './types';
 
@@ -69,8 +69,12 @@ export const blanksOption: ExtraBuildOption = {
 			exportGeometry: ctx.builder.getBlankExportShell(ctx.die.parameters),
 			offset
 		});
+		// Match the engraved die: bake print orientation into mesh + manifold.
+		const printMat = transformToMat4(ctx.builder.getPrintingTransform());
+		const oriented = exported.manifold.transform(printMat);
+		exported.manifold.delete();
 		ctx.builder.applyPrintingTransformToGeometry(exported.previewMesh.geometry);
-		return [{ suffix: 'blank', mesh: exported.previewMesh, manifold: exported.manifold }];
+		return [{ suffix: 'blank', mesh: exported.previewMesh, manifold: oriented }];
 	}
 };
 

@@ -19,6 +19,7 @@
 
 import type { DiceParameter, DieFaceModel, DieModel } from '$lib/interfaces/dice';
 import { previewTilt, Transform } from '$lib/utils/3d';
+import { liftOnlyPrintingTransform } from '$lib/utils/printing';
 import { stackedExplode } from '$lib/utils/explode';
 import { Legend, pickForNumber } from '$lib/utils/legends';
 import { orientCoplanarVertices } from '$lib/utils/shapes';
@@ -30,7 +31,6 @@ const defaultLength = 18;
 // high enough to read as smooth, and not worth a slider for this shape.
 const CAP_SEGMENTS = 48;
 
-const xAxis = new Vector3(1, 0, 0);
 const yAxis = new Vector3(0, 1, 0);
 const zAxis = new Vector3(0, 0, 1);
 
@@ -174,11 +174,9 @@ export const InfinityD4: DieModel = {
 
 		stackedExplode(faces);
 
-		// print lying on a face: lay the bar down so its axis runs along z, then
-		// raise the resting face onto the build plate.
-		const printingTransform = new Transform()
-			.rotateByAxisAngle(xAxis, Math.PI / 2)
-			.translateBy(0, hw, 0);
+		// print standing on a curved end — as-built with the bar along Y and
+		// half-cylinders at ±y (point-down / face-down would be wrong here).
+		const printingTransform = liftOnlyPrintingTransform(faces);
 
 		return {
 			faces,

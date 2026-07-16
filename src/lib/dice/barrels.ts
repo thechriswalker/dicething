@@ -28,6 +28,7 @@
 
 import type { DieModel, DieFaceModel, DiceParameter } from '$lib/interfaces/dice';
 import { Transform, previewTilt } from '$lib/utils/3d';
+import { liftOnlyPrintingTransform } from '$lib/utils/printing';
 import { stackedExplode } from '$lib/utils/explode';
 import { Legend, pickForDoublesByIndex, pickForNumber } from '$lib/utils/legends';
 import { Matrix4, Quaternion, Shape, Vector2, Vector3 } from 'three';
@@ -322,15 +323,14 @@ function build(sides: number, defaultParameters: Record<string, number>, tens: b
 		const faces: Array<DieFaceModel> = [...bandByValue, ...capByValue.filter(Boolean)];
 
 		// the inradius of the band (origin -> a number-face plane); used for the
-		// printing rest and the reported face-to-face size.
+		// reported face-to-face size.
 		const face0 = faces[0];
 		const n0 = new Vector3(0, 0, 1).applyQuaternion(face0.transform.rotation);
 		const rho = Math.abs(face0.transform.translation.dot(n0));
 
-		// print lying on a band face: rotate that face's outward normal to point
-		// straight down, then raise the die so the resting face sits on the plate.
-		const flat = new Quaternion().setFromUnitVectors(n0, new Vector3(0, -1, 0));
-		const printingTransform = new Transform().rotate(flat).translateBy(0, rho, 0);
+		// print standing on a cap tip (or the ring end for the capless D4) —
+		// the barrel is already built with its axis along Y.
+		const printingTransform = liftOnlyPrintingTransform(faces);
 
 		stackedExplode(faces);
 
