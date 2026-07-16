@@ -477,6 +477,9 @@
 	"export_nothing_selected": "Select at least one die to export.",
 	"export_toggle_fancy_render": "Toggle fancy render",
 	"export_toggle_auto_rotate": "Auto-rotate scene",
+	"export_building_dice": "Building dice",
+	"export_building_option": "Building {option}",
+	"export_building_progress": "{label} ({current}/{total})",
 	"engraving_errors_title": "Engraving problems",
 	"dice_land_warning": [
 		{

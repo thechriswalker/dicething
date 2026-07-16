@@ -1,17 +1,19 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
+	import { Progress } from '@skeletonlabs/skeleton-svelte';
 	import Layout from '$lib/components/layout/Layout.svelte';
 	import Scene from '$lib/components/scene/Scene.svelte';
 	import Slider from '$lib/components/slider/Slider.svelte';
-	import { waitForSet, dieToJSON, type DiceSet } from '$lib/interfaces/storage.svelte';
+	import { waitForSet, dieToJSON, type Dice, type DiceSet } from '$lib/interfaces/storage.svelte';
 	import { getPreferences } from '$lib/interfaces/preferences.svelte';
 	import { m } from '$lib/paraglide/messages';
 	import { createFancyRender, createGridHelper, type SceneRenderer } from '$lib/utils/scene';
 	import { debounce } from '$lib/utils/debounce';
 	import {
 		download,
-		exportDieCacheSig,
+		exportDieGeometrySig,
+		exportOptionCacheSig,
 		exportThreeMfGrouped,
 		exportThreeMfGroupZip,
 		exportThreeMfZip,
@@ -27,7 +29,7 @@
 	import { approximateDieVolume, meshVolume, type EngravingError } from '$lib/utils/builder';
 	import { exportDieInEngine, loadEngineSet } from '$lib/utils/die_engine_client';
 	import { legendsJsonForEngine } from '$lib/utils/preview_legends';
-	import type { MeshCheckReport } from '$lib/utils/mesh_check';
+	import { mergeMeshReports, type MeshCheckReport } from '$lib/utils/mesh_check';
 	import { onMount } from 'svelte';
 	import {
 		BufferAttribute,
@@ -87,6 +89,8 @@
 	// slice/print cleanly.
 	let meshReports = $state<Record<string, MeshCheckReport>>({});
 	let checkingMesh = $state(false);
+	let buildingPreview = $state(false);
+	let buildStatus = $state('');
 	// bumped on every preview rebuild so stale async check results are ignored.
 	let checkGeneration = 0;
 
@@ -198,24 +202,36 @@
 	let autoRotate = $state(false);
 	let previewMeshes: Array<Mesh> = [];
 	let previewNamed: Array<NamedMesh> = [];
-	// per-die export meshes at the origin; invalidated when that die's export inputs change.
-	const exportMeshCache = new Map<
-		string,
-		{
-			sig: string;
-			meshes: Array<NamedMesh>;
-			engravingErrors: Array<EngravingError>;
-			meshReport: MeshCheckReport;
-		}
-	>();
+	// Per-die export meshes at the origin, split by group so toggling blanks /
+	// platforms / "include dice" can reuse cached geometry instead of rebuilding.
+	type GroupCache = {
+		sig: string;
+		meshes: Array<NamedMesh>;
+		meshReport: MeshCheckReport;
+	};
+	type DieExportCache = {
+		dieSig: string;
+		engravingErrors: Array<EngravingError>;
+		groups: Record<string, GroupCache>;
+	};
+	const exportMeshCache = new Map<string, DieExportCache>();
 	let errorsInitialized = false;
 
-	function disposeExportCacheEntry(entry: { meshes: Array<NamedMesh> } | undefined) {
+	function disposeGroupCache(group: GroupCache | undefined) {
+		if (!group) {
+			return;
+		}
+		for (const n of group.meshes) {
+			n.mesh.geometry.dispose();
+		}
+	}
+
+	function disposeExportCacheEntry(entry: DieExportCache | undefined) {
 		if (!entry) {
 			return;
 		}
-		for (const n of entry.meshes) {
-			n.mesh.geometry.dispose();
+		for (const g of Object.values(entry.groups)) {
+			disposeGroupCache(g);
 		}
 	}
 
@@ -224,6 +240,167 @@
 			...n,
 			mesh: new Mesh(n.mesh.geometry.clone(), n.mesh.material)
 		}));
+	}
+
+	/** Meshes currently visible for a die given includeDice + enabled options. */
+	function visibleCachedMeshes(
+		entry: DieExportCache,
+		include: boolean,
+		options: OptionStates
+	): Array<NamedMesh> {
+		const out: Array<NamedMesh> = [];
+		if (include && entry.groups.dice) {
+			out.push(...entry.groups.dice.meshes);
+		}
+		for (const option of extraBuildOptions) {
+			if (!options[option.id]?.enabled) {
+				continue;
+			}
+			const g = entry.groups[option.id];
+			if (g) {
+				out.push(...g.meshes);
+			}
+		}
+		return out;
+	}
+
+	function visibleMeshReport(
+		entry: DieExportCache,
+		include: boolean,
+		options: OptionStates
+	): MeshCheckReport | undefined {
+		const reports: Array<MeshCheckReport> = [];
+		if (include && entry.groups.dice) {
+			reports.push(entry.groups.dice.meshReport);
+		}
+		for (const option of extraBuildOptions) {
+			if (!options[option.id]?.enabled) {
+				continue;
+			}
+			const g = entry.groups[option.id];
+			if (g) {
+				reports.push(g.meshReport);
+			}
+		}
+		return reports.length > 0 ? mergeMeshReports(reports) : undefined;
+	}
+
+	/** One worker job = one group for one die (dice / blanks / platforms). */
+	type ExportBuildJob = {
+		die: Dice;
+		dieSig: string;
+		group: string;
+		label: string;
+		includeDice: boolean;
+		optionStates: OptionStates;
+	};
+
+	function emptyOptionStates(options: OptionStates): OptionStates {
+		return Object.fromEntries(
+			extraBuildOptions.map((o) => [
+				o.id,
+				{
+					enabled: false,
+					values: options[o.id]?.values ?? defaultValues(o.controls)
+				}
+			])
+		);
+	}
+
+	/** Missing/stale groups as separate jobs — never couples dice with blanks. */
+	function collectMissingJobs(
+		entry: DieExportCache | undefined,
+		dieSig: string,
+		wantDice: boolean,
+		options: OptionStates
+	): Array<Pick<ExportBuildJob, 'group' | 'label' | 'includeDice' | 'optionStates'>> {
+		const jobs: Array<Pick<ExportBuildJob, 'group' | 'label' | 'includeDice' | 'optionStates'>> =
+			[];
+		if (wantDice && (!entry?.groups.dice || entry.groups.dice.sig !== dieSig)) {
+			jobs.push({
+				group: 'dice',
+				label: m.export_building_dice(),
+				includeDice: true,
+				optionStates: emptyOptionStates(options)
+			});
+		}
+		for (const option of extraBuildOptions) {
+			const state = options[option.id];
+			if (!state?.enabled) {
+				continue;
+			}
+			const sig = exportOptionCacheSig(dieSig, option.id, state.values);
+			const cached = entry?.groups[option.id];
+			if (!cached || cached.sig !== sig) {
+				const optionStates = emptyOptionStates(options);
+				optionStates[option.id] = { enabled: true, values: state.values };
+				jobs.push({
+					group: option.id,
+					label: m.export_building_option({ option: option.label() }),
+					includeDice: false,
+					optionStates
+				});
+			}
+		}
+		return jobs;
+	}
+
+	function mergeExportResultIntoCache(
+		dieId: string,
+		dieSig: string,
+		result: Awaited<ReturnType<typeof exportDieInEngine>>,
+		requested: { includeDice: boolean; optionStates: OptionStates }
+	): DieExportCache {
+		let entry = exportMeshCache.get(dieId);
+		if (!entry || entry.dieSig !== dieSig) {
+			disposeExportCacheEntry(entry);
+			entry = { dieSig, engravingErrors: result.engravingErrors, groups: {} };
+			exportMeshCache.set(dieId, entry);
+		} else {
+			entry.engravingErrors = result.engravingErrors;
+		}
+
+		const byGroup = new Map<string, Array<NamedMesh>>();
+		for (const m of result.meshes) {
+			const named: NamedMesh = {
+				name: m.name,
+				mesh: m.mesh,
+				dieId: m.dieId,
+				group: m.group
+			};
+			const list = byGroup.get(m.group) ?? [];
+			list.push(named);
+			byGroup.set(m.group, list);
+		}
+
+		// Use the worker's report (Manifold index topology). Re-checking the
+		// transferred Three.js buffer here false-flags micro-edges as non-manifold
+		// — the solids were already verified before manifolds were disposed.
+		const report = result.meshReport;
+
+		if (requested.includeDice) {
+			const meshes = byGroup.get('dice') ?? [];
+			disposeGroupCache(entry.groups.dice);
+			entry.groups.dice = {
+				sig: dieSig,
+				meshes,
+				meshReport: report
+			};
+		}
+		for (const option of extraBuildOptions) {
+			const state = requested.optionStates[option.id];
+			if (!state?.enabled) {
+				continue;
+			}
+			const meshes = byGroup.get(option.id) ?? [];
+			disposeGroupCache(entry.groups[option.id]);
+			entry.groups[option.id] = {
+				sig: exportOptionCacheSig(dieSig, option.id, state.values),
+				meshes,
+				meshReport: report
+			};
+		}
+		return entry;
 	}
 
 	// the render tuning panel is exposed in developer mode.
@@ -309,60 +486,169 @@
 	}
 
 	let previewGroup: Group | undefined;
-	async function rebuildPreview() {
-		if (!ctx || !setData) {
+
+	/** Instantly refresh the scene from whatever groups are already cached. */
+	function applyPreviewFromCache(
+		optionSnap: OptionStates,
+		include: boolean,
+		ids: Array<string>,
+		generation: number
+	) {
+		if (!ctx) {
 			return;
 		}
 		if (previewGroup) {
 			ctx.scene.remove(previewGroup);
+			previewGroup = undefined;
 		}
-		// drop display clones from the last layout pass.
 		for (const n of previewNamed) {
 			n.mesh.geometry.dispose();
+		}
+
+		const named: Array<NamedMesh> = [];
+		for (const id of ids) {
+			const entry = exportMeshCache.get(id);
+			if (!entry) {
+				continue;
+			}
+			named.push(...cloneNamedForLayout(visibleCachedMeshes(entry, include, optionSnap)));
+		}
+
+		previewNamed = named;
+		const vols: Record<string, number> = {};
+		for (const n of named) {
+			if (n.group === 'dice') {
+				continue;
+			}
+			vols[n.group] = (vols[n.group] ?? 0) + meshVolume(n.mesh) / 1000;
+		}
+		artifactVolumesMl = vols;
+		layoutNamedMeshes(named);
+		const group = new Group();
+		const meshes = named.map((n) => n.mesh);
+		meshes.forEach((mesh) => {
+			fancyRender?.styleMesh(mesh);
+			group.add(mesh);
+		});
+		ctx.scene.add(group);
+		previewGroup = group;
+		previewMeshes = meshes;
+
+		const reports: Array<[string, MeshCheckReport]> = ids
+			.map((id) => {
+				const entry = exportMeshCache.get(id);
+				if (!entry) {
+					return undefined;
+				}
+				const report = visibleMeshReport(entry, include, optionSnap);
+				return report ? ([id, report] as const) : undefined;
+			})
+			.filter((e): e is [string, MeshCheckReport] => !!e);
+		applyMeshReports(reports, generation);
+	}
+
+	async function rebuildPreview() {
+		if (!ctx || !setData) {
+			return;
 		}
 		problemPositions = undefined;
 		updateProblemHighlight();
 
 		const optionSnap = $state.snapshot(optionStates) as OptionStates;
 		const legendsJson = legendsJsonForEngine(setData.legends);
-		const optionStatesJson = JSON.stringify(optionSnap);
-		const named: Array<NamedMesh> = [];
 		const buildingAllForErrors = !errorsInitialized;
 		const generation = ++checkGeneration;
-		checkingMesh = true;
 
 		try {
-			for (let idx = 0; idx < setData.dice.length; idx++) {
-				const die = setData.dice[idx];
+			const diceJobs: Array<ExportBuildJob> = [];
+			const optionJobs: Array<ExportBuildJob> = [];
+
+			for (const die of setData.dice) {
 				if (!buildingAllForErrors && !selectedIds.includes(die.id)) {
 					continue;
 				}
-				const sig = exportDieCacheSig(die, setData.legends.id, includeDice, optionSnap);
+				const dieSig = exportDieGeometrySig(die, setData.legends.id);
 				let entry = exportMeshCache.get(die.id);
-				if (!entry || entry.sig !== sig) {
+				if (entry && entry.dieSig !== dieSig) {
 					disposeExportCacheEntry(entry);
-					const result = await exportDieInEngine(
-						dieToJSON(die),
-						legendsJson,
-						includeDice,
-						optionStatesJson
-					);
-					entry = {
-						sig,
-						engravingErrors: result.engravingErrors,
-						meshReport: result.meshReport,
-						meshes: result.meshes.map((m) => ({
-							name: m.name,
-							mesh: m.mesh,
-							dieId: m.dieId,
-							group: m.group
-						}))
-					};
-					exportMeshCache.set(die.id, entry);
+					exportMeshCache.delete(die.id);
+					entry = undefined;
 				}
-				if (errorsInitialized) {
-					named.push(...cloneNamedForLayout(entry.meshes));
+				const wantDice = buildingAllForErrors || includeDice;
+				for (const job of collectMissingJobs(entry, dieSig, wantDice, optionSnap)) {
+					const full = { die, dieSig, ...job };
+					if (job.group === 'dice') {
+						diceJobs.push(full);
+					} else {
+						optionJobs.push(full);
+					}
 				}
+			}
+			const jobs = [...diceJobs, ...optionJobs];
+
+			// Show whatever is already cached immediately (hide blanks without waiting).
+			const visibleIds = buildingAllForErrors
+				? setData.dice.map((d) => d.id)
+				: selectedIds;
+			applyPreviewFromCache(optionSnap, includeDice, visibleIds, generation);
+
+			if (jobs.length === 0) {
+				buildingPreview = false;
+				buildStatus = '';
+				if (!errorsInitialized) {
+					const errs: Record<string, Array<EngravingError>> = {};
+					for (const d of setData.dice) {
+						errs[d.id] = exportMeshCache.get(d.id)?.engravingErrors ?? [];
+					}
+					dieErrors = errs;
+					selectedIds = setData.dice
+						.filter((d) => (errs[d.id]?.length ?? 0) === 0)
+						.map((d) => d.id);
+					errorsInitialized = true;
+					applyPreviewFromCache(optionSnap, includeDice, selectedIds, generation);
+				}
+				for (const id of [...exportMeshCache.keys()]) {
+					if (!selectedIds.includes(id)) {
+						disposeExportCacheEntry(exportMeshCache.get(id));
+						exportMeshCache.delete(id);
+					}
+				}
+				return;
+			}
+
+			buildingPreview = true;
+			checkingMesh = true;
+
+			for (let i = 0; i < jobs.length; i++) {
+				if (generation !== checkGeneration) {
+					return;
+				}
+				const job = jobs[i];
+				buildStatus = m.export_building_progress({
+					current: i + 1,
+					total: jobs.length,
+					label: job.label
+				});
+				const result = await exportDieInEngine(
+					dieToJSON(job.die),
+					legendsJson,
+					job.includeDice,
+					JSON.stringify(job.optionStates)
+				);
+				if (generation !== checkGeneration) {
+					return;
+				}
+				mergeExportResultIntoCache(job.die.id, job.dieSig, result, {
+					includeDice: job.includeDice,
+					optionStates: job.optionStates
+				});
+
+				if (!errorsInitialized && job.includeDice) {
+					// keep going — finish all dice jobs before narrowing selection
+				}
+
+				const idsForPreview = errorsInitialized ? selectedIds : setData.dice.map((d) => d.id);
+				applyPreviewFromCache(optionSnap, includeDice, idsForPreview, generation);
 			}
 
 			if (!errorsInitialized) {
@@ -371,21 +657,11 @@
 					errs[d.id] = exportMeshCache.get(d.id)?.engravingErrors ?? [];
 				}
 				dieErrors = errs;
-				selectedIds = setData.dice.filter((d) => (errs[d.id]?.length ?? 0) === 0).map((d) => d.id);
+				selectedIds = setData.dice
+					.filter((d) => (errs[d.id]?.length ?? 0) === 0)
+					.map((d) => d.id);
 				errorsInitialized = true;
-				for (const id of [...exportMeshCache.keys()]) {
-					if (!selectedIds.includes(id)) {
-						disposeExportCacheEntry(exportMeshCache.get(id));
-						exportMeshCache.delete(id);
-					}
-				}
-				for (const id of selectedIds) {
-					const entry = exportMeshCache.get(id);
-					if (!entry) {
-						continue;
-					}
-					named.push(...cloneNamedForLayout(entry.meshes));
-				}
+				applyPreviewFromCache(optionSnap, includeDice, selectedIds, generation);
 			}
 
 			for (const id of [...exportMeshCache.keys()]) {
@@ -395,36 +671,16 @@
 				}
 			}
 
-			previewNamed = named;
-			const vols: Record<string, number> = {};
-			for (const n of named) {
-				if (n.group === 'dice') {
-					continue;
-				}
-				vols[n.group] = (vols[n.group] ?? 0) + meshVolume(n.mesh) / 1000;
+			if (generation === checkGeneration) {
+				buildingPreview = false;
+				buildStatus = '';
 			}
-			artifactVolumesMl = vols;
-			layoutNamedMeshes(named);
-			const group = new Group();
-			const meshes = named.map((n) => n.mesh);
-			meshes.forEach((mesh) => {
-				fancyRender?.styleMesh(mesh);
-				group.add(mesh);
-			});
-			ctx.scene.add(group);
-			previewGroup = group;
-			previewMeshes = meshes;
-			const reports: Array<[string, MeshCheckReport]> = selectedIds
-				.map((id) => {
-					const entry = exportMeshCache.get(id);
-					return entry ? ([id, entry.meshReport] as const) : undefined;
-				})
-				.filter((e): e is [string, MeshCheckReport] => !!e);
-			applyMeshReports(reports, generation);
 		} catch (err) {
 			console.warn('export preview rebuild failed', err);
 			if (generation === checkGeneration) {
 				checkingMesh = false;
+				buildingPreview = false;
+				buildStatus = '';
 			}
 		}
 	}
@@ -663,6 +919,19 @@
 					</li>
 				{/if}
 			</ul>
+			{#if buildingPreview}
+				<div
+					class="pointer-events-none absolute inset-0 z-10 flex items-end justify-center p-4"
+					aria-live="polite"
+				>
+					<div
+						class="card preset-filled-surface-100-900 pointer-events-auto flex min-w-56 flex-col items-stretch gap-2 p-3 shadow-lg"
+					>
+						<p class="text-sm">{buildStatus || m.export_building_dice()}</p>
+						<Progress value={null} />
+					</div>
+				</div>
+			{/if}
 		</Scene>
 
 		<div class="card preset-tonal-surface flex w-80 shrink-0 flex-col gap-3 overflow-y-auto p-4">

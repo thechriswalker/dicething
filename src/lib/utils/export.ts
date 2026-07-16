@@ -102,23 +102,28 @@ export function buildExportMeshes(
 	return out;
 }
 
-// Cache key for a single die's export meshes (main die + its enabled artifacts).
-export function exportDieCacheSig(
-	die: Dice,
-	legendsId: string,
-	includeDice: boolean,
-	optionStates: OptionStates
-): string {
+// Cache key for a die's own geometry (numbered die mesh). Independent of which
+// extra build options are enabled — toggling blanks/platforms must not force a
+// rebuild of the die itself.
+export function exportDieGeometrySig(die: Dice, legendsId: string): string {
 	return JSON.stringify({
 		kind: die.kind,
 		parameters: die.parameters,
 		face_parameters: die.face_parameters,
 		string_parameters: die.string_parameters,
 		legend_ordering: die.legend_ordering,
-		legendsId,
-		includeDice,
-		optionStates
+		legendsId
 	});
+}
+
+// Cache key for one build-option's artifacts for a die. Includes the die
+// geometry sig because blanks/platforms are derived from the current blank.
+export function exportOptionCacheSig(
+	dieSig: string,
+	optionId: string,
+	values: OptionValues
+): string {
+	return JSON.stringify({ dieSig, optionId, values });
 }
 
 // Build export meshes for one die. Geometries are at the die origin (not laid out).
