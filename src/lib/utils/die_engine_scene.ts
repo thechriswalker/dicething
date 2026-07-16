@@ -32,6 +32,10 @@ import type { DieFaceModel } from '$lib/interfaces/dice';
 import type { EngineOutlineState, EnginePointerEvent } from './die_engine_protocol';
 import { EnginePicker } from './die_engine_picking';
 import {
+	applyCameraAutoRotate,
+	AUTO_ROTATE_RAD_PER_SEC
+} from './camera_auto_rotate';
+import {
 	installWorkerWindowPolyfill,
 	syntheticPointerEvent,
 	syntheticWheelEvent,
@@ -148,6 +152,8 @@ export class EngineViewport {
 	private controlSurface: WorkerControlSurface;
 	private camTween: CameraTween | null = null;
 	private exploded = false;
+	private autoRotate = false;
+	private lastSpinNow = 0;
 
 	constructor(canvas: OffscreenCanvas, width: number, height: number, dpr: number) {
 		installWorkerWindowPolyfill();
@@ -235,6 +241,9 @@ export class EngineViewport {
 				this.stepCameraTween();
 			} else {
 				this.controls.update();
+				if (this.autoRotate) {
+					this.stepAutoRotate();
+				}
 			}
 			if (this.wireframeOn) {
 				this.applyWireframe();
@@ -310,8 +319,31 @@ export class EngineViewport {
 		this.exploded = explode;
 		this.controls.noRotate = explode;
 		if (explode) {
+			this.setAutoRotate(false);
 			this.animateQuatDistanceTo(explodeCameraPosition, _defaultUp, _origin);
 		}
+	}
+
+	setAutoRotate(enabled: boolean) {
+		if (!enabled || this.exploded) {
+			this.autoRotate = false;
+			return;
+		}
+		// Orbit in place from the current camera — no pull-out tween.
+		this.autoRotate = true;
+		this.lastSpinNow = performance.now();
+	}
+
+	private stepAutoRotate() {
+		const now = performance.now();
+		if (!this.lastSpinNow) {
+			this.lastSpinNow = now;
+			return;
+		}
+		const dt = Math.min(0.05, (now - this.lastSpinNow) / 1000);
+		this.lastSpinNow = now;
+		applyCameraAutoRotate(this.camera, this.controls.target, AUTO_ROTATE_RAD_PER_SEC * dt);
+		this.syncTrackballEye();
 	}
 
 	private isExplodeCameraPose(): boolean {

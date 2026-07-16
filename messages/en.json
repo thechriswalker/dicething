@@ -351,6 +351,7 @@
 	"controls_toggle_legend_area": "Toggle Legend Area Outline",
 	"controls_toggle_wireframe": "Toggle Wireframe",
 	"controls_toggle_explode_mode": "Toggle Explode Mode",
+	"controls_toggle_auto_rotate": "Auto-rotate scene",
 	"controls_toggle_fancy_render": "Toggle Fancy Render",
 	"controls_undo": "Undo",
 	"controls_redo": "Redo",
@@ -475,6 +476,7 @@
 	"export_failed": "Export failed: {detail}",
 	"export_nothing_selected": "Select at least one die to export.",
 	"export_toggle_fancy_render": "Toggle fancy render",
+	"export_toggle_auto_rotate": "Auto-rotate scene",
 	"engraving_errors_title": "Engraving problems",
 	"dice_land_warning": [
 		{

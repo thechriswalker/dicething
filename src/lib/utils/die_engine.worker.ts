@@ -237,6 +237,10 @@ async function handleRequest(msg: EngineRequest) {
 				viewport?.setExploded(msg.explode);
 				post({ reqId, type: 'ok' });
 				break;
+			case 'setAutoRotate':
+				viewport?.setAutoRotate(msg.enabled);
+				post({ reqId, type: 'ok' });
+				break;
 			case 'setLegendAreaVisible':
 				legendAreaVisible = msg.visible;
 				activeBuilder?.setLegendAreaVisible(msg.visible);
@@ -348,6 +352,7 @@ function requestPriority(msg: EngineRequest): number {
 		case 'patchDie':
 			return 10;
 		case 'setExploded':
+		case 'setAutoRotate':
 		case 'setOutline':
 		case 'setFancy':
 		case 'setWireframe':

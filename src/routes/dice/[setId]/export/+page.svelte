@@ -37,7 +37,7 @@
 		Mesh,
 		MeshBasicMaterial
 	} from 'three';
-	import { TriangleAlert, ArrowLeft, Download, Frame, Sparkles } from '@lucide/svelte';
+	import { TriangleAlert, ArrowLeft, Download, Frame, Rotate3d, Sparkles } from '@lucide/svelte';
 	import { Button } from 'bits-ui';
 
 	const setId = page.params.setId ?? '';
@@ -195,6 +195,7 @@
 
 	let fancyRender = $state<ReturnType<typeof createFancyRender>>();
 	let fancy = $state(true);
+	let autoRotate = $state(false);
 	let previewMeshes: Array<Mesh> = [];
 	let previewNamed: Array<NamedMesh> = [];
 	// per-die export meshes at the origin; invalidated when that die's export inputs change.
@@ -300,6 +301,11 @@
 		fancyRender?.setEnabled(fancy);
 		gridHelper.visible = !fancy;
 		previewMeshes.forEach((m) => fancyRender?.styleMesh(m));
+	}
+
+	function toggleAutoRotate() {
+		autoRotate = !autoRotate;
+		ctx?.setAutoRotate(autoRotate);
 	}
 
 	let previewGroup: Group | undefined;
@@ -600,10 +606,24 @@
 						{#snippet children(props)}
 							<Button.Root
 								{...props}
-								class={'btn-icon ' + (fancy ? 'preset-filled-primary-500' : 'preset-tonal-primary')}
+								class={'btn-icon ' + (fancy ? 'preset-filled-secondary-500' : 'preset-filled-primary-500')}
 								aria-label={m.export_toggle_fancy_render()}
 								aria-pressed={fancy}
 								onclick={toggleFancy}><Sparkles /></Button.Root
+							>
+						{/snippet}
+					</Tooltip>
+				</li>
+				<li>
+					<Tooltip content={m.export_toggle_auto_rotate()} side="right">
+						{#snippet children(props)}
+							<Button.Root
+								{...props}
+								class={'btn-icon ' +
+									(autoRotate ? 'preset-filled-secondary-500' : 'preset-filled-primary-500')}
+								aria-label={m.export_toggle_auto_rotate()}
+								aria-pressed={autoRotate}
+								onclick={toggleAutoRotate}><Rotate3d /></Button.Root
 							>
 						{/snippet}
 					</Tooltip>

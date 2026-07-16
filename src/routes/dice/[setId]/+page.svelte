@@ -46,6 +46,7 @@
 		resetEngineCamera,
 		setEngineActiveDie,
 		setEngineExploded,
+		setEngineAutoRotate,
 		setEngineFancy,
 		setEngineLegendAreaVisible,
 		setEngineOutline
@@ -68,6 +69,7 @@
 		Frame,
 		LayoutGrid,
 		Plus,
+		Rotate3d,
 		Save,
 		Shapes,
 		Sparkles,
@@ -79,7 +81,7 @@
 	} from '@lucide/svelte';
 	import { Button } from 'bits-ui';
 	import { mergeProps } from 'svelte-toolbelt';
-	import { onDestroy, onMount } from 'svelte';
+	import { onDestroy, onMount, untrack } from 'svelte';
 	import { Vector2, Vector3 } from 'three';
 	import { degToRad } from 'three/src/math/MathUtils.js';
 
@@ -282,9 +284,18 @@
 
 	let ctx = $state<EngineSceneHandle | undefined>();
 	let fancy = $state(false);
+	let explodeMode = $state(false);
+	let autoRotate = $state(false);
 	function toggleFancy() {
 		fancy = !fancy;
 		setEngineFancy(fancy);
+	}
+	function toggleAutoRotate() {
+		if (explodeMode) {
+			return;
+		}
+		autoRotate = !autoRotate;
+		setEngineAutoRotate(autoRotate);
 	}
 	let hoverFace = $state(-1);
 
@@ -429,6 +440,10 @@
 	}
 
 	function lookAtFace(idx: number) {
+		if (autoRotate) {
+			autoRotate = false;
+			setEngineAutoRotate(false);
+		}
 		lookAtEngineFace(idx);
 	}
 
@@ -617,6 +632,8 @@
 		}
 		const switching = id !== renderedDice;
 		explodeMode;
+		// Don't subscribe to autoRotate — toggling spin must not rebuild the die.
+		const keepSpinning = untrack(() => autoRotate);
 		dieToJSON(d);
 		void (async () => {
 			engineTrace('editor:buildActiveDie', { id, switching });
@@ -626,7 +643,9 @@
 					selectMode = 'single';
 					selectedFace = 0;
 					selectedFaces = [];
-					resetCamera();
+					if (!keepSpinning) {
+						resetCamera();
+					}
 				}
 				await setEngineActiveDie(id);
 				await engineBuildDie(d, explodeMode, true);
@@ -640,7 +659,11 @@
 					engineTrace('editor:sceneLive', { id });
 				}
 				if (switching) {
-					lookAtFace(0);
+					if (keepSpinning) {
+						// Leave the camera alone; orbit continues from the current view.
+					} else {
+						lookAtFace(0);
+					}
 				}
 				setEngineExploded(explodeMode);
 				span.end();
@@ -1046,8 +1069,6 @@
 		}
 	}
 
-	let explodeMode = $state(false);
-
 	// The explode mode explodes the dice into a flat grid of faces.
 	// I want that to be animated!
 	// so I need to tween between the standard state for each face group and the
@@ -1415,6 +1436,10 @@
 								aria-label={m.controls_toggle_explode_mode()}
 								onclick={() => {
 									explodeMode = !explodeMode;
+									if (explodeMode && autoRotate) {
+										autoRotate = false;
+										setEngineAutoRotate(false);
+									}
 									setEngineExploded(explodeMode);
 									if (!explodeMode) {
 										lookAtFace(selectedFace);
@@ -1426,11 +1451,27 @@
 					</Tooltip>
 				</li>
 				<li>
+					<Tooltip content={m.controls_toggle_auto_rotate()} side="right">
+						{#snippet children(props)}
+							<Button.Root
+								{...props}
+								class={'btn-icon ' +
+									(autoRotate ? 'preset-filled-secondary-500' : 'preset-filled-primary-500')}
+								aria-label={m.controls_toggle_auto_rotate()}
+								aria-pressed={autoRotate}
+								disabled={explodeMode}
+								onclick={toggleAutoRotate}><Rotate3d /></Button.Root
+							>
+						{/snippet}
+					</Tooltip>
+				</li>
+				<li>
 					<Tooltip content={m.controls_toggle_fancy_render()} side="right">
 						{#snippet children(props)}
 							<Button.Root
 								{...props}
-								class={'btn-icon ' + (fancy ? 'preset-filled-primary-500' : 'preset-tonal-primary')}
+								class={'btn-icon ' +
+									(fancy ? 'preset-filled-secondary-500' : 'preset-filled-primary-500')}
 								aria-label={m.controls_toggle_fancy_render()}
 								aria-pressed={fancy}
 								onclick={toggleFancy}><Sparkles /></Button.Root

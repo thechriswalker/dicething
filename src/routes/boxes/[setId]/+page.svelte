@@ -820,7 +820,7 @@
 						{#snippet children(props)}
 							<Button.Root
 								{...props}
-								class={'btn-icon ' + (fancy ? 'preset-filled-primary-500' : 'preset-tonal-primary')}
+								class={'btn-icon ' + (fancy ? 'preset-filled-secondary-500' : 'preset-filled-primary-500')}
 								aria-label={m.controls_toggle_fancy_render()}
 								aria-pressed={fancy}
 								onclick={toggleFancy}><Sparkles /></Button.Root

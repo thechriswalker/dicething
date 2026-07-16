@@ -28,6 +28,10 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { TrackballControls } from 'three/examples/jsm/controls/TrackballControls.js';
 import Stats from 'three/addons/libs/stats.module.js';
 import { getRGB } from './color';
+import {
+	applyCameraAutoRotate,
+	AUTO_ROTATE_RAD_PER_SEC
+} from './camera_auto_rotate';
 
 const defaultCameraPosition = new Vector3(0, 50, 80);
 
@@ -264,6 +268,51 @@ export function createBaseSceneAndRenderer(
 	};
 	let beforeRender = () => {};
 
+	// Turntable spin around the current look-at target; starts from wherever the camera is.
+	let autoRotate = false;
+	let lastSpinNow = 0;
+
+	function syncTrackballAfterProgrammaticMove() {
+		const c = controls as TrackballControls & {
+			_eye: Vector3;
+			_lastPosition: Vector3;
+			_lastZoom: number;
+			_lastAngle: number;
+			_movePrev: Vector2;
+			_moveCurr: Vector2;
+			_zoomStart: Vector2;
+			_zoomEnd: Vector2;
+			_panStart: Vector2;
+			_panEnd: Vector2;
+		};
+		c._eye.subVectors(camera.position, controls.target);
+		c._lastPosition.copy(camera.position);
+		c._lastZoom = camera.zoom;
+		c._panStart.copy(c._panEnd);
+		c._zoomStart.copy(c._zoomEnd);
+		c._movePrev.copy(c._moveCurr);
+		c._lastAngle = 0;
+	}
+
+	function stepAutoRotate() {
+		const now = performance.now();
+		if (!lastSpinNow) {
+			lastSpinNow = now;
+			return;
+		}
+		const dt = Math.min(0.05, (now - lastSpinNow) / 1000);
+		lastSpinNow = now;
+		applyCameraAutoRotate(camera, controls.target, AUTO_ROTATE_RAD_PER_SEC * dt);
+		syncTrackballAfterProgrammaticMove();
+	}
+
+	function setAutoRotate(enabled: boolean) {
+		autoRotate = enabled;
+		if (enabled) {
+			lastSpinNow = performance.now();
+		}
+	}
+
 	// --- developer mode helpers (wireframe + stats) ---
 	let wireframeOn = false;
 	function applyWireframe() {
@@ -322,6 +371,9 @@ export function createBaseSceneAndRenderer(
 		beforeRender();
 		anim = requestAnimationFrame(render);
 		controls.update();
+		if (autoRotate) {
+			stepAutoRotate();
+		}
 		// while on, re-apply so meshes built after the toggle become wireframe too.
 		if (wireframeOn) {
 			applyWireframe();
@@ -340,6 +392,7 @@ export function createBaseSceneAndRenderer(
 		render,
 		setWireframe,
 		setStatsVisible,
+		setAutoRotate,
 		setPrimarySelectedItems(selectedItems: Array<Object3D>) {
 			primaryOutlinePass.selectedObjects = selectedItems;
 		},

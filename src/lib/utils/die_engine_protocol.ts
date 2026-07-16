@@ -111,6 +111,7 @@ export type EngineRequestKind =
 	| 'patchDie'
 	| 'buildDie'
 	| 'setExploded'
+	| 'setAutoRotate'
 	| 'setLegendAreaVisible'
 	| 'setFancy'
 	| 'setWireframe'
@@ -160,6 +161,7 @@ export type EngineRequest = {
 			mountViewport?: boolean;
 	  }
 	| { kind: 'setExploded'; explode: boolean }
+	| { kind: 'setAutoRotate'; enabled: boolean }
 	| { kind: 'setLegendAreaVisible'; visible: boolean }
 	| { kind: 'setFancy'; enabled: boolean }
 	| { kind: 'setWireframe'; enabled: boolean }

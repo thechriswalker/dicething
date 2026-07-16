@@ -360,6 +360,10 @@ export function setEngineExploded(explode: boolean): void {
 	void request('setExploded', { explode });
 }
 
+export function setEngineAutoRotate(enabled: boolean): void {
+	void request('setAutoRotate', { enabled });
+}
+
 export function setEngineLegendAreaVisible(visible: boolean): void {
 	void request('setLegendAreaVisible', { visible });
 }
