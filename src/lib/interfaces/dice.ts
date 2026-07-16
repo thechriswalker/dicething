@@ -80,9 +80,11 @@ export type DieModel = {
 	// create parameters for building a blank using the "build" function that is
 	// offset from the given parameters by `offset`.
 	// note that offset could be positive or negative - as people might want "inverse"
-	// blanks that are bigger than the numbered dice and shell smooth or regular
-	// ones that are smaller than the regular ones and shell to the same size as regular.
+	// blanks that are bigger than the numbered dice, or regular ones that are
+	// smaller than the numbered dice (e.g. to cast/paint into an engraved master).
 	// either way, the offset should be at least your engraving depth + wiggle room.
+	// Resizing via these params (rather than a morphological sphere offset) keeps
+	// sharp edges on both bigger and smaller blanks.
 	blankParameters(params: Record<string, number>, offset: number): Record<string, number>;
 	// the 2D outline (centered at the origin) to use as the base of a printing
 	// "platform" for this die. when omitted, the export flow falls back to the

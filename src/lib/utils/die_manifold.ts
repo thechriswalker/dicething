@@ -17,7 +17,7 @@ import {
 	Vector2,
 	Vector3
 } from 'three';
-import { Transform } from './3d';
+import { Transform, toNonIndexed } from './3d';
 import { DefaultDivisions, Part, type SymbolOrientation } from './engraving';
 import { Legend, type LegendSet } from './legends';
 import {
@@ -34,7 +34,8 @@ import {
 	scaleShapes,
 	translateShapes
 } from './shapes';
-import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { mergeGeometries, mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { removeDuplicateTriangles, repairDegenerateTriangles } from './bad_edges';
 import { shapeGeometry } from './tessellate';
 
 const FACE_ID_BASE = 0;
@@ -330,6 +331,38 @@ export function buildBlankFaceCapGeometry(
 	divisions: number = DefaultDivisions
 ): BufferGeometry {
 	return shapeGeometry(face.shape, divisions);
+}
+
+// Closed surface from face caps — the same shell Builder uses for engraved
+// blanks. Prefer this over prism-union for export blanks: overlapping face
+// prisms (segmented faces, hidden rims, etc.) fold into self-intersecting junk.
+export function assembleBlankExportShellGeometry(
+	faces: Array<DieFaceModel>,
+	divisions: number = DefaultDivisions
+): BufferGeometry {
+	const geos: Array<BufferGeometry> = [];
+	for (const face of faces) {
+		const g = buildBlankFaceCapGeometry(face, divisions);
+		face.transform.applyToGeometry(g);
+		const ng = toNonIndexed(g);
+		ng.computeVertexNormals();
+		delete ng.attributes.uv;
+		if (ng !== g) {
+			g.dispose();
+		}
+		geos.push(ng);
+	}
+	const combined = mergeGeometries(geos);
+	for (const g of geos) {
+		g.dispose();
+	}
+	if (!combined) {
+		return new BufferGeometry();
+	}
+	const merged = mergeVertices(combined);
+	combined.dispose();
+	const deduped = removeDuplicateTriangles(merged);
+	return repairDegenerateTriangles(deduped);
 }
 
 // Full die blank from the watertight export shell, with every triangle tagged by
@@ -877,16 +910,28 @@ export function disposeManifoldDieExport(exported: ManifoldDieExport | undefined
 
 export type BuildBlankManifoldExportArgs = {
 	model: DieModel;
-	faces: Array<DieFaceModel>;
+	/** Base die params (before blank offset). */
 	params: Record<string, number>;
 	stringParams?: Record<string, string>;
-	exportGeometry: BufferGeometry;
+	/**
+	 * Morphological offset in mm. Positive shrinks; negative grows.
+	 * Applied via `model.blankParameters` + a rebuild (sharp edges), not a
+	 * Minkowski sphere (which fillets every edge on outset).
+	 */
 	offset?: number;
 	divisions?: number;
+	/**
+	 * Optional export-shell geometry for the *un-offset* blank (offset === 0).
+	 * Ignored when offset ≠ 0 — the resized solid is built from face prisms.
+	 */
+	exportGeometry?: BufferGeometry;
+	/** Un-offset faces; required when using exportGeometry with offset === 0. */
+	faces?: Array<DieFaceModel>;
 };
 
 // Morphological inset/outset on a watertight blank solid. Positive offset shrinks
 // (inset); negative offset grows (outset). Returns a new manifold; `man` is unchanged.
+// Prefer `blankParameters` + rebuild for export blanks — sphere outset fillets edges.
 export function offsetBlankManifold(man: Manifold, offset: number): Manifold {
 	if (offset === 0) {
 		return cloneManifold(man);
@@ -905,11 +950,11 @@ export function buildBlankManifoldSolid(
 	faces: Array<DieFaceModel>,
 	params: Record<string, number>,
 	stringParams: Record<string, string>,
-	exportGeometry: BufferGeometry,
+	exportGeometry: BufferGeometry | undefined,
 	divisions?: number
 ): Manifold {
 	const blank = getOrBuildBlankManifold(modelId, faces, params, stringParams, {
-		source: 'export',
+		source: exportGeometry ? 'export' : 'prism',
 		exportGeometry,
 		divisions
 	});
@@ -917,19 +962,40 @@ export function buildBlankManifoldSolid(
 }
 
 export function buildBlankManifoldExport(args: BuildBlankManifoldExportArgs): ManifoldDieExport {
-	let man = buildBlankManifoldSolid(
+	const offset = args.offset ?? 0;
+	const stringParams = args.stringParams ?? {};
+
+	if (offset !== 0) {
+		// Resize via the die's own param mapping so faces/edges stay sharp
+		// (Minkowski sphere outset would fillet every convex edge).
+		const blankParams = args.model.blankParameters(args.params, offset);
+		const { faces } = args.model.build(blankParams, stringParams);
+		const shell = assembleBlankExportShellGeometry(faces, args.divisions);
+		const man = buildBlankManifoldSolid(
+			args.model.id,
+			faces,
+			blankParams,
+			stringParams,
+			shell,
+			args.divisions
+		);
+		shell.dispose();
+		return buildManifoldDieExport(man);
+	}
+
+	const faces = args.faces ?? args.model.build(args.params, stringParams).faces;
+	const shell =
+		args.exportGeometry ?? assembleBlankExportShellGeometry(faces, args.divisions);
+	const man = buildBlankManifoldSolid(
 		args.model.id,
-		args.faces,
+		faces,
 		args.params,
-		args.stringParams ?? {},
-		args.exportGeometry,
+		stringParams,
+		shell,
 		args.divisions
 	);
-	const offset = args.offset ?? 0;
-	if (offset !== 0) {
-		const offsetMan = offsetBlankManifold(man, offset);
-		man.delete();
-		man = offsetMan;
+	if (!args.exportGeometry) {
+		shell.dispose();
 	}
 	return buildManifoldDieExport(man);
 }

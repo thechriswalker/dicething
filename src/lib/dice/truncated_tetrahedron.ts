@@ -142,11 +142,13 @@ export const TruncatedTetrahedronD4: DieModel = {
 function truncatedTetrahedronBlankParams(defaultParameters: Record<string, number>): (params: Record<string, number>, offset: number) => Record<string, number> {
 	return (params, offset) => {
 		const height = params['trunc_tetra_size'] ?? defaultParameters['trunc_tetra_size'] ?? defaultHeight;
-		const truncation = params['trunc_tetra_truncation'] ?? defaultParameters['trunc_tetra_truncation'] ?? defaultTruncation;
+		// trunc_tetra_truncation is a dimensionless edge fraction (≈0.25–0.4), not
+		// mm — subtracting the blank offset from it collapses the solid. Keep the
+		// truncation and scale only the overall size. Opposite faces are parallel,
+		// so face-to-face should drop by 2*offset (size tracks f2f closely enough).
 		return {
 			...params,
-			trunc_tetra_size: height - offset,
-			trunc_tetra_truncation: truncation - offset
+			trunc_tetra_size: Math.max(1, height - 2 * offset)
 		};
 	};
 }

@@ -1,6 +1,11 @@
 import { m } from '$lib/paraglide/messages';
-import { buildBlankManifoldExport, transformToMat4 } from '../die_manifold';
+import {
+	assembleBlankExportShellGeometry,
+	buildBlankManifoldExport,
+	transformToMat4
+} from '../die_manifold';
 import { engravingParam } from '../builder';
+import { computePointDownPrintingTransform } from '../printing';
 import { controlValue, type ExtraBuildContext, type ExtraBuildOption } from './types';
 
 // A "blank": the same die shape with every face engraving removed (smooth
@@ -8,6 +13,9 @@ import { controlValue, type ExtraBuildContext, type ExtraBuildOption } from './t
 //  - smaller (the normal case): inset by "max engraving depth + tolerance" so a
 //    cast/painted blank fits inside the engraved master, or
 //  - bigger (for making smooth dice): the die size outset by a fixed amount.
+//
+// Both paths resize via `model.blankParameters` + a rebuild so edges stay sharp.
+// (A Minkowski sphere outset would fillet every convex edge.)
 const controls: ExtraBuildOption['controls'] = [
 	{
 		id: 'bigger',
@@ -61,19 +69,29 @@ export const blanksOption: ExtraBuildOption = {
 			offset = maxEngravingDepth(ctx) + tolerance;
 		}
 
+		const params = ctx.builder.getLastDieParams();
+		const stringParams = ctx.builder.getLastStringParams();
+		const blankParams = ctx.model.blankParameters(params, offset);
+		const built = ctx.model.build(blankParams, stringParams);
+		// Print pose for the *resized* solid (extent changes with offset).
+		const printT =
+			built.printingTransform ?? computePointDownPrintingTransform(built.faces);
+
+		// Face-cap export shell (not prism-union) — same blank solid as engraving.
+		const shell = assembleBlankExportShellGeometry(built.faces);
 		const exported = buildBlankManifoldExport({
 			model: ctx.model,
-			faces: [...ctx.builder.getFaces()],
-			params: ctx.builder.getLastDieParams(),
-			stringParams: ctx.builder.getLastStringParams(),
-			exportGeometry: ctx.builder.getBlankExportShell(ctx.die.parameters),
-			offset
+			params: blankParams,
+			stringParams,
+			faces: built.faces,
+			exportGeometry: shell,
+			offset: 0
 		});
-		// Match the engraved die: bake print orientation into mesh + manifold.
-		const printMat = transformToMat4(ctx.builder.getPrintingTransform());
+		shell.dispose();
+		const printMat = transformToMat4(printT);
 		const oriented = exported.manifold.transform(printMat);
 		exported.manifold.delete();
-		ctx.builder.applyPrintingTransformToGeometry(exported.previewMesh.geometry);
+		printT.applyToGeometry(exported.previewMesh.geometry);
 		return [{ suffix: 'blank', mesh: exported.previewMesh, manifold: oriented }];
 	}
 };
