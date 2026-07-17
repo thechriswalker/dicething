@@ -709,6 +709,9 @@ const HINGE_DEFAULT_CLEARANCE = 0.5;
 // each half's knuckle axis is raised this far above the seam; when the lid folds
 // shut (z -> 2*seam - z) the two rows of barrels end up closureZGap apart.
 const HINGE_CLOSURE_Z_GAP = 0.5;
+// tiny chamfer on each axial end of a knuckle barrel (breaks the sharp circular
+// rim where the end face meets the cylinder / teardrop wall).
+const HINGE_BARREL_END_BEVEL = 0.25;
 const HINGE_SEGMENTS = 48;
 
 export function hingePivotZ(seam: number): number {
@@ -773,12 +776,43 @@ export function chooseHingeClusters(
 	return [{ centerX: 0, length }];
 }
 
-// A cylinder whose axis runs along X, centred at (cx, y, z).
-function xCylinder(r: number, length: number, cx: number, y: number, z: number): Manifold {
+// A cylinder whose axis runs along X, centred at (cx, y, z). Optional
+// `endBevel` chamfers both axial rims (radius shrinks by that amount over that
+// axial length at each end).
+function xCylinder(
+	r: number,
+	length: number,
+	cx: number,
+	y: number,
+	z: number,
+	endBevel = 0
+): Manifold {
 	const wasm = manifold();
-	return wasm.Manifold.cylinder(length, r, r, HINGE_SEGMENTS, true)
-		.rotate([0, 90, 0])
-		.translate([cx, y, z]);
+	const b = Math.max(0, Math.min(endBevel, (length - 0.4) / 2, r - 0.2));
+	if (b <= 0) {
+		return wasm.Manifold.cylinder(length, r, r, HINGE_SEGMENTS, true)
+			.rotate([0, 90, 0])
+			.translate([cx, y, z]);
+	}
+	const tip = r - b;
+	const left = wasm.Manifold.cylinder(b, tip, r, HINGE_SEGMENTS, false).translate([
+		0,
+		0,
+		-length / 2
+	]);
+	const mid = wasm.Manifold.cylinder(length - 2 * b, r, r, HINGE_SEGMENTS, false).translate([
+		0,
+		0,
+		-length / 2 + b
+	]);
+	const right = wasm.Manifold.cylinder(b, r, tip, HINGE_SEGMENTS, false).translate([
+		0,
+		0,
+		length / 2 - b
+	]);
+	const solid = wasm.Manifold.union([left, mid, right]);
+	deleteAll(left, mid, right);
+	return solid.rotate([0, 90, 0]).translate([cx, y, z]);
 }
 
 // Signed area of a 2D polygon (CCW positive).
@@ -797,17 +831,43 @@ function signedArea(pts: Array<[number, number]>): number {
 // in its local xy plane and extrudes along +z; rotating by -90deg about Y maps
 // local x -> world +z, local y -> world y, and the extrude axis -> world -x. So
 // the supplied [z, y] coordinates land directly in the world z/y they name.
-function xPrismZY(pointsZY: Array<[number, number]>, length: number, cx: number): Manifold {
+// `endBevel` chamfers both axial ends (inset CS at the tips, hulled with the
+// full CS a bevel in) - the teardrop outline is convex, so the hull is exact.
+function xPrismZY(
+	pointsZY: Array<[number, number]>,
+	length: number,
+	cx: number,
+	endBevel = 0
+): Manifold {
 	const wasm = manifold();
 	const pts = signedArea(pointsZY) < 0 ? pointsZY.slice().reverse() : pointsZY;
 	const cs = new wasm.CrossSection(pts, 'Positive');
-	const solid = cs
-		.extrude(length)
-		.translate([0, 0, -length / 2])
-		.rotate([0, -90, 0])
-		.translate([cx, 0, 0]);
+	const b = Math.max(0, Math.min(endBevel, (length - 0.4) / 2));
+	const place = (m: Manifold) => m.rotate([0, -90, 0]).translate([cx, 0, 0]);
+	if (b <= 0) {
+		const solid = place(cs.extrude(length).translate([0, 0, -length / 2]));
+		cs.delete();
+		return solid;
+	}
+	const inset = cs.offset(-b, 'Round');
+	const cleaned = inset.simplify();
+	inset.delete();
+	if (cleaned.isEmpty()) {
+		cleaned.delete();
+		const solid = place(cs.extrude(length).translate([0, 0, -length / 2]));
+		cs.delete();
+		return solid;
+	}
+	const w = OFFSET_FRUSTUM_WAFER;
+	const botTip = cleaned.extrude(w).translate([0, 0, -length / 2]);
+	const botFull = cs.extrude(w).translate([0, 0, -length / 2 + b]);
+	const topFull = cs.extrude(w).translate([0, 0, length / 2 - b - w]);
+	const topTip = cleaned.extrude(w).translate([0, 0, length / 2 - w]);
 	cs.delete();
-	return solid;
+	cleaned.delete();
+	const frustum = wasm.Manifold.hull([botTip, botFull, topFull, topTip]);
+	deleteAll(botTip, botFull, topFull, topTip);
+	return place(frustum);
 }
 
 // The (y,z) outline of a knuckle: a FULL round circle of radius R centred at
@@ -859,7 +919,8 @@ function teardropPolygonZY(
 // back to the apex (apexY, apexZ) - the foot of the box's vertical wall, where
 // its bottom bevel begins, so the tail dies into the wall instead of poking past
 // the bevelled footprint. See teardropPolygonZY. Falls back to a plain cylinder
-// if the barrel is too tall to leave room for the tail.
+// if the barrel is too tall to leave room for the tail. `endBevel` chamfers the
+// axial end rims of the barrel (the three visible knuckles get a small one).
 function teardropBarrel(
 	R: number,
 	length: number,
@@ -867,14 +928,15 @@ function teardropBarrel(
 	ay: number,
 	S: number,
 	apexY: number,
-	apexZ: number
+	apexZ: number,
+	endBevel = 0
 ): Manifold {
 	const wy = apexY - ay;
 	const wz = apexZ - S;
 	if (R >= S - 0.1 || wy * wy + wz * wz <= (R + 0.1) * (R + 0.1)) {
-		return xCylinder(R, length, cx, ay, S);
+		return xCylinder(R, length, cx, ay, S, endBevel);
 	}
-	return xPrismZY(teardropPolygonZY(ay, S, R, apexY, apexZ), length, cx);
+	return xPrismZY(teardropPolygonZY(ay, S, R, apexY, apexZ), length, cx, endBevel);
 }
 
 type HingeSolids = {
@@ -987,12 +1049,32 @@ function buildHinge(
 				// outer / base knuckle: a SOLID round barrel fused to the bar, braced
 				// to the bed by a tail leaning back to the base's wall foot; the lid is
 				// relieved here (same teardrop, grown by clearance) so it has room.
-				baseAdds.push(teardropBarrel(barrelR, knuckleW, c, baseY, barrelZ, outerHalf.y, tailZ));
+				baseAdds.push(
+					teardropBarrel(
+						barrelR,
+						knuckleW,
+						c,
+						baseY,
+						barrelZ,
+						outerHalf.y,
+						tailZ,
+						HINGE_BARREL_END_BEVEL
+					)
+				);
 				lidCutters.push(teardropBarrel(reliefR, reliefW, c, lidY, barrelZ, -outerHalf.y, tailZ));
 			} else {
 				// inner / lid knuckle: a bored round barrel (also tailed back to the
 				// lid's wall foot) that wraps the bar; the base is relieved here.
-				const barrel = teardropBarrel(barrelR, knuckleW, c, lidY, barrelZ, -outerHalf.y, tailZ);
+				const barrel = teardropBarrel(
+					barrelR,
+					knuckleW,
+					c,
+					lidY,
+					barrelZ,
+					-outerHalf.y,
+					tailZ,
+					HINGE_BARREL_END_BEVEL
+				);
 				const bore = xCylinder(boreR, knuckleW + 1, c, lidY, barrelZ);
 				const tube = wasm.Manifold.difference(barrel, bore);
 				deleteAll(barrel, bore);
