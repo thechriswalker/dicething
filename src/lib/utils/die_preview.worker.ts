@@ -121,7 +121,8 @@ async function renderPreview(
 	const key = previewCacheKey(die, legendSetId, legendUpdated);
 	const cached = previewCache.get(key);
 	if (cached) {
-		post({ reqId, type: 'previewResult', dieId: die.id, bitmap: cached });
+		const clone = await createImageBitmap(cached);
+		post({ reqId, type: 'previewResult', dieId: die.id, bitmap: clone }, [clone]);
 		return;
 	}
 	await new Promise<void>((resolve, reject) => {
@@ -129,7 +130,8 @@ async function renderPreview(
 			try {
 				const hit = previewCache.get(key);
 				if (hit) {
-					post({ reqId, type: 'previewResult', dieId: die.id, bitmap: hit });
+					const clone = await createImageBitmap(hit);
+					post({ reqId, type: 'previewResult', dieId: die.id, bitmap: clone }, [clone]);
 					resolve();
 					return;
 				}
@@ -156,7 +158,8 @@ async function renderPreview(
 				previewScene.remove(builder.diceGroup);
 				disposePreviewMeshes(builder.diceGroup);
 				previewCache.set(key, bitmap);
-				post({ reqId, type: 'previewResult', dieId: die.id, bitmap });
+				const clone = await createImageBitmap(bitmap);
+				post({ reqId, type: 'previewResult', dieId: die.id, bitmap: clone }, [clone]);
 				resolve();
 			} catch (e) {
 				reject(e);

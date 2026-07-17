@@ -14,7 +14,11 @@
 	let imageURL = $state('');
 
 	$effect(() => {
-		const payload = { die, legends, enabled };
+		// die is mutated in place by the editor — track contents, not identity.
+		const dieJson = dieToJSON(die);
+		const legendId = legends.id;
+		const legendUpdated = 'updated' in legends ? (legends as { updated?: number }).updated : undefined;
+		const payload = { die, legends, enabled, dieJson, legendId, legendUpdated };
 		let cancelled = false;
 		if (!payload.enabled) {
 			return;

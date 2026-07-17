@@ -643,7 +643,11 @@
 		explodeMode;
 		// Don't subscribe to autoRotate — toggling spin must not rebuild the die.
 		const keepSpinning = untrack(() => autoRotate);
+		// Track param/legend edits (and persist them). The live editor mutates the
+		// die in place; without this, rebuilds/export see the new shape but
+		// IndexedDB / die previews / the box builder keep the last saved copy.
 		dieToJSON(d);
+		save(setData);
 		void (async () => {
 			engineTrace('editor:buildActiveDie', { id, switching });
 			const span = engineTraceSpan(switching ? `editor:switch:${id}` : `editor:rebuild:${id}`);

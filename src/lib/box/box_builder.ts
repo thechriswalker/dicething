@@ -444,8 +444,8 @@ function roundOffset(cs: CrossSection, delta: number): CrossSection {
 // A 45-degree flare at the cavity opening (the inner tray floor): slice the
 // swept cavity at the bevel start, Round-offset that profile outward by
 // `bevel`, then hull the unoffset and offset wafers into a frustum whose top
-// sits at the tray floor. Naive hull - may fill concavities on weird footprints
-// (coin); keep an eye on those.
+// sits at the tray floor. Hull fills concavities, but non-convex footprints
+// are rare enough that we accept that.
 function seamChamferCut(swept: Manifold, openingZ: number, bevel: number): Manifold | undefined {
 	if (bevel <= 0) {
 		return undefined;
