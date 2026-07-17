@@ -312,15 +312,41 @@ function octagonCSPerCorner(
 	return new wasm.CrossSection(octagonPointsPerCorner(hx, hy, cpp, cmp, cmm, cpm), 'Positive');
 }
 
-// Per-axis scale relating the body octagon to one shrunk in by ~`bevel` on each
-// edge. A single uniform scale over-shrinks the longer half-extent relative to
-// the shorter one; independent x/y factors keep the bevel even on rectangular
-// footprints.
-function bevelScale(outerHalf: Vector2, bevel: number): [number, number] {
-	return [
-		(outerHalf.x + bevel) / outerHalf.x,
-		(outerHalf.y + bevel) / outerHalf.y
-	];
+// True perpendicular inset/outset of a cross-section. Miter joins keep corners
+// sharp (Clipper2 has no "Sharp" join - Miter is the pointed one).
+function miterOffset(cs: CrossSection, delta: number): CrossSection {
+	const offset = cs.offset(delta, 'Miter');
+	const cleaned = offset.simplify();
+	offset.delete();
+	return cleaned;
+}
+
+// Thin wafer used only as a hull seed; not a real feature of the solid.
+const OFFSET_FRUSTUM_WAFER = 1e-3;
+
+// Convex frustum between two parallel offset profiles of `cs`. For a convex
+// outline (the body octagon) the hull of the two wafers is exactly the solid
+// whose side walls are the constant-width bevel - no per-axis scale guesswork.
+// `d0` is the offset at z = z0, `d1` at z = z1 (negative = inset).
+function offsetFrustum(
+	cs: CrossSection,
+	z0: number,
+	z1: number,
+	d0: number,
+	d1: number
+): Manifold {
+	const wasm = manifold();
+	const botCS = miterOffset(cs, d0);
+	const topCS = miterOffset(cs, d1);
+	const bot = botCS.extrude(OFFSET_FRUSTUM_WAFER).translate([0, 0, z0]);
+	const top = topCS
+		.extrude(OFFSET_FRUSTUM_WAFER)
+		.translate([0, 0, z1 - OFFSET_FRUSTUM_WAFER]);
+	botCS.delete();
+	topCS.delete();
+	const frustum = wasm.Manifold.hull([bot, top]);
+	deleteAll(bot, top);
+	return frustum;
 }
 
 // The solid octagonal slab for one half (rests on z = 0, extends to +height).
@@ -333,8 +359,8 @@ function bevelScale(outerHalf: Vector2, bevel: number): [number, number] {
 // touch): the body octagon shrinks back in by `topChamfer` over the last
 // `topChamfer` of height. The inner part of the seam face stays the body
 // octagon so the halves still mate flat - only the outer lip is relieved, which
-// makes the closed box easier to prise open. Kept self-similar so the
-// truncation reads cleanly at the corners.
+// makes the closed box easier to prise open. Both chamfers use a true offset
+// (constant inset) rather than a self-similar scale.
 function octagonSlab(
 	outerHalf: Vector2,
 	chamfer: number, // truncation of the rectangle box outline into an octagon.
@@ -353,17 +379,14 @@ function octagonSlab(
 	}
 	const parts: Array<Manifold> = [];
 	if (b > 0) {
-		// it's easier to extrude the octagon DOWN, shrinking it, than to work out the correct scale up.
-		const [sx, sy] = bevelScale(outerHalf, b);
-		parts.push(full.extrude(b, 0, 0, [1 / sx, 1 / sy]).rotate([0, 180,0]).translate([0, 0, b]));
-
+		// bottom face inset by `b`, growing out to the body octagon at z = b.
+		parts.push(offsetFrustum(full, 0, b, -b, 0));
 	}
 	// straight body prism between the two chamfers.
 	parts.push(full.extrude(height - b - tc).translate([0, 0, b]));
 	if (tc > 0) {
-		// body shrinking inward to a smaller octagon at the seam (self-similar).
-		const [sx, sy] = bevelScale(outerHalf, tc);
-		parts.push(full.extrude(tc, 0, 0, [1 / sx, 1 / sy]).translate([0, 0, height - tc]));
+		// body shrinking inward to an offset-inset octagon at the seam.
+		parts.push(offsetFrustum(full, height - tc, height, 0, -tc));
 	}
 	full.delete();
 	let slab = parts[0];
@@ -413,10 +436,11 @@ function sweepUp(die: Manifold): Manifold {
 // Layer height when lofting the opening chamfer (smaller = smoother 45° faces).
 const CAVITY_BEVEL_LAYER = 0.1;
 
-// A 45-degree flare at the cavity opening (the inner tray floor). Each layer
-// offsets the swept cavity profile outward by a little more (Round joins so
-// reflex corners on d8/d10 don't spike), giving a true chamfer rather than a
-// single scaled extrude that reads as a square step on complex outlines.
+// A 45-degree flare at the cavity opening (the inner tray floor). Each layer is
+// a true Miter offset of the swept cavity profile (offset distance = height
+// below the opening, so the side wall is ~45°). Stacked as constant-section
+// prisms rather than scale-lofted: die footprints can be non-convex, so a hull
+// between consecutive offsets would fill concavities and over-cut.
 function seamChamferCut(swept: Manifold, openingZ: number, bevel: number): Manifold | undefined {
 	if (bevel <= 0) {
 		return undefined;
@@ -436,27 +460,15 @@ function seamChamferCut(swept: Manifold, openingZ: number, bevel: number): Manif
 	const parts: Array<Manifold> = [];
 
 	for (let i = 0; i < steps; i++) {
-		const oBot = (bevel * i) / steps;
-		const oTop = (bevel * (i + 1)) / steps;
-		const csBot = wall.offset(oBot, 'Round');
-		const csTop = wall.offset(oTop, 'Round');
-		if (csTop.isEmpty()) {
-			csBot.delete();
+		// mid-layer offset so the stairstep straddles the true 45° plane.
+		const o = (bevel * (i + 0.5)) / steps;
+		const cs = miterOffset(wall, o);
+		if (cs.isEmpty()) {
+			cs.delete();
 			continue;
 		}
-		const tb = csTop.bounds();
-		const bb2 = csBot.bounds();
-		const wx = tb.max[0] - tb.min[0];
-		const wy = tb.max[1] - tb.min[1];
-		const bx = bb2.max[0] - bb2.min[0];
-		const by = bb2.max[1] - bb2.min[1];
-		const sx = bx > 1e-6 && wx > 1e-6 ? wx / bx : 1;
-		const sy = by > 1e-6 && wy > 1e-6 ? wy / by : 1;
-		parts.push(
-			csBot.extrude(layerH, 0, 0, [sx, sy]).translate([0, 0, openingZ - bevel + i * layerH])
-		);
-		csBot.delete();
-		csTop.delete();
+		parts.push(cs.extrude(layerH).translate([0, 0, openingZ - bevel + i * layerH]));
+		cs.delete();
 	}
 	wall.delete();
 

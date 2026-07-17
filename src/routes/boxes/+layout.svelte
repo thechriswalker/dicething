@@ -1,4 +1,6 @@
 <script lang="ts">
+	import Layout from '$lib/components/layout/Layout.svelte';
+
 	import { browser } from '$app/environment';
 	import { goto } from '$app/navigation';
 	import { getPreferences } from '$lib/interfaces/preferences.svelte';
@@ -16,6 +18,8 @@
 	});
 </script>
 
-{#if prefs.developerMode}
-	{@render children()}
-{/if}
+<Layout>
+	{#if prefs.developerMode}
+		{@render children()}
+	{/if}
+</Layout>
