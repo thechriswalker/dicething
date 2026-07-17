@@ -197,6 +197,9 @@ export type EngineResponse =
 			engravingErrors: Array<EngravingError>;
 			// Indexed Manifold topology when available (avoids weld false-positives).
 			meshReport: MeshCheckReport;
+			// Enclosed volume (mm³) per export group, from Manifold.volume() while
+			// the solids are still alive. Keyed by group id ('dice', 'blanks', …).
+			groupVolumesMm3: Record<string, number>;
 	  }
 	| { reqId: number; type: 'meshCheckResult'; report: MeshCheckReport }
 	| { reqId: number; type: 'ok' }

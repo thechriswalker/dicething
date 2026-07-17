@@ -288,6 +288,15 @@ async function handleRequest(msg: EngineRequest) {
 				const meshReport = mergeMeshReports(
 					named.map((n) => checkExportMesh(n, { collectBad: true }))
 				);
+				// Measure while Manifolds are still alive — cheaper and exact vs
+				// re-walking the transferred Three.js triangle soup on the main thread.
+				const groupVolumesMm3: Record<string, number> = {};
+				for (const n of named) {
+					if (!n.manifold) {
+						continue;
+					}
+					groupVolumesMm3[n.group] = (groupVolumesMm3[n.group] ?? 0) + n.manifold.volume();
+				}
 				const meshes = named.map((n) => ({
 					name: n.name,
 					dieId: n.dieId ?? die.id,
@@ -305,7 +314,8 @@ async function handleRequest(msg: EngineRequest) {
 						type: 'exportResult',
 						meshes: out,
 						engravingErrors,
-						meshReport
+						meshReport,
+						groupVolumesMm3
 					} satisfies EngineResponse,
 					transfer
 				);

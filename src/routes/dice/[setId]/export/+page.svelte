@@ -1,10 +1,11 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import { Progress } from '@skeletonlabs/skeleton-svelte';
 	import Layout from '$lib/components/layout/Layout.svelte';
 	import Scene from '$lib/components/scene/Scene.svelte';
 	import Slider from '$lib/components/slider/Slider.svelte';
+	import BoxProgressDie from '$lib/box/BoxProgressDie.svelte';
+	import type { BuildProgress } from '$lib/box/box_builder';
 	import { waitForSet, dieToJSON, type Dice, type DiceSet } from '$lib/interfaces/storage.svelte';
 	import { getPreferences } from '$lib/interfaces/preferences.svelte';
 	import { m } from '$lib/paraglide/messages';
@@ -26,7 +27,7 @@
 	import Collapsible from '$lib/components/collapsible/Collapsible.svelte';
 	import Tooltip from '$lib/components/tooltip/Tooltip.svelte';
 	import dice from '$lib/dice';
-	import { approximateDieVolume, meshVolume, type EngravingError } from '$lib/utils/builder';
+	import { approximateDieVolume, type EngravingError } from '$lib/utils/builder';
 	import { exportDieInEngine, loadEngineSet } from '$lib/utils/die_engine_client';
 	import { legendsJsonForEngine } from '$lib/utils/preview_legends';
 	import { mergeMeshReports, type MeshCheckReport } from '$lib/utils/mesh_check';
@@ -90,7 +91,9 @@
 	let meshReports = $state<Record<string, MeshCheckReport>>({});
 	let checkingMesh = $state(false);
 	let buildingPreview = $state(false);
-	let buildStatus = $state('');
+	let buildProgress = $state<BuildProgress | null>(null);
+	let buildFinished = $state(false);
+	let atFinalFace = $state(false);
 	// bumped on every preview rebuild so stale async check results are ignored.
 	let checkGeneration = 0;
 
@@ -208,6 +211,8 @@
 		sig: string;
 		meshes: Array<NamedMesh>;
 		meshReport: MeshCheckReport;
+		/** Enclosed volume (mm³) from Manifold.volume() at build time. */
+		volumeMm3: number;
 	};
 	type DieExportCache = {
 		dieSig: string;
@@ -384,7 +389,8 @@
 			entry.groups.dice = {
 				sig: dieSig,
 				meshes,
-				meshReport: report
+				meshReport: report,
+				volumeMm3: result.groupVolumesMm3.dice ?? 0
 			};
 		}
 		for (const option of extraBuildOptions) {
@@ -397,7 +403,8 @@
 			entry.groups[option.id] = {
 				sig: exportOptionCacheSig(dieSig, option.id, state.values),
 				meshes,
-				meshReport: report
+				meshReport: report,
+				volumeMm3: result.groupVolumesMm3[option.id] ?? 0
 			};
 		}
 		return entry;
@@ -516,11 +523,21 @@
 
 		previewNamed = named;
 		const vols: Record<string, number> = {};
-		for (const n of named) {
-			if (n.group === 'dice') {
+		for (const id of ids) {
+			const entry = exportMeshCache.get(id);
+			if (!entry) {
 				continue;
 			}
-			vols[n.group] = (vols[n.group] ?? 0) + meshVolume(n.mesh) / 1000;
+			for (const option of extraBuildOptions) {
+				if (!optionSnap[option.id]?.enabled) {
+					continue;
+				}
+				const g = entry.groups[option.id];
+				if (!g || g.volumeMm3 <= 0) {
+					continue;
+				}
+				vols[option.id] = (vols[option.id] ?? 0) + g.volumeMm3 / 1000;
+			}
 		}
 		artifactVolumesMl = vols;
 		layoutNamedMeshes(named);
@@ -594,7 +611,8 @@
 
 			if (jobs.length === 0) {
 				buildingPreview = false;
-				buildStatus = '';
+				buildProgress = null;
+				buildFinished = false;
 				if (!errorsInitialized) {
 					const errs: Record<string, Array<EngravingError>> = {};
 					for (const d of setData.dice) {
@@ -617,18 +635,31 @@
 			}
 
 			buildingPreview = true;
+			buildFinished = false;
+			atFinalFace = false;
 			checkingMesh = true;
+			buildProgress = {
+				step: 0,
+				totalSteps: jobs.length,
+				phase: 'prepare',
+				label: m.export_building_dice()
+			};
 
 			for (let i = 0; i < jobs.length; i++) {
 				if (generation !== checkGeneration) {
 					return;
 				}
 				const job = jobs[i];
-				buildStatus = m.export_building_progress({
-					current: i + 1,
-					total: jobs.length,
-					label: job.label
-				});
+				buildProgress = {
+					step: i + 1,
+					totalSteps: jobs.length,
+					phase: 'prepare',
+					label: m.export_building_progress({
+						current: i + 1,
+						total: jobs.length,
+						label: job.label
+					})
+				};
 				const result = await exportDieInEngine(
 					dieToJSON(job.die),
 					legendsJson,
@@ -672,20 +703,30 @@
 			}
 
 			if (generation === checkGeneration) {
-				buildingPreview = false;
-				buildStatus = '';
+				buildFinished = true;
 			}
 		} catch (err) {
 			console.warn('export preview rebuild failed', err);
 			if (generation === checkGeneration) {
 				checkingMesh = false;
 				buildingPreview = false;
-				buildStatus = '';
+				buildProgress = null;
+				buildFinished = false;
 			}
 		}
 	}
 	const schedulePreview = debounce<void>(150, () => {
 		void rebuildPreview();
+	});
+
+	// linger briefly after compute finishes AND the countdown die has rolled to
+	// its final face, matching the box builder indicator.
+	$effect(() => {
+		if (buildingPreview && buildFinished && atFinalFace) {
+				buildingPreview = false;
+				buildProgress = null;
+				buildFinished = false;
+		}
 	});
 
 	// signature of everything the preview depends on, so the effect re-runs when
@@ -760,9 +801,8 @@
 		return mm3 / 1000;
 	});
 
-	// per-build-option artifact volumes (ml), measured from the meshes that will
-	// actually be exported. populated by rebuildPreview (which already builds them)
-	// so we never build the artifact meshes twice. keyed by build-option id.
+	// per-build-option artifact volumes (ml), from Manifold.volume() measured in
+	// the export worker at build time and cached with each group.
 	let artifactVolumesMl = $state<Record<string, number>>({});
 
 	// one row per non-empty export group (the dice, plus any enabled build option
@@ -924,11 +964,8 @@
 					class="pointer-events-none absolute inset-0 z-10 flex items-end justify-center p-4"
 					aria-live="polite"
 				>
-					<div
-						class="card preset-filled-surface-100-900 pointer-events-auto flex min-w-56 flex-col items-stretch gap-2 p-3 shadow-lg"
-					>
-						<p class="text-sm">{buildStatus || m.export_building_dice()}</p>
-						<Progress value={null} />
+					<div class="pointer-events-auto">
+						<BoxProgressDie progress={buildProgress} complete={buildFinished} bind:atFinalFace />
 					</div>
 				</div>
 			{/if}

@@ -6,8 +6,8 @@
 	// onto its faces, so the die acts as the bar.
 	//
 	// The renderer is deliberately slim (a bare Scene + WebGLRenderer + one
-	// camera, no controls/composer/environment) - the previewer worker proves an
-	// unlit MeshNormalMaterial die needs nothing more.
+	// camera, no controls/composer/environment) and uses Builder.flatLegendPreview
+	// like die_preview.worker — flat legend overlays, no manifold engraving.
 	import { dev as buildDev } from '$app/environment';
 	import { onDestroy, onMount, untrack } from 'svelte';
 	import {
@@ -198,6 +198,8 @@
 			});
 		}
 		const next = new Builder(model, legends);
+		// same cheap path as die_preview.worker: flat legend overlays, no manifold.
+		next.flatLegendPreview = true;
 		next.build({}, [], { explode: false });
 		builder = next;
 
@@ -335,6 +337,10 @@
 		if (!p) {
 			return m.boxes_rendering();
 		}
+		// callers (e.g. export) can supply a ready-made status string.
+		if (p.label) {
+			return p.label;
+		}
 		if (p.step === 0) {
 			return m.boxes_rendering();
 		}
@@ -349,7 +355,7 @@
 	});
 </script>
 
-<div class="card preset-filled-surface-100-900 flex flex-col items-center gap-1 p-2">
+<div class="card preset-glass-surface flex flex-col items-center gap-1 p-2">
 	<canvas class="progress-die" bind:this={canvasEl}></canvas>
 	<div class="text-center text-sm">{label}</div>
 	{#if progress}
