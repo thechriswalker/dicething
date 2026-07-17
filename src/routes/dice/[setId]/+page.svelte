@@ -77,7 +77,11 @@
 		Squircle,
 		Trash2,
 		WandSparkles,
-		X
+		X,
+		Settings,
+		TypeOutline,
+		SlidersHorizontal,
+		Share2
 	} from '@lucide/svelte';
 	import { Button } from 'bits-ui';
 	import { mergeProps } from 'svelte-toolbelt';
@@ -90,6 +94,11 @@
 	function mergeTriggerProps(parent: unknown, tip: Record<string, unknown>) {
 		return mergeProps(parent as Record<string, unknown>, tip);
 	}
+
+	let legendsOpen = $state(false);
+	let engravingOpen = $state(false);
+	let shareOpen = $state(false);
+	let deleteOpen = $state(false);
 
 	let { setId = '' } = page.params;
 	let dieId = $derived.by(() => {
@@ -1150,6 +1159,51 @@
 			}
 		]
 	};
+
+	const setOptionsMenu: MenuItemSubmenu = {
+		type: 'submenu',
+		title: m.set_options_menu(),
+		icon: Settings,
+		children: [
+			{
+				type: 'action',
+				title: m.menu_legends(),
+				icon: TypeOutline,
+				action: () => {
+					legendsOpen = true;
+				}
+			},
+			{
+				type: 'action',
+				title: m.set_config_button(),
+				icon: SlidersHorizontal,
+				action: () => {
+					engravingOpen = true;
+				}
+			},
+			{
+				type: 'action',
+				title: m.share_button(),
+				icon: Share2,
+				action: () => {
+					shareOpen = true;
+				}
+			},
+			{
+				type: 'separator',
+				title: ''
+			},
+			{
+				type: 'action',
+				title: m.delete_set_button(),
+				icon: Trash2,
+				danger: true,
+				action: () => {
+					deleteOpen = true;
+				}
+			}
+		]
+	};
 </script>
 
 <Layout>
@@ -1182,6 +1236,8 @@
 				</Tooltip>
 			{/if}
 			<LegendsModal
+				bind:open={legendsOpen}
+				showTrigger={false}
 				current={loadedSet.legends}
 				{savedLegends}
 				onEdit={editOrCloneLegends}
@@ -1189,6 +1245,8 @@
 				onSelectBuiltin={(b) => fontAction(b)()}
 			/>
 			<SetConfigModal
+				bind:open={engravingOpen}
+				showTrigger={false}
 				depth={setDepth.value}
 				tolerance={setTolerance.value}
 				depthMixed={setDepth.mixed}
@@ -1196,21 +1254,15 @@
 				onChangeDepth={(v) => setEngravingForAllDice(engravingParam.id, v)}
 				onChangeTolerance={(v) => setEngravingForAllDice(engravingToleranceParam.id, v)}
 			/>
-			<ShareModal set={loadedSet} />
+			<ShareModal bind:open={shareOpen} showTrigger={false} set={loadedSet} />
+			<DeleteSetDialog
+				bind:open={deleteOpen}
+				{setId}
+				setName={loadedSet.name}
+				onDeleted={() => goto('/dice')}
+			/>
+			<Menu data={setOptionsMenu} submenuOnLeft></Menu>
 			<Menu data={exportMenu} submenuOnLeft></Menu>
-			<DeleteSetDialog {setId} setName={loadedSet.name} onDeleted={() => goto('/dice')}>
-				{#snippet trigger(props)}
-					<Tooltip content={m.delete_set_button()} side="bottom">
-						{#snippet children(tipProps)}
-							{@const merged = mergeTriggerProps(props, tipProps)}
-							<button {...merged} type="button" class="btn preset-filled-error-500">
-								<Trash2 class="size-4" />
-								{m.delete_set_button()}
-							</button>
-						{/snippet}
-					</Tooltip>
-				{/snippet}
-			</DeleteSetDialog>
 		{/if}
 	{/snippet}
 	{#if pageLoad === 'loading'}

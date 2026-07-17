@@ -5,19 +5,24 @@
 	import { legendSetPreview } from '$lib/utils/create_legends';
 	import type { LegendSet } from '$lib/utils/legends';
 	import { Pencil, TypeOutline } from '@lucide/svelte';
+	import type { HTMLButtonAttributes } from 'svelte/elements';
 
 	let {
 		current,
 		savedLegends,
 		onEdit,
 		onSelectCustom,
-		onSelectBuiltin
+		onSelectBuiltin,
+		open = $bindable(false),
+		showTrigger = true
 	}: {
 		current: LegendSet;
 		savedLegends: Array<LegendSet>;
 		onEdit: () => void;
 		onSelectCustom: (set: LegendSet) => void;
 		onSelectBuiltin: (b: Builtin) => void;
+		open?: boolean;
+		showTrigger?: boolean;
 	} = $props();
 
 	// builtins shown as choices (everything except the empty "blanks" set, which
@@ -58,94 +63,96 @@
 	</button>
 {/snippet}
 
-<Modal>
-	{#snippet title()}
-		<div class="flex flex-row items-center justify-start gap-4 text-4xl">
-			<TypeOutline class="icon-text" />
-			{m.menu_legends()}
-		</div>
-	{/snippet}
-	{#snippet trigger(props)}
-		<button {...props} class="btn preset-outlined-surface-500">
-			<TypeOutline class="icon-text" />
-			{m.menu_legends()}
-		</button>
-	{/snippet}
-	{#snippet inner(close)}
-		<div class="flex w-[90vw] flex-col gap-4">
-			<section class="flex flex-row items-end justify-start gap-4">
-				<div
-					class="preset-filled-surface-50-950 preset-outlined flex flex-col gap-2 rounded-md p-3"
-				>
-					<strong>{current.name}</strong>
-					<div class="flex h-[24px] items-center">
-						{#if previewFor(current)}
-							<img src={previewFor(current)} alt={current.name} class="h-[24px] dark:invert" />
-						{/if}
-					</div>
-				</div>
-				<button
-					class="btn preset-filled-primary-500"
-					onclick={() => {
-						onEdit();
-						close();
-					}}
-				>
-					<Pencil class="size-4" />
-					{currentIsBuiltin ? m.legends_clone_builtin_edit() : m.legends_edit_legends()}
-				</button>
-			</section>
+{#snippet title()}
+	<div class="flex flex-row items-center justify-start gap-4 text-4xl">
+		<TypeOutline class="icon-text" />
+		{m.menu_legends()}
+	</div>
+{/snippet}
 
-			<hr class="hr" />
+{#snippet trigger(props: HTMLButtonAttributes)}
+	<button {...props} class="btn preset-outlined-surface-500">
+		<TypeOutline class="icon-text" />
+		{m.menu_legends()}
+	</button>
+{/snippet}
 
-			<section class="flex flex-col gap-3">
-				<p class="h6">{m.legends_modal_change_title()}</p>
-				<div class="flex max-h-[50vh] flex-col gap-4 overflow-y-auto pr-1">
-					{#if savedLegends.length > 0}
-						<div class="flex flex-col gap-2">
-							<p class="text-surface-600-400 text-sm font-semibold">{m.menu_custom()}</p>
-							<div class="grid grid-cols-2 gap-3 sm:grid-cols-3">
-								{#each savedLegends as set (set.id)}
-									{@render previewCard({
-										name: set.name,
-										preview: legendSetPreview(set),
-										selected: set.id === current.id,
-										onclick: () => {
-											onSelectCustom(set);
-											close();
-										}
-									})}
-								{/each}
-							</div>
-						</div>
+{#snippet inner(close: () => void)}
+	<div class="flex w-[90vw] flex-col gap-4">
+		<section class="flex flex-row items-end justify-start gap-4">
+			<div
+				class="preset-filled-surface-50-950 preset-outlined flex flex-col gap-2 rounded-md p-3"
+			>
+				<strong>{current.name}</strong>
+				<div class="flex h-[24px] items-center">
+					{#if previewFor(current)}
+						<img src={previewFor(current)} alt={current.name} class="h-[24px] dark:invert" />
 					{/if}
+				</div>
+			</div>
+			<button
+				class="btn preset-filled-primary-500"
+				onclick={() => {
+					onEdit();
+					close();
+				}}
+			>
+				<Pencil class="size-4" />
+				{currentIsBuiltin ? m.legends_clone_builtin_edit() : m.legends_edit_legends()}
+			</button>
+		</section>
+
+		<hr class="hr" />
+
+		<section class="flex flex-col gap-3">
+			<p class="h6">{m.legends_modal_change_title()}</p>
+			<div class="flex max-h-[50vh] flex-col gap-4 overflow-y-auto pr-1">
+				{#if savedLegends.length > 0}
 					<div class="flex flex-col gap-2">
-						<p class="text-surface-600-400 text-sm font-semibold">{m.menu_builtin()}</p>
+						<p class="text-surface-600-400 text-sm font-semibold">{m.menu_custom()}</p>
 						<div class="grid grid-cols-2 gap-3 sm:grid-cols-3">
-							{@render previewCard({
-								name: builtins.blanks.name,
-								preview: '',
-								selected: builtins.blanks.id === current.id,
-								onclick: () => {
-									onSelectBuiltin(builtins.blanks);
-									close();
-								}
-							})}
-							{#each builtinList as b (b.id)}
+							{#each savedLegends as set (set.id)}
 								{@render previewCard({
-									name: b.name,
-									preview: b.preview,
-									selected: b.id === current.id,
+									name: set.name,
+									preview: legendSetPreview(set),
+									selected: set.id === current.id,
 									onclick: () => {
-										onSelectBuiltin(b);
+										onSelectCustom(set);
 										close();
 									}
 								})}
 							{/each}
 						</div>
 					</div>
+				{/if}
+				<div class="flex flex-col gap-2">
+					<p class="text-surface-600-400 text-sm font-semibold">{m.menu_builtin()}</p>
+					<div class="grid grid-cols-2 gap-3 sm:grid-cols-3">
+						{@render previewCard({
+							name: builtins.blanks.name,
+							preview: '',
+							selected: builtins.blanks.id === current.id,
+							onclick: () => {
+								onSelectBuiltin(builtins.blanks);
+								close();
+							}
+						})}
+						{#each builtinList as b (b.id)}
+							{@render previewCard({
+								name: b.name,
+								preview: b.preview,
+								selected: b.id === current.id,
+								onclick: () => {
+									onSelectBuiltin(b);
+									close();
+								}
+							})}
+						{/each}
+					</div>
 				</div>
-			</section>
-		</div>
-	{/snippet}
-</Modal>
+			</div>
+		</section>
+	</div>
+{/snippet}
+
+<Modal bind:open {title} {inner} trigger={showTrigger ? trigger : undefined} />

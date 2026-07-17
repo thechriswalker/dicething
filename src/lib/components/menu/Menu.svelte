@@ -18,9 +18,19 @@
 	const itemBase =
 		'btn flex w-full flex-row items-center justify-start gap-2 outline-hidden focus:preset-filled-primary-500 z-1000';
 	const itemClass = ' cursor-pointer';
+	const itemDanger = ' text-error-500 focus:preset-filled-error-500';
 	const itemDisabled = 'background-surface-200-800 text-surface-300-700 cursor-not-allowed';
 	const menuClass =
 		'card preset-outlined-surface-500 bg-surface-50-950 flex flex-col gap-2 rounded-md p-1 focus-visible:outline-hidden';
+
+	function itemClasses(item: MenuItem): string {
+		const disabled = 'disabled' in item && !!item.disabled;
+		if (disabled) {
+			return `${itemBase} ${itemDisabled}`;
+		}
+		const danger = 'danger' in item && !!item.danger;
+		return `${itemBase} ${itemClass}${danger ? itemDanger : ''}`;
+	}
 </script>
 
 {#snippet titleContent(title: string | Snippet)}
@@ -38,12 +48,12 @@
 	{:else if item.type === 'lightswitch'}
 		<MenuLightSwitch
 			{disabled}
-			class="{itemBase} {disabled ? itemDisabled : itemClass}"
+			class={itemClasses(item)}
 			{submenuOnLeft}
 			{menuClass}
 		/>
 	{:else if item.type === 'link'}
-		<Menu.Item value={id} {disabled} class="{itemBase} {disabled ? itemDisabled : itemClass}">
+		<Menu.Item value={id} {disabled} class={itemClasses(item)}>
 			<a href={item.href} class="contents">
 				{#if item.icon}
 					{@const Icon = item.icon}
@@ -57,12 +67,7 @@
 			</a>
 		</Menu.Item>
 	{:else if item.type === 'action'}
-		<Menu.Item
-			value={id}
-			{disabled}
-			onclick={item.action}
-			class="{itemBase} {disabled ? itemDisabled : itemClass}"
-		>
+		<Menu.Item value={id} {disabled} onclick={item.action} class={itemClasses(item)}>
 			{#if item.icon}
 				{@const Icon = item.icon}
 				<Menu.ItemIndicator>
@@ -74,12 +79,7 @@
 			</Menu.ItemText>
 		</Menu.Item>
 	{:else if item.type === 'legend'}
-		<Menu.Item
-			value={id}
-			{disabled}
-			onclick={item.action}
-			class="{itemBase} {disabled ? itemDisabled : itemClass}"
-		>
+		<Menu.Item value={id} {disabled} onclick={item.action} class={itemClasses(item)}>
 			{#if item.icon}
 				{@const Icon = item.icon}
 				<Menu.ItemIndicator>
@@ -97,7 +97,7 @@
 			<Menu.TriggerItem
 				value={id}
 				disabled={subDisabled}
-				class="{itemBase} {subDisabled ? itemDisabled : itemClass}"
+				class={itemClasses({ ...item, disabled: subDisabled })}
 				>{#if submenuOnLeft}
 					<Menu.ItemIndicator>
 						<ChevronLeft class="icon-text" />
@@ -134,7 +134,7 @@
 			{disabled}
 			checked={!!item.checked}
 			onCheckedChange={(checked) => item.onToggle?.(checked)}
-			class="{itemBase} {disabled ? itemDisabled : itemClass}"
+			class={itemClasses(item)}
 			value={id}
 		>
 			{#if item.icon}

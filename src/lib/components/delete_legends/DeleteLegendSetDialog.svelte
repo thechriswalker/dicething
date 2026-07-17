@@ -27,42 +27,40 @@
 	}
 </script>
 
-<Modal>
-	{#snippet title()}
-		{m.legends_delete_title()}
-	{/snippet}
-	{#snippet trigger(props)}
-		{@render trigger(props)}
-	{/snippet}
-	{#snippet inner(close)}
-		{#if inUse.length > 0}
-			<p class="text-lg">
-				{m.legends_delete_in_use({ name: legendName, count: inUse.length })}
-			</p>
-			<ul class="my-2 list-inside list-disc">
-				{#each inUse as set (set.id)}
-					<li>{set.name}</li>
-				{/each}
-			</ul>
-			<div class="flex flex-row justify-end gap-2">
-				<button type="button" class="btn preset-tonal-surface" onclick={close}>
-					{m.legends_delete_cancel()}
-				</button>
-			</div>
-		{:else}
-			<p class="text-lg">{m.legends_delete_warning({ name: legendName })}</p>
-			<div class="flex flex-row justify-end gap-2">
-				<button type="button" class="btn preset-tonal-surface" onclick={close}>
-					{m.legends_delete_cancel()}
-				</button>
-				<button
-					type="button"
-					class="btn preset-filled-error-500"
-					onclick={() => confirmDelete(close)}
-				>
-					{m.legends_delete_confirm()}
-				</button>
-			</div>
-		{/if}
-	{/snippet}
-</Modal>
+{#snippet title()}
+	{m.legends_delete_title()}
+{/snippet}
+
+{#snippet inner(close: () => void)}
+	{#if inUse.length > 0}
+		<p class="text-lg">
+			{m.legends_delete_in_use({ name: legendName, count: inUse.length })}
+		</p>
+		<ul class="my-2 list-inside list-disc">
+			{#each inUse as set (set.id)}
+				<li>{set.name}</li>
+			{/each}
+		</ul>
+		<div class="flex flex-row justify-end gap-2">
+			<button type="button" class="btn preset-tonal-surface" onclick={close}>
+				{m.legends_delete_cancel()}
+			</button>
+		</div>
+	{:else}
+		<p class="text-lg">{m.legends_delete_warning({ name: legendName })}</p>
+		<div class="flex flex-row justify-end gap-2">
+			<button type="button" class="btn preset-tonal-surface" onclick={close}>
+				{m.legends_delete_cancel()}
+			</button>
+			<button
+				type="button"
+				class="btn preset-filled-error-500"
+				onclick={() => confirmDelete(close)}
+			>
+				{m.legends_delete_confirm()}
+			</button>
+		</div>
+	{/if}
+{/snippet}
+
+<Modal {title} {inner} {trigger} />

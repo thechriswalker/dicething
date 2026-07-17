@@ -9,6 +9,8 @@ type MenuItemMinimum = {
 type MenuItemCommon = {
 	title: string | Snippet;
 	icon?: typeof Icon;
+	/** Style as a destructive action (red text). */
+	danger?: boolean;
 };
 type MenuItemBase = MenuItemCommon & MenuItemMinimum;
 

@@ -11,7 +11,7 @@
 
 	type Props = {
 		open?: boolean;
-		trigger: Snippet<[HTMLButtonAttributes]>;
+		trigger?: Snippet<[HTMLButtonAttributes]>;
 		title?: Snippet;
 		inner: Snippet<[() => void]>;
 	};
@@ -33,11 +33,13 @@
 </script>
 
 <Dialog.Provider value={dialog}>
-	<Dialog.Trigger>
-		{#snippet element(props)}
-			{@render trigger(props)}
-		{/snippet}
-	</Dialog.Trigger>
+	{#if trigger}
+		<Dialog.Trigger>
+			{#snippet element(props)}
+				{@render trigger(props)}
+			{/snippet}
+		</Dialog.Trigger>
+	{/if}
 	<Portal>
 		<Dialog.Backdrop class="bg-surface-50-950/50 fixed inset-0 z-50" />
 		<Dialog.Positioner class="fixed inset-0 z-50 flex items-center justify-center p-4">
