@@ -44,10 +44,15 @@ export function createBaseSceneAndRenderer(
 	const scene = new Scene();
 	const renderer = new WebGLRenderer({ antialias: true });
 	renderer.setPixelRatio(window.devicePixelRatio);
-	renderer.setSize(el.clientWidth, el.clientHeight);
+	// Layout may not have resolved yet (flex % height → 0). A 0×0 drawing buffer
+	// + NaN aspect leaves a blank canvas until something forces a resize; use a
+	// temporary 1×1 and let the ResizeObserver correct it.
+	const initW = Math.max(1, el.clientWidth);
+	const initH = Math.max(1, el.clientHeight);
+	renderer.setSize(initW, initH);
 	el.appendChild(renderer.domElement);
 	const resizeContainer = el.parentElement!;
-	let camera = new PerspectiveCamera(70, el.clientWidth / el.clientHeight, 1, 500);
+	let camera = new PerspectiveCamera(70, initW / initH, 1, 500);
 	camera.position.copy(initialCameraPosition);
 
 	//const controls = new OrbitControls(camera, renderer.domElement);
@@ -71,7 +76,7 @@ export function createBaseSceneAndRenderer(
 	const renderPass = new RenderPass(scene, camera);
 	composer.addPass(renderPass);
 	const primaryOutlinePass = new OutlinePass(
-		new Vector2(el.clientWidth, el.clientHeight),
+		new Vector2(initW, initH),
 		scene,
 		camera
 	);
@@ -84,7 +89,7 @@ export function createBaseSceneAndRenderer(
 	// so the glow is hidden behind the rest of the die instead of bleeding through.
 	primaryOutlinePass.hiddenEdgeColor = new Color(0x000000);
 	const secondaryOutlinePass = new OutlinePass(
-		new Vector2(el.clientWidth, el.clientHeight),
+		new Vector2(initW, initH),
 		scene,
 		camera
 	);
@@ -100,7 +105,7 @@ export function createBaseSceneAndRenderer(
 	// invisible filled polygon the builder adds per face, so the glow traces the
 	// legend-area boundary while a thin line keeps the exact edge crisp.
 	const legendOutlinePass = new OutlinePass(
-		new Vector2(el.clientWidth, el.clientHeight),
+		new Vector2(initW, initH),
 		scene,
 		camera
 	);
@@ -115,7 +120,7 @@ export function createBaseSceneAndRenderer(
 
 	// red sibling of the legend pass for faces whose legend won't engrave cleanly.
 	const legendErrorOutlinePass = new OutlinePass(
-		new Vector2(el.clientWidth, el.clientHeight),
+		new Vector2(initW, initH),
 		scene,
 		camera
 	);
@@ -160,7 +165,7 @@ export function createBaseSceneAndRenderer(
 		// rim sitting on its own engraving wall). setSize() only resizes (keeps
 		// the type), so this sticks across window resizes.
 		pass.renderTargetDepthBuffer.dispose();
-		const depthRT = new WebGLRenderTarget(el.clientWidth, el.clientHeight, {
+		const depthRT = new WebGLRenderTarget(initW, initH, {
 			type: UnsignedByteType
 		});
 		depthRT.texture.name = 'OutlinePass.depth';
@@ -218,23 +223,54 @@ export function createBaseSceneAndRenderer(
 		};
 	}
 
-	const observer = new ResizeObserver((entries) => {
-		if (entries.find((e) => e.target === resizeContainer)) {
-			const cvs = renderer.domElement;
-			cvs.style.width = 'auto';
-			cvs.style.height = 'auto';
-			cvs.removeAttribute('width');
-			cvs.removeAttribute('height');
-			setTimeout(() => {
-				camera.aspect = el.clientWidth / el.clientHeight;
-				camera.updateProjectionMatrix();
-				renderer.setSize(el.clientWidth, el.clientHeight);
-				composer.setSize(el.clientWidth, el.clientHeight);
-			});
+	function applySize() {
+		const w = el.clientWidth;
+		const h = el.clientHeight;
+		if (w < 1 || h < 1) {
+			return false;
 		}
+		camera.aspect = w / h;
+		camera.updateProjectionMatrix();
+		renderer.setSize(w, h);
+		composer.setSize(w, h);
+		controls.handleResize();
+		return true;
+	}
+
+	const observer = new ResizeObserver((entries) => {
+		if (!entries.find((e) => e.target === resizeContainer || e.target === el)) {
+			return;
+		}
+		// Only touch the canvas once we know the container has a real size.
+		// Clearing width/height while still at 0×0 leaves the drawing buffer
+		// stripped until a later layout thrash (e.g. editing a sidebar param).
+		if (el.clientWidth < 1 || el.clientHeight < 1) {
+			return;
+		}
+		const cvs = renderer.domElement;
+		cvs.style.width = 'auto';
+		cvs.style.height = 'auto';
+		cvs.removeAttribute('width');
+		cvs.removeAttribute('height');
+		// defer so layout has committed clientWidth/Height after the style reset
+		setTimeout(() => {
+			if (!applySize()) {
+				// style reset raced a 0-size frame — put a usable buffer back
+				requestAnimationFrame(() => applySize());
+			}
+		});
 	});
-	//	observer.observe(el);
 	observer.observe(resizeContainer);
+	observer.observe(el);
+	// keep trying briefly after mount until layout gives us pixels
+	let sizeTries = 0;
+	const trySize = () => {
+		if (applySize() || ++sizeTries > 120) {
+			return;
+		}
+		requestAnimationFrame(trySize);
+	};
+	requestAnimationFrame(trySize);
 	let anim = 0;
 	// also check the page visibility API to ensure we keep rendering after the page is "stopped"
 	const visibilityListener = () => {
@@ -254,8 +290,8 @@ export function createBaseSceneAndRenderer(
 
 	let disposed = false;
 	const onDispose: Array<() => any> = [
-		//		() => observer.unobserve(el),
 		() => observer.unobserve(resizeContainer),
+		() => observer.unobserve(el),
 		() => window.removeEventListener('visibilitychange', visibilityListener)
 	];
 
@@ -284,6 +320,9 @@ export function createBaseSceneAndRenderer(
 			_zoomEnd: Vector2;
 			_panStart: Vector2;
 			_panEnd: Vector2;
+			_up0: Vector3;
+			_position0: Vector3;
+			_target0: Vector3;
 		};
 		c._eye.subVectors(camera.position, controls.target);
 		c._lastPosition.copy(camera.position);
@@ -292,6 +331,11 @@ export function createBaseSceneAndRenderer(
 		c._zoomStart.copy(c._zoomEnd);
 		c._movePrev.copy(c._moveCurr);
 		c._lastAngle = 0;
+		// keep reset()/internal baseline in sync when callers change camera.up
+		// (e.g. box page top-down view) after controls construction.
+		c._up0.copy(camera.up);
+		c._position0.copy(camera.position);
+		c._target0.copy(controls.target);
 	}
 
 	function stepAutoRotate() {
@@ -393,6 +437,8 @@ export function createBaseSceneAndRenderer(
 		setWireframe,
 		setStatsVisible,
 		setAutoRotate,
+		/** Call after programmatically moving the camera / changing camera.up. */
+		syncControls: syncTrackballAfterProgrammaticMove,
 		setPrimarySelectedItems(selectedItems: Array<Object3D>) {
 			primaryOutlinePass.selectedObjects = selectedItems;
 		},
@@ -453,7 +499,12 @@ export function createFancyRender(ctx: SceneRenderer) {
 
 	// ambient occlusion darkens the crevices between glyph strokes and the
 	// engraving walls, which is what makes the numbers pop.
-	const ao = new GTAOPass(scene, camera, renderer.domElement.width, renderer.domElement.height);
+	const ao = new GTAOPass(
+		scene,
+		camera,
+		Math.max(1, renderer.domElement.width),
+		Math.max(1, renderer.domElement.height)
+	);
 	ao.output = GTAOPass.OUTPUT.Default;
 	ao.enabled = false;
 	ao.updateGtaoMaterial({

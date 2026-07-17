@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import Layout from '$lib/components/layout/Layout.svelte';
 	import Scene from '$lib/components/scene/Scene.svelte';
 	import Slider from '$lib/components/slider/Slider.svelte';
 	import Collapsible from '$lib/components/collapsible/Collapsible.svelte';
@@ -37,7 +36,7 @@
 		type ExportFormat,
 		type NamedMesh
 	} from '$lib/utils/export';
-	import { onDestroy, onMount } from 'svelte';
+	import { onDestroy, onMount, tick } from 'svelte';
 	import {
 		BufferGeometry,
 		Group,
@@ -50,7 +49,6 @@
 		Vector3
 	} from 'three';
 	import {
-		ArrowLeft,
 		Download,
 		Frame,
 		SquareDashed,
@@ -68,7 +66,11 @@
 
 	let setData = $state<DiceSet | undefined>(undefined);
 	let config = $state<BoxConfig | undefined>(undefined);
-	let ctx = $state<SceneRenderer>();
+	// Opaque Three.js handle — do NOT put this in $state. Deep-proxying the
+	// renderer/camera/controls makes TrackballControls + the rAF loop fight the
+	// reactive system and can leave the first frame blank.
+	let ctx: SceneRenderer | undefined;
+	let sceneReadyTick = $state(0);
 	let building = $state(false);
 	let buildProgress = $state<BuildProgress | null>(null);
 	// the build's compute has finished (its result is rendering); combined with
@@ -150,7 +152,7 @@
 	const prefs = getPreferences();
 	let devMode = $derived(prefs.developerMode);
 	let showTuning = $derived(prefs.developerMode);
-	let fancyRender = $state<ReturnType<typeof createFancyRender>>();
+	let fancyRender: ReturnType<typeof createFancyRender> | undefined;
 	let fancy = $state(true);
 	let wireframeOn = $state(false);
 	let showBounds = $state(false);
@@ -159,6 +161,7 @@
 	let controlPresetClass = $derived(ld?.isLight ? 'preset-filled-surface-200-800' : 'preset-filled-surface-100-900')
 
 	$effect(() => {
+		void sceneReadyTick;
 		if (!devMode && wireframeOn) {
 			wireframeOn = false;
 		}
@@ -173,10 +176,12 @@
 	$effect(() => {
 		void showBounds;
 		void built;
+		void sceneReadyTick;
 		renderBounds();
 	});
 	// the FPS counter is always shown in developer mode.
 	$effect(() => {
+		void sceneReadyTick;
 		ctx?.setStatsVisible(devMode);
 	});
 
@@ -212,6 +217,7 @@
 		aoDistanceExponent: 1
 	});
 	$effect(() => {
+		void sceneReadyTick;
 		const fr = fancyRender;
 		if (!fr || !ctx) {
 			return;
@@ -248,6 +254,8 @@
 		config = existing
 			? reconcileBoxConfig(existing, setData.dice)
 			: defaultBoxConfig(setId, setData.dice);
+		await tick();
+		queueRebuild(false);
 	});
 
 	const sceneReady = (_ctx: SceneRenderer) => {
@@ -256,11 +264,16 @@
 		// footprint depth reads as screen vertical (lid above base).
 		_ctx.camera.up.set(0, 0, -1);
 		_ctx.camera.position.set(0, 180, 0);
+		_ctx.controls.target.set(0, 0, 0);
 		_ctx.camera.lookAt(0, 0, 0);
+		_ctx.syncControls?.();
 		fancyRender = createFancyRender(_ctx);
 		fancyRender.setEnabled(fancy);
 		_ctx.onBeforeRender(stepLidAnim);
+		// start the continuous rAF loop (otherwise the canvas stays blank).
 		_ctx.render();
+		sceneReadyTick++;
+		queueRebuild(false);
 	};
 
 	// ease the lid pivot towards its target each frame (the scene runs a
@@ -359,6 +372,7 @@
 	}
 
 	// run the (expensive) CSG and cache the result, then draw it.
+	let buildError = $state<string | null>(null);
 	async function rebuild() {
 		if (!ctx || !setData || !config) {
 			return;
@@ -368,6 +382,7 @@
 		buildFinished = false;
 		atFinalFace = false;
 		progressDecoupled = false;
+		buildError = null;
 		// Most builds are fast; only surface the progress indicator once a build
 		// has been running long enough to be worth showing (e.g. a complex edged
 		// coin), so quick rebuilds don't flash it on and off.
@@ -392,6 +407,9 @@
 			renderPreview();
 		} catch (e) {
 			console.error('failed to build box', e);
+			if (seq === buildSeq) {
+				buildError = e instanceof Error ? e.message : String(e);
+			}
 		} finally {
 			clearTimeout(showTimer);
 			// mark the build done; the hideIndicator effect lingers briefly then
@@ -570,23 +588,38 @@
 		boundsGroup = root;
 	}
 
-	const scheduleRebuild = debounce<void>(200, () => rebuild());
-
-	// persist + rebuild whenever the config changes.
-	let configSig = $derived(config ? JSON.stringify(config) : '');
-	$effect(() => {
-		JSON.stringify([configSig]);
-		if (ctx && setData && config) {
-			saveBoxConfig($state.snapshot(config) as BoxConfig);
-			scheduleRebuild();
-		}
+	const scheduleRebuild = debounce<void>(200, () => {
+		void rebuild();
 	});
+
+	/** Kick a build once scene + set + config are all present. */
+	function queueRebuild(debounced: boolean) {
+		if (!ctx || !setData || !config) {
+			return;
+		}
+		if (debounced) {
+			scheduleRebuild();
+		} else {
+			scheduleRebuild.cancel();
+			void rebuild();
+		}
+		// persist after scheduling so a snapshot failure can't block the build
+		try {
+			saveBoxConfig($state.snapshot(config) as BoxConfig);
+		} catch (e) {
+			console.warn('failed to persist box config', e);
+		}
+	}
 
 	function setParam<K extends keyof BoxConfig['params']>(key: K, value: BoxConfig['params'][K]) {
 		if (!config) {
 			return;
 		}
+		if (config.params[key] === value) {
+			return;
+		}
 		config.params[key] = value;
+		queueRebuild(true);
 	}
 
 	function setMagnet<K extends keyof BoxConfig['params']['magnets']>(
@@ -596,11 +629,18 @@
 		if (!config) {
 			return;
 		}
+		if (config.params.magnets[key] === value) {
+			return;
+		}
 		config.params.magnets[key] = value;
+		queueRebuild(true);
 	}
 
 	function setHinge(value: boolean) {
 		if (!config) {
+			return;
+		}
+		if (config.params.hinge.enabled === value) {
 			return;
 		}
 		config.params.hinge.enabled = value;
@@ -609,6 +649,7 @@
 		if (value && config.params.magnets.count > 2) {
 			config.params.magnets.count = 2;
 		}
+		queueRebuild(true);
 	}
 
 	function setHingeParam<K extends keyof BoxConfig['params']['hinge']>(
@@ -618,7 +659,11 @@
 		if (!config) {
 			return;
 		}
+		if (config.params.hinge[key] === value) {
+			return;
+		}
 		config.params.hinge[key] = value;
+		queueRebuild(true);
 	}
 
 	let orderedPlacements = $derived(
@@ -689,6 +734,7 @@
 		config.params.manual = true;
 		config.params = applyLayoutEditorParams(config.params, result.layoutParams, result.shape);
 		layoutOpen = false;
+		queueRebuild(false);
 	}
 
 	async function exportBox() {
@@ -760,30 +806,23 @@
 	}
 </script>
 
-	{#snippet header()}
-		<a class="btn preset-tonal-surface" href="/boxes" aria-label={m.boxes_back_to_sets()}>
-			<ArrowLeft class="size-4" />
-		</a>
-		<p class="text-primary-500 h4">{m.boxes_title()} — {setData?.name}</p>
-	{/snippet}
-
-	<div class="flex h-full flex-row gap-4 p-4">
-		<Scene class="relative h-full grow" {sceneReady}>
-			<ul class="absolute top-2 left-2 flex flex-col gap-2">
-				<li class="card {controlPresetClass} flex w-56 flex-col gap-1 p-2 text-sm">
-					<span class="flex justify-between">
-						<span>{m.boxes_tuning_die_opacity()}</span>
-						<span>{Math.round(dieOpacity * 100)}%</span>
-					</span>
-					<Slider
-						class="py-1"
-						value={dieOpacity}
-						min={0}
-						max={1}
-						step={0.01}
-						onChange={(v) => (dieOpacity = v)}
-					/>
-				</li>
+<div class="flex h-full flex-row gap-4 p-4">
+	<Scene class="relative h-full grow" {sceneReady}>
+		<ul class="absolute top-2 left-2 flex flex-col gap-2">
+			<li class="card {controlPresetClass} flex w-56 flex-col gap-1 p-2 text-sm">
+				<span class="flex justify-between">
+					<span>{m.boxes_tuning_die_opacity()}</span>
+					<span>{Math.round(dieOpacity * 100)}%</span>
+				</span>
+				<Slider
+					class="py-1"
+					value={dieOpacity}
+					min={0}
+					max={1}
+					step={0.01}
+					onChange={(v) => (dieOpacity = v)}
+				/>
+			</li>
 				{#if built}
 					<li class="card {controlPresetClass} flex w-56 flex-col gap-1 p-2 text-sm">
 						<span class="flex justify-between" title={m.boxes_lid_position_hint()}>
@@ -883,6 +922,7 @@
 		</Scene>
 
 		<div class="card preset-tonal-surface flex w-80 shrink-0 flex-col gap-3 overflow-y-auto p-4">
+			<a class="btn preset-tonal-surface self-start" href="/boxes">{m.boxes_back_to_sets()}</a>
 			{#if config}
 				{#if built && !built.closure.ok}
 					<p class="text-warning-500 text-sm">{m.boxes_closure_warning()}</p>
@@ -923,6 +963,9 @@
 				<p class="text-surface-600-400 text-xs">
 					{m.boxes_outer_size({ x: outerSize.x.toFixed(1), y: outerSize.y.toFixed(1) })}
 				</p>
+				{#if buildError}
+					<p class="text-error-500 text-xs" role="alert">{buildError}</p>
+				{/if}
 				<p class="text-surface-600-400 text-xs">{m.boxes_seam_hint()}</p>
 
 				<Collapsible title={m.boxes_section_dimensions()}>

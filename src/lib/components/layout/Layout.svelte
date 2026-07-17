@@ -15,8 +15,12 @@
 		<AppBar
 			>{#if header}{@render header()}{/if}
 		</AppBar>
-		<Scroll>
-			{@render children()}
-		</Scroll>
+		<!-- flex-1 min-h-0 so Scroll's h-full resolves to the remaining viewport
+		     under the AppBar (a bare h-full sibling of AppBar is 100vh and overflows). -->
+		<div class="min-h-0 flex-1">
+			<Scroll>
+				{@render children()}
+			</Scroll>
+		</div>
 	</div>
 </LightDarkContext>

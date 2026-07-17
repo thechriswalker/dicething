@@ -47,6 +47,8 @@ export type DieManifoldBlank = {
 	// Borrowed from blankCache — do not .delete(); use clearBlankCache() to evict.
 	manifold: Manifold;
 	faceIds: Uint32Array;
+	/** Enclosed blank volume (mm³), cached when the blank is first built. */
+	volumeMm3: number;
 };
 
 export type EngravedDieManifold = {
@@ -206,7 +208,7 @@ export function buildBlankManifold(
 	const parts = faces.map((face, i) => buildFaceVolume(face, i, divisions));
 	const blank = unionManifolds(parts);
 	const faceIds = new Uint32Array(faces.map((_, i) => faceOriginalId(i)));
-	return { manifold: blank, faceIds };
+	return { manifold: blank, faceIds, volumeMm3: blank.volume() };
 }
 
 // --- Export-shell blank with per-face runOriginalID --------------------------------
@@ -461,7 +463,8 @@ export function buildBlankManifoldFromExportShell(
 	}
 	return {
 		manifold: man,
-		faceIds: new Uint32Array(faces.map((_, i) => faceOriginalId(i)))
+		faceIds: new Uint32Array(faces.map((_, i) => faceOriginalId(i))),
+		volumeMm3: man.volume()
 	};
 }
 

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { Slider } from '@skeletonlabs/skeleton-svelte';
+	import { onMount } from 'svelte';
 
 	let {
 		value,
@@ -16,11 +17,26 @@
 		value: number;
 		onChange: (v: number) => void;
 	} = $props();
+
+	// Skeleton/Zag can emit onValueChange while syncing the controlled value on
+	// mount. Ignore those so parents don't treat hydration as a user edit.
+	let acceptChanges = false;
+	onMount(() => {
+		// defer past the initial controlled-value sync effects
+		requestAnimationFrame(() => {
+			acceptChanges = true;
+		});
+	});
 </script>
 
 <Slider
 	value={[value]}
-	onValueChange={(e) => onChange(e.value[0])}
+	onValueChange={(e) => {
+		if (!acceptChanges) {
+			return;
+		}
+		onChange(e.value[0]);
+	}}
 	{min}
 	{max}
 	{step}

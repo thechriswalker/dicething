@@ -68,3 +68,8 @@ self.onmessage = async (event: MessageEvent<BoxRequest>) => {
 		post({ reqId, type: 'error', error: error instanceof Error ? error.message : String(error) });
 	}
 };
+
+// Signal the main thread only after imports (incl. manifold WASM top-level await)
+// have finished and onmessage is installed. Posting work before this can be lost
+// under Vite's module worker bootstrap — same pattern as die_engine.worker.
+post({ type: 'boxWorkerReady' });

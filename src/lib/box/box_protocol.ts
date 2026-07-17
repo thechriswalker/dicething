@@ -18,6 +18,7 @@ export type BoxRequest = {
 };
 
 export type BoxResponse =
+	| { type: 'boxWorkerReady' }
 	| { reqId: number; type: 'progress'; progress: BuildProgress }
 	| { reqId: number; type: 'result'; kind: 'build'; result: SerialisedBuiltBox }
 	| { reqId: number; type: 'result'; kind: 'layout'; result: SerialisedPreparedLayout }

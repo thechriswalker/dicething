@@ -290,9 +290,17 @@ async function handleRequest(msg: EngineRequest) {
 				);
 				// Measure while Manifolds are still alive — cheaper and exact vs
 				// re-walking the transferred Three.js triangle soup on the main thread.
+				// Numbered dice use the blank (pre-engraving) solid so the UI volume
+				// excludes legends; artifacts use their own manifolds.
 				const groupVolumesMm3: Record<string, number> = {};
+				if (msg.includeDice) {
+					const builder = builders.get(die.id);
+					if (builder) {
+						groupVolumesMm3.dice = builder.getBlankVolumeMm3();
+					}
+				}
 				for (const n of named) {
-					if (!n.manifold) {
+					if (n.group === 'dice' || !n.manifold) {
 						continue;
 					}
 					groupVolumesMm3[n.group] = (groupVolumesMm3[n.group] ?? 0) + n.manifold.volume();

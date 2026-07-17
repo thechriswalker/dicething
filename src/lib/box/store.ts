@@ -104,8 +104,11 @@ export function saveBoxConfig(config: BoxConfig): void {
 	if (!browser) {
 		return;
 	}
-	config.updated = Date.now();
-	localStorage.setItem(BOXES_PREFIX + config.setId, JSON.stringify(config));
+	// Never mutate the caller's object: the boxes page tracks config via
+	// JSON.stringify in an $effect, and bumping `updated` on the live proxy
+	// would retrigger that effect forever (debounce never settles → no first build).
+	const toSave: BoxConfig = { ...config, updated: Date.now() };
+	localStorage.setItem(BOXES_PREFIX + config.setId, JSON.stringify(toSave));
 }
 
 export function deleteBoxConfig(setId: string): void {

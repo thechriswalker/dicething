@@ -26,8 +26,7 @@
 	import { defaultValues, extraBuildOptions, isControlVisible } from '$lib/utils/build_options';
 	import Collapsible from '$lib/components/collapsible/Collapsible.svelte';
 	import Tooltip from '$lib/components/tooltip/Tooltip.svelte';
-	import dice from '$lib/dice';
-	import { approximateDieVolume, type EngravingError } from '$lib/utils/builder';
+	import { type EngravingError } from '$lib/utils/builder';
 	import { exportDieInEngine, loadEngineSet } from '$lib/utils/die_engine_client';
 	import { legendsJsonForEngine } from '$lib/utils/preview_legends';
 	import { mergeMeshReports, type MeshCheckReport } from '$lib/utils/mesh_check';
@@ -522,11 +521,15 @@
 		}
 
 		previewNamed = named;
+		let diceMm3 = 0;
 		const vols: Record<string, number> = {};
 		for (const id of ids) {
 			const entry = exportMeshCache.get(id);
 			if (!entry) {
 				continue;
+			}
+			if (include && entry.groups.dice) {
+				diceMm3 += entry.groups.dice.volumeMm3;
 			}
 			for (const option of extraBuildOptions) {
 				if (!optionSnap[option.id]?.enabled) {
@@ -539,6 +542,7 @@
 				vols[option.id] = (vols[option.id] ?? 0) + g.volumeMm3 / 1000;
 			}
 		}
+		diceVolumeMl = diceMm3 / 1000;
 		artifactVolumesMl = vols;
 		layoutNamedMeshes(named);
 		const group = new Group();
@@ -723,9 +727,12 @@
 	// its final face, matching the box builder indicator.
 	$effect(() => {
 		if (buildingPreview && buildFinished && atFinalFace) {
+			const timer = setTimeout(() => {
 				buildingPreview = false;
 				buildProgress = null;
 				buildFinished = false;
+			}, 50);
+			return () => clearTimeout(timer);
 		}
 	});
 
@@ -775,31 +782,10 @@
 		trailingZeroDisplay: 'stripIfInteger'
 	});
 
-	// approximate volume (ml) of the included dice, ignoring engraving. uses the
-	// model's face geometry only (no engraving build), so it's cheap enough to
-	// recompute instantly as the selection changes.
-	let diceVolumeMl = $derived.by(() => {
-		if (!setData || !includeDice) {
-			return 0;
-		}
-		let mm3 = 0;
-		for (const die of setData.dice) {
-			if (!selectedIds.includes(die.id)) {
-				continue;
-			}
-			const model = dice[die.kind];
-			if (!model) {
-				continue;
-			}
-			try {
-				const faces = model.build(die.parameters, die.string_parameters ?? {}).faces;
-				mm3 += approximateDieVolume(faces);
-			} catch {
-				// skip dice that fail to build; they can't be measured.
-			}
-		}
-		return mm3 / 1000;
-	});
+	// Numbered-die blank volume (ml), from Manifold.volume() of the cached blank
+	// solid (excludes engraving). Populated when dice are built in the worker;
+	// invalidated/refreshed whenever die size (params) changes and rebuilds.
+	let diceVolumeMl = $state(0);
 
 	// per-build-option artifact volumes (ml), from Manifold.volume() measured in
 	// the export worker at build time and cached with each group.

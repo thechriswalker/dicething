@@ -410,9 +410,28 @@ export class Builder {
 
 	// Approximate solid volume (mm³) of the die, ignoring any engraving ("without
 	// legends"). Only depends on the die parameters (the face geometry), not the
-	// per-face legends.
+	// per-face legends. Prefer getBlankVolumeMm3() when a blank Manifold has been
+	// built (export / manifold engraver) — that is exact and cached by size.
 	public getApproximateVolume(): number {
 		return approximateDieVolume(this.faces);
+	}
+
+	// Exact blank volume (mm³) from the cached Manifold solid. Builds/retrieves the
+	// blank for the current die params (keyed by size — same cache as engraving).
+	// Call after build()/export() so faces + params are populated.
+	public getBlankVolumeMm3(): number {
+		if (this.faces.length === 0) {
+			return 0;
+		}
+		const blankGeo = this.blankExportGeometry(this.lastDieParams);
+		const blank = getOrBuildBlankManifold(
+			this.model.id,
+			this.faces,
+			this.lastDieParams,
+			this.lastStringParams,
+			{ source: 'export', exportGeometry: blankGeo }
+		);
+		return blank.volumeMm3;
 	}
 
 	getFace2FaceDistance(): number {

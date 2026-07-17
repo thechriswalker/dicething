@@ -433,14 +433,19 @@ function sweepUp(die: Manifold): Manifold {
 	return swept;
 }
 
-// Layer height when lofting the opening chamfer (smaller = smoother 45° faces).
-const CAVITY_BEVEL_LAYER = 0.1;
+// True perpendicular outset with Round joins (arcs at convex corners).
+function roundOffset(cs: CrossSection, delta: number): CrossSection {
+	const offset = cs.offset(delta, 'Round');
+	const cleaned = offset.simplify();
+	offset.delete();
+	return cleaned;
+}
 
-// A 45-degree flare at the cavity opening (the inner tray floor). Each layer is
-// a true Miter offset of the swept cavity profile (offset distance = height
-// below the opening, so the side wall is ~45°). Stacked as constant-section
-// prisms rather than scale-lofted: die footprints can be non-convex, so a hull
-// between consecutive offsets would fill concavities and over-cut.
+// A 45-degree flare at the cavity opening (the inner tray floor): slice the
+// swept cavity at the bevel start, Round-offset that profile outward by
+// `bevel`, then hull the unoffset and offset wafers into a frustum whose top
+// sits at the tray floor. Naive hull - may fill concavities on weird footprints
+// (coin); keep an eye on those.
 function seamChamferCut(swept: Manifold, openingZ: number, bevel: number): Manifold | undefined {
 	if (bevel <= 0) {
 		return undefined;
@@ -454,34 +459,24 @@ function seamChamferCut(swept: Manifold, openingZ: number, bevel: number): Manif
 		return undefined;
 	}
 
-	const steps = Math.max(2, Math.ceil(bevel / CAVITY_BEVEL_LAYER));
-	const layerH = bevel / steps;
-	const wasm = manifold();
-	const parts: Array<Manifold> = [];
-
-	for (let i = 0; i < steps; i++) {
-		// mid-layer offset so the stairstep straddles the true 45° plane.
-		const o = (bevel * (i + 0.5)) / steps;
-		const cs = miterOffset(wall, o);
-		if (cs.isEmpty()) {
-			cs.delete();
-			continue;
-		}
-		parts.push(cs.extrude(layerH).translate([0, 0, openingZ - bevel + i * layerH]));
-		cs.delete();
-	}
-	wall.delete();
-
-	if (parts.length === 0) {
+	const topCS = roundOffset(wall, bevel);
+	if (topCS.isEmpty()) {
+		topCS.delete();
+		wall.delete();
 		return undefined;
 	}
-	let acc = parts[0];
-	for (let i = 1; i < parts.length; i++) {
-		const u = wasm.Manifold.union(acc, parts[i]);
-		deleteAll(acc, parts[i]);
-		acc = u;
-	}
-	return acc;
+
+	const wasm = manifold();
+	const z0 = openingZ - bevel;
+	const bot = wall.extrude(OFFSET_FRUSTUM_WAFER).translate([0, 0, z0]);
+	const top = topCS
+		.extrude(OFFSET_FRUSTUM_WAFER)
+		.translate([0, 0, openingZ - OFFSET_FRUSTUM_WAFER]);
+	wall.delete();
+	topCS.delete();
+	const frustum = wasm.Manifold.hull([bot, top]);
+	deleteAll(bot, top);
+	return frustum;
 }
 
 // Build the up-swept (draft-free) cavity manifold for one die, placed with its
