@@ -57,8 +57,8 @@
 
 	onMount(() => {
 		const dpr = window.devicePixelRatio || 1;
-		const w = outerEl.clientWidth;
-		const h = outerEl.clientHeight;
+		const w = Math.max(1, outerEl.clientWidth);
+		const h = Math.max(1, outerEl.clientHeight);
 		let disposed = false;
 
 		const viewportSpan = engineTraceSpan('initViewport');
@@ -68,10 +68,15 @@
 					return;
 				}
 				viewportSpan.end({ w, h, dpr });
-				const resizeObserver = new ResizeObserver(() => {
-					const rw = outerEl.clientWidth;
-					const rh = outerEl.clientHeight;
-					if (rw > 0 && rh > 0) {
+				// Observe the outer flex box, not the canvas. Canvas bitmap width/height
+				// are intrinsic sizing (and can't be cleared after transferControlToOffscreen),
+				// so without min-h-0 on this element a grow flex child refuses to shrink and
+				// this observer never sees a smaller size.
+				const resizeObserver = new ResizeObserver((entries) => {
+					const entry = entries[0];
+					const rw = entry?.contentRect.width ?? outerEl.clientWidth;
+					const rh = entry?.contentRect.height ?? outerEl.clientHeight;
+					if (rw >= 1 && rh >= 1) {
 						void resizeEngineViewport(rw, rh, window.devicePixelRatio || 1);
 					}
 				});
@@ -136,10 +141,15 @@
 	}
 </script>
 
-<div class={[classes, borderClass, roundedClass, 'relative']} bind:this={outerEl}>
+<!-- min-h-0: flex grow children default to min-height:auto (content = canvas bitmap),
+     which blocks shrink-on-window-resize. absolute canvas: keep intrinsic size out of flow. -->
+<div
+	class={[classes, borderClass, roundedClass, 'relative min-h-0 min-w-0 overflow-hidden']}
+	bind:this={outerEl}
+>
 	<canvas
 		bind:this={canvasEl}
-		class={['block h-full w-full', roundedClass]}
+		class={['absolute inset-0 block size-full', roundedClass]}
 		style:background={`#${bgColor.toString(16).padStart(6, '0')}`}
 		onpointerdown={(e) => sendEnginePointer(pointerStyle(e))}
 		onpointermove={(e) => sendEnginePointer(pointerStyle(e))}

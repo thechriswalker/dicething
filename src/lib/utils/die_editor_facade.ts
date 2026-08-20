@@ -31,6 +31,10 @@ export class DieEditorFacade {
 		return this.meta.smallestLegendScaling;
 	}
 
+	getIndividualLegendScaling(): boolean {
+		return this.meta.individualLegendScaling;
+	}
+
 	getApproximateVolume(): number {
 		return this.meta.approximateVolume;
 	}

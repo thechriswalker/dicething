@@ -8,11 +8,16 @@
 	import {
 		engravingParam,
 		engravingToleranceParam,
+		legendScalingModeParam,
+		LEGEND_SCALING_AUTO,
+		LEGEND_SCALING_INDIVIDUAL,
+		LEGEND_SCALING_UNIFORM,
 		type EngravingError
 	} from '$lib/utils/builder';
 	import type { DieEditorFacade } from '$lib/utils/die_editor_facade';
 	import { Legend, type LegendSet } from '$lib/utils/legends';
 	import { getOrderings, CUSTOM_ORDERING, STANDARD_ORDERING } from '$lib/utils/legend_orderings';
+	import { dieDisplayName } from '$lib/utils/die_display_name';
 	import { Vector2 } from 'three';
 	import { degToRad, radToDeg } from 'three/src/math/MathUtils.js';
 	import {
@@ -22,6 +27,7 @@
 		Info,
 		Pencil,
 		Redo2,
+		RotateCcw,
 		Undo2
 	} from '@lucide/svelte';
 	import { SegmentedControl } from '@skeletonlabs/skeleton-svelte';
@@ -41,6 +47,7 @@
 		sparams: Record<string, string> | undefined;
 		fparams: Dice['face_parameters'];
 		ordering: string | undefined;
+		nickname: string | undefined;
 		legends: LegendSet;
 		selectMode: SelectMode;
 		selectedFace: number;
@@ -77,6 +84,7 @@
 		sparams = $bindable(),
 		fparams = $bindable(),
 		ordering = $bindable(),
+		nickname = $bindable(),
 		selectMode = $bindable(),
 		selectedFace = $bindable(),
 		selectedFaces = $bindable(),
@@ -148,6 +156,37 @@
 	let engravingTolerance = $derived(
 		dparams[engravingToleranceParam.id] ?? engravingToleranceParam.defaultValue
 	);
+	let legendScalingMode = $derived(
+		dparams[legendScalingModeParam.id] ?? legendScalingModeParam.defaultValue
+	);
+	// Auto has no third segment: show the model's preferred behaviour instead.
+	let legendScalingUiValue = $derived.by(() => {
+		void renderPass;
+		if (legendScalingMode === LEGEND_SCALING_AUTO) {
+			return builder.getIndividualLegendScaling()
+				? LEGEND_SCALING_INDIVIDUAL
+				: LEGEND_SCALING_UNIFORM;
+		}
+		return legendScalingMode;
+	});
+
+	// any face with an explicit scale override — gates the "reset legend sizes" button.
+	let anyLegendScaleSet = $derived(fparams.some((p) => p != null && p.scale != null));
+	let pendingResetLegendScales = $state(false);
+
+	function resetAllLegendScales() {
+		const next = fparams.map((p) => {
+			if (!p || p.scale == null) {
+				return p;
+			}
+			const { scale: _drop, ...rest } = p;
+			return rest;
+		});
+		fparams = next;
+		rawFaceDrafts = Object.fromEntries(
+			Object.entries(rawFaceDrafts).filter(([k]) => !k.endsWith('.scale'))
+		);
+	}
 
 	function faceName(face: { isNumberFace: boolean }, i: number): string {
 		return face.isNumberFace
@@ -219,6 +258,7 @@
 	let availableOrderings = $derived(getOrderings(kind));
 	let currentOrdering = $derived(ordering ?? STANDARD_ORDERING);
 	let isCustomOrdering = $derived(currentOrdering === CUSTOM_ORDERING);
+	let shapeDisplayName = $derived(dieDisplayName(kind, ordering));
 	// pending ordering id awaiting confirmation while leaving the custom ordering.
 	let pendingOrdering = $state<string | null>(null);
 
@@ -320,10 +360,11 @@
 	});
 	let widePanel = $derived(devMode || paramMode !== 'controls');
 
-	// every numeric die parameter (model params + the two engraving params) so the
-	// raw editor can expose each one as a free text field.
+	// every numeric die parameter (model params + shared engraving / scaling params)
+	// so the raw editor can expose each one as a free text field.
 	let allDieParams = $derived<Array<DiceParameter>>([
 		...model.parameters,
+		legendScalingModeParam,
 		engravingParam,
 		engravingToleranceParam
 	]);
@@ -715,10 +756,26 @@
 		</div>
 	{:else}
 		<CollapsibleGroup bind:value={openSection}>
-			<Collapsible value="dice" title={m.dice_name({ kind })} defaultOpen={false}>
+			<Collapsible value="dice" title={shapeDisplayName} defaultOpen={false}>
 				{#snippet titleExtra()}
 					{@render helpIcon(m.dice_blurb({ kind }))}
 				{/snippet}
+				<label class="flex flex-col gap-1">
+					<span class="flex items-center gap-1">
+						{m.dice_parameters_nickname()}:
+						{@render helpIcon(m.dice_parameters_nickname_help())}
+					</span>
+					<input
+						class="input"
+						type="text"
+						placeholder={m.dice_parameters_nickname_placeholder()}
+						value={nickname ?? ''}
+						oninput={(e) => {
+							const v = (e.target as HTMLInputElement).value;
+							nickname = v.trim() === '' ? undefined : v;
+						}}
+					/>
+				</label>
 				<p class="flex justify-between">
 					<span>{m.dice_parameters_approx_volume()}:</span>
 					<span>{numberFormat(vol)}{typeof vol === 'number' ? ' ml' : ''}</span>
@@ -893,6 +950,52 @@
 							</label>
 						{/if}
 					{/each}
+					<div id="parameter-{legendScalingModeParam.id}" class="flex flex-col gap-1">
+						<p class="flex items-center justify-between gap-2">
+							<span class="flex items-center gap-1">
+								{m.dice_parameters_name({ id: legendScalingModeParam.id })}:
+								{@render helpIcon(
+									m.dice_parameters_description({ id: legendScalingModeParam.id })
+								)}
+							</span>
+							<button
+								type="button"
+								class="btn btn-sm preset-tonal-secondary shrink-0"
+								disabled={!anyLegendScaleSet}
+								title={m.dice_parameters_reset_legend_scales()}
+								aria-label={m.dice_parameters_reset_legend_scales()}
+								onclick={() => (pendingResetLegendScales = true)}
+							>
+								<RotateCcw class="size-4" />
+								{m.dice_parameters_reset_legend_scales()}
+							</button>
+						</p>
+						{#if legendScalingModeParam.display?.kind === 'toggle'}
+							<SegmentedControl
+								value={String(legendScalingUiValue)}
+								onValueChange={(e) => {
+									if (e.value == null) {
+										return;
+									}
+									dparams[legendScalingModeParam.id] = Number(e.value);
+								}}
+							>
+								<SegmentedControl.Control>
+									<SegmentedControl.Indicator class="bg-primary-500" />
+									{#each legendScalingModeParam.display.options as opt}
+										<SegmentedControl.Item value={String(opt.value)}>
+											<SegmentedControl.ItemText
+												class="data-[state=checked]:text-primary-contrast-500"
+											>
+												{m.dice_parameter_option({ key: opt.label })}
+											</SegmentedControl.ItemText>
+											<SegmentedControl.ItemHiddenInput />
+										</SegmentedControl.Item>
+									{/each}
+								</SegmentedControl.Control>
+							</SegmentedControl>
+						{/if}
+					</div>
 					<label id="parameter-{engravingParam.id}" class="flex flex-col">
 						<p class="flex items-center justify-between">
 							<span class="flex items-center gap-1">
@@ -1270,6 +1373,34 @@
 					}}
 				>
 					{m.legend_ordering_reset_confirm()}
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
+{#if pendingResetLegendScales}
+	<div class="bg-surface-50-950/50 fixed inset-0 z-50 flex items-center justify-center p-4">
+		<div class="card bg-surface-100-900 max-w-sm space-y-4 p-4 shadow-xl">
+			<h3 class="text-lg font-bold">{m.dice_parameters_reset_legend_scales_title()}</h3>
+			<p>{m.dice_parameters_reset_legend_scales_body()}</p>
+			<div class="flex justify-end gap-2">
+				<button
+					type="button"
+					class="btn preset-tonal-surface"
+					onclick={() => (pendingResetLegendScales = false)}
+				>
+					{m.dice_parameters_reset_legend_scales_cancel()}
+				</button>
+				<button
+					type="button"
+					class="btn preset-filled-primary-500"
+					onclick={() => {
+						pendingResetLegendScales = false;
+						resetAllLegendScales();
+					}}
+				>
+					{m.dice_parameters_reset_legend_scales_confirm()}
 				</button>
 			</div>
 		</div>

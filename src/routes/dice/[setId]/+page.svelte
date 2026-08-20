@@ -20,6 +20,7 @@
 		cloneLegendSet,
 		diceFromJSON,
 		diceToJSON,
+		dieFromJSON,
 		dieToJSON,
 		getSavedLegends,
 		loadLegends,
@@ -58,6 +59,8 @@
 	import { debounce } from '$lib/utils/debounce';
 	import { createHistory } from '$lib/utils/history.svelte';
 	import { download, exportSetJson } from '$lib/utils/export';
+	import { dieDisplayName } from '$lib/utils/die_display_name';
+	import { resolvePickerSelection } from '$lib/utils/die_migrate';
 	import { event } from '$lib/utils/use_event';
 	import {
 		TriangleAlert,
@@ -148,13 +151,14 @@
 	const shapeLabel = (kind: string) => kind.charAt(0).toUpperCase() + kind.slice(1);
 	const sidesLabel = (sides: string) => (sides === '00' ? 'D%' : 'D' + sides);
 	const rarityLabel = (rarity: string) => rarity.charAt(0).toUpperCase() + rarity.slice(1);
-	// "00" represents d% (100), so it sorts after d20.
-	const sidesValue = (sides: string) => (sides === '00' ? 100 : Number(sides));
+	const sidesValue = (sides: string) => (sides === '00' ? 10 : Number(sides));
 
 	const groupKey = (tags: DieTags | undefined) => {
 		if (dieGroupBy === 'shape') return tags?.kind ?? 'other';
 		if (dieGroupBy === 'rarity') return tags?.rarity ?? 'other';
-		return tags?.sides ?? '';
+		// d00_* (percentile twins) sit in the D10 group — same shape, different numbering.
+		const sides = tags?.sides ?? '';
+		return sides === '00' ? '10' : sides;
 	};
 
 	const groupLabel = (key: string) => {
@@ -179,6 +183,17 @@
 			}
 			group.dice.push(preview);
 		}
+		for (const group of groups.values()) {
+			// within a sides group, list units (d10_*) before percentile (d00_*) twins.
+			group.dice.sort((a, b) => {
+				const a00 = a.kind.startsWith('d00_') ? 1 : 0;
+				const b00 = b.kind.startsWith('d00_') ? 1 : 0;
+				if (a00 !== b00) {
+					return a00 - b00;
+				}
+				return a.kind.localeCompare(b.kind);
+			});
+		}
 		return [...groups.values()].sort((a, b) => {
 			if (dieGroupBy === 'shape') {
 				const ai = shapeOrder.indexOf(a.key);
@@ -199,18 +214,19 @@
 			return;
 		}
 		const id = crypto.randomUUID();
-		// seed the user's preferred engraving defaults on newly added dice.
 		const prefs = getPreferences();
+		// d00_* picker tiles add the canonical d10_* with percentile numbering.
+		const resolved = resolvePickerSelection(kind);
 		setData.dice.push({
 			id,
-			kind,
+			kind: resolved.kind,
 			parameters: {
 				engraving_depth: prefs.defaultEngravingDepth,
 				engraving_tolerance: prefs.defaultEngravingTolerance
 			},
 			string_parameters: {},
 			face_parameters: [],
-			legend_ordering: 'standard'
+			legend_ordering: resolved.legend_ordering
 		});
 		void engineBuildDie(setData.dice[setData.dice.length - 1], explodeMode);
 		save(setData);
@@ -258,6 +274,23 @@
 			}
 			save(setData);
 		}
+	};
+
+	// deep-clone a die (params, faces, ordering, nickname) with a fresh instance id.
+	let duplicateDie = (id: string) => {
+		if (!setData) {
+			return;
+		}
+		const idx = setData.dice.findIndex((x) => x.id === id);
+		if (idx < 0) {
+			return;
+		}
+		const copy = dieFromJSON(dieToJSON(setData.dice[idx]));
+		copy.id = crypto.randomUUID();
+		setData.dice.splice(idx + 1, 0, copy);
+		void engineBuildDie(copy, explodeMode);
+		save(setData);
+		gotoDie(copy.id);
 	};
 
 	// need to load the set by id, or 404 if it doesn't exist.
@@ -1274,7 +1307,7 @@
 			<Progress value={null} />
 		</div>
 	{:else if pageLoad === 'ready' && setData}
-	<div class="flex h-full flex-col">
+	<div class="flex h-full min-h-0 flex-col">
 		<div
 			class={'flex flex-row flex-wrap items-center justify-start gap-4 pb-4' +
 				(formatPaintMode ? ' opacity-50' : '')}
@@ -1284,8 +1317,15 @@
 				{@const dieErrors = dieEngravingErrors[die.id] ?? []}
 				{@const landWarning = dieLandWarnings[die.id] ?? false}
 				{#snippet dieTip()}
-					<div class="flex flex-col gap-0.5">
-						<span class="font-semibold">{m.dice_name({ kind: die.kind })}</span>
+					{@const shapeName = dieDisplayName(die.kind, die.legend_ordering)}
+					{@const nick = die.nickname?.trim()}
+					<div class="flex flex-col items-center gap-0.5">
+						{#if nick}
+							<span class="font-semibold">{nick}</span>
+							<span class="text-surface-200-800 text-xs">{shapeName}</span>
+						{:else}
+							<span class="font-semibold">{shapeName}</span>
+						{/if}
 						{#each dieErrors as err}
 							<span class="text-error-400">
 								{m.engraving_broken_for({ legend: err.legendName })}
@@ -1314,6 +1354,21 @@
 											: '')}
 							onclick={() => gotoDie(die.id)}
 						>
+							<!-- duplicate -->
+							<button
+								use:event={{
+									name: 'click',
+									handler: (e) => {
+										e.stopPropagation();
+										duplicateDie(die.id);
+									}
+								}}
+								class="absolute top-[-2px] left-[-8px] hidden size-5 items-center justify-center rounded-md bg-secondary-500 text-secondary-contrast-500 group-hover:flex"
+								aria-label={m.controls_duplicate_die()}
+								title={m.controls_duplicate_die()}
+							>
+								<Plus size={14} strokeWidth={3} />
+							</button>
 							<!-- kill button -->
 							<button
 								use:event={{
@@ -1323,9 +1378,11 @@
 										removeDie(die.id);
 									}
 								}}
-								class="absolute top-[-8px] right-[-8px] hidden rounded-lg bg-red-500 text-white group-hover:block"
+								class="absolute top-[-2px] right-[-8px] hidden size-5 items-center justify-center rounded-md bg-red-500 text-white group-hover:flex"
+								aria-label={m.controls_remove_die()}
+								title={m.controls_remove_die()}
 							>
-								<X size={16} />
+								<X size={14} strokeWidth={3} />
 							</button>
 							<!-- engraving-error badge: this die would export with one or more
 							     broken faces. details are in the tooltip. -->
@@ -1435,7 +1492,7 @@
 				{/snippet}
 			</Modal>
 		</div>
-		<EngineScene class="relative w-full grow" {sceneReady} onSelection={handleEngineSelection}>
+		<EngineScene class="relative w-full min-h-0 grow" {sceneReady} onSelection={handleEngineSelection}>
 			<ul class="list-style-type-none absolute top-2 left-2 flex flex-col gap-2">
 				<li>
 					<Tooltip content={m.controls_reset_camera()} side="right">
@@ -1552,7 +1609,9 @@
 				</div>
 			{/if}
 			<div
-				class="absolute top-2 right-2 flex flex-col {formatPaintMode ? 'hidden' : ''}"
+				class="absolute top-2 right-2 bottom-2 flex flex-col overflow-y-auto {formatPaintMode
+					? 'hidden'
+					: ''}"
 				inert={formatPaintMode}
 			>
 				{#if setData && currentFacade}
@@ -1564,6 +1623,7 @@
 							bind:sparams={die.string_parameters}
 							bind:fparams={die.face_parameters}
 							bind:ordering={die.legend_ordering}
+							bind:nickname={die.nickname}
 							kind={die.kind}
 							builder={currentFacade}
 							legends={setData.legends}

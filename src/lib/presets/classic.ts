@@ -42,12 +42,13 @@ export const classic: Preset = {
 					face_parameters: []
 				},
 				{
-					kind: 'd00_trapezohedron',
+					kind: 'd10_trapezohedron',
 					parameters: { trapezohedron_radius: 11, trapezohedron_height: 22 } as Record<
 						string,
 						number
 					>,
-					face_parameters: []
+					face_parameters: [],
+					legend_ordering: 'percentile'
 				},
 				{ kind: 'd12_dodecahedron', parameters: { polyhedron_size: 17.5 }, face_parameters: [] },
 				{

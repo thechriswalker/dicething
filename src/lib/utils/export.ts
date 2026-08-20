@@ -6,6 +6,7 @@ import type { DieFaceModel } from '$lib/interfaces/dice';
 import type { Dice, DiceSet } from '$lib/interfaces/storage.svelte';
 import { Builder } from './builder';
 import { applyOrderingToFaces } from '$lib/utils/legend_orderings';
+import { migrateLegacyDice } from '$lib/utils/die_migrate';
 import { Legend, loadMutableLegends, type LegendSet, type SerialisedLegendSet } from './legends';
 import { extraBuildOptions, type OptionValues } from './build_options';
 import { blanks, isBuiltin, loadBuiltinById } from '$lib/fonts';
@@ -626,11 +627,15 @@ export async function importSetJson(json: string): Promise<DiceSet> {
 
 	const legends = await resolveImportedLegends(payload.legends);
 
+	const { dice: migrated } = migrateLegacyDice(
+		(set.dice as Array<Dice>).map((die) => ({ ...die, id: uuid() }))
+	);
+
 	return {
 		id: uuid(),
 		name: typeof set.name === 'string' && set.name ? set.name : 'Imported set',
 		updated: Date.now(),
-		dice: (set.dice as Array<Dice>).map((die) => ({ ...die, id: uuid() })),
+		dice: migrated,
 		legends
 	};
 }

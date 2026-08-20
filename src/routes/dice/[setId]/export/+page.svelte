@@ -9,6 +9,7 @@
 	import { waitForSet, dieToJSON, type Dice, type DiceSet } from '$lib/interfaces/storage.svelte';
 	import { getPreferences } from '$lib/interfaces/preferences.svelte';
 	import { m } from '$lib/paraglide/messages';
+	import { dieListLabel } from '$lib/utils/die_display_name';
 	import { createFancyRender, createGridHelper, type SceneRenderer } from '$lib/utils/scene';
 	import { debounce } from '$lib/utils/debounce';
 	import {
@@ -748,8 +749,8 @@
 		}
 	});
 
-	function dieLabel(kind: string, idx: number): string {
-		return `${idx + 1}. ${m.dice_name({ kind })}`;
+	function dieLabel(die: Dice, idx: number): string {
+		return `${idx + 1}. ${dieListLabel(die.kind, die.legend_ordering, die.nickname)}`;
 	}
 
 	function toggleDie(id: string, checked: boolean) {
@@ -1117,7 +1118,7 @@
 										onchange={(e) => toggleDie(die.id, e.currentTarget.checked)}
 									/>
 									<span class={errs.length > 0 ? 'text-warning-600-400' : ''}>
-										{dieLabel(die.kind, idx)}
+										{dieLabel(die, idx)}
 									</span>
 								</label>
 								{#if errs.length > 0}

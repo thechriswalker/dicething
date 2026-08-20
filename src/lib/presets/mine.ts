@@ -89,7 +89,7 @@ export const myPreset: Preset = {
 					]
 				},
 				{
-					kind: 'd00_trapezohedron',
+					kind: 'd10_trapezohedron',
 					parameters: {
 						trapezohedron_radius: 14,
 						trapezohedron_height: 36
@@ -105,7 +105,8 @@ export const myPreset: Preset = {
 						{ rotation: 1.1868238913561442, scale: 1, offset: new Vector2(-1.3, 0) },
 						{ rotation: 1.1868238913561442, scale: 1, offset: new Vector2(-1.3, 0) },
 						{ rotation: 1.1868238913561442, scale: 1, offset: new Vector2(-1.3, 0) }
-					]
+					],
+					legend_ordering: 'percentile'
 				},
 				{
 					kind: 'd12_dodecahedron',

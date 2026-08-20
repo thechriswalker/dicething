@@ -60,7 +60,13 @@
 		}
 	});
 
-	// we havea problem that the canvas doesn't shrink. so making the screen smaller doesn't resize the scene.
 </script>
 
-<div class={[classes, borderClass, roundedClass]} bind:this={outerEl}>{@render children?.()}</div>
+<!-- min-h-0 + overflow-hidden: flex grow defaults to min-height:auto (canvas bitmap),
+     which prevents shrink-on-window-resize; scene.ts ResizeObserver then never fires. -->
+<div
+	class={[classes, borderClass, roundedClass, 'relative min-h-0 min-w-0 overflow-hidden']}
+	bind:this={outerEl}
+>
+	{@render children?.()}
+</div>

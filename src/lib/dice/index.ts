@@ -48,6 +48,9 @@ const dice = {
 	d6_crystal: CrystalD6,
 	d8_crystal: CrystalD8,
 	d10_crystal: CrystalD10,
+	// d00_* remain registered for picker previews / i18n. Adding one from the
+	// picker (or loading a legacy set) resolves to the matching d10_* with
+	// percentile ordering — see die_migrate.ts.
 	d00_crystal: CrystalD00,
 	d12_crystal: CrystalD12,
 	d12_dodecahedron: DodecahedronD12,
@@ -84,6 +87,8 @@ const dice = {
 
 // grouping/sorting metadata for each die, keyed by die id. kept here so the
 // whole taxonomy can be reviewed and edited in one place.
+// sides "00" marks the percentile (D%) picker twin of the matching d10_*.
+// Instances are always stored as d10_* + legend_ordering after migration.
 // TODO add "rarity": "common", "uncommon", "rare", "epic", "legendary"
 const diceTags: Record<keyof typeof dice, DieTags> = {
 	d2_coin: { kind: 'coin', sides: '2', rarity: 'common' },

@@ -560,7 +560,10 @@ export class Builder {
 			const x = this.model.build(dieParams, stringParams);
 			this.face2face = x.faceToFaceDistance;
 			this.faces = x.faces;
-			this.individualLegendScaling = !!x.sizeLegendsIndividually;
+			this.individualLegendScaling = resolveIndividualLegendScaling(
+				!!x.sizeLegendsIndividually,
+				dieParams.legend_scaling_mode
+			);
 			this.previewTransform = x.previewTransform;
 			// keep the print orientation in sync with the current die params here
 			// too: a build option (e.g. blanks) builds a builder then re-exports it
@@ -914,7 +917,10 @@ export class Builder {
 			// face is found, glyphs stay at scale 1, overflow small faces and fail to
 			// engrave -> they silently fall back to blank (notably on the d20).
 			this.faces = x.faces;
-			this.individualLegendScaling = !!x.sizeLegendsIndividually;
+			this.individualLegendScaling = resolveIndividualLegendScaling(
+				!!x.sizeLegendsIndividually,
+				dieParams.legend_scaling_mode
+			);
 			// the ordering rewrites the number faces' default legends; apply it
 			// before scaling (which reads those defaults).
 			applyOrderingToFaces(this.model.id, ordering, this.faces, dieParams);
@@ -1344,6 +1350,45 @@ export const engravingToleranceParam: DiceParameter = {
 	step: 0.05
 };
 
+// How auto-computed legend scales are applied across faces. Not declared on
+// DieModel.parameters — every die gets it via simplifyDieParams (like engraving).
+// 0 = honour the model's sizeLegendsIndividually preference; 1 = each legend
+// at its own best fit; 2 = all legends share the smallest fit (uniform size).
+export const LEGEND_SCALING_AUTO = 0;
+export const LEGEND_SCALING_INDIVIDUAL = 1;
+export const LEGEND_SCALING_UNIFORM = 2;
+
+export const legendScalingModeParam: DiceParameter = {
+	id: 'legend_scaling_mode',
+	defaultValue: LEGEND_SCALING_AUTO,
+	min: LEGEND_SCALING_AUTO,
+	max: LEGEND_SCALING_UNIFORM,
+	step: 1,
+	display: {
+		kind: 'toggle',
+		// UI only offers the two behaviours; Auto (default) is shown as whichever
+		// of these matches the die model's preference.
+		options: [
+			{ value: LEGEND_SCALING_INDIVIDUAL, label: 'legend_scaling_individual' },
+			{ value: LEGEND_SCALING_UNIFORM, label: 'legend_scaling_uniform' }
+		]
+	}
+};
+
+export function resolveIndividualLegendScaling(
+	modelPrefersIndividual: boolean,
+	mode: number | undefined
+): boolean {
+	const m = mode ?? LEGEND_SCALING_AUTO;
+	if (m === LEGEND_SCALING_INDIVIDUAL) {
+		return true;
+	}
+	if (m === LEGEND_SCALING_UNIFORM) {
+		return false;
+	}
+	return modelPrefersIndividual;
+}
+
 function simplifyDieParams(
 	obj: Record<string, number>,
 	params: Array<DiceParameter>
@@ -1370,6 +1415,13 @@ function simplifyDieParams(
 		output.engraving_tolerance = clampParam(obj.engraving_tolerance, engravingToleranceParam);
 	} else {
 		output.engraving_tolerance = engravingToleranceParam.defaultValue;
+	}
+	// legend scaling mode: only persist when it differs from "auto" (model default).
+	if ('legend_scaling_mode' in obj) {
+		const value = clampParam(obj.legend_scaling_mode, legendScalingModeParam);
+		if (value !== legendScalingModeParam.defaultValue) {
+			output.legend_scaling_mode = value;
+		}
 	}
 	return output;
 }

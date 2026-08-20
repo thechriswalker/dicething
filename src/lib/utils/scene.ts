@@ -49,8 +49,16 @@ export function createBaseSceneAndRenderer(
 	// temporary 1×1 and let the ResizeObserver correct it.
 	const initW = Math.max(1, el.clientWidth);
 	const initH = Math.max(1, el.clientHeight);
-	renderer.setSize(initW, initH);
-	el.appendChild(renderer.domElement);
+	// updateStyle=false: don't pin canvas to fixed CSS px (that blocks flex shrink).
+	// Absolute fill keeps the bitmap's intrinsic size out of layout.
+	renderer.setSize(initW, initH, false);
+	const cvs = renderer.domElement;
+	cvs.style.position = 'absolute';
+	cvs.style.inset = '0';
+	cvs.style.width = '100%';
+	cvs.style.height = '100%';
+	cvs.style.display = 'block';
+	el.appendChild(cvs);
 	const resizeContainer = el.parentElement!;
 	let camera = new PerspectiveCamera(70, initW / initH, 1, 500);
 	camera.position.copy(initialCameraPosition);
@@ -231,7 +239,7 @@ export function createBaseSceneAndRenderer(
 		}
 		camera.aspect = w / h;
 		camera.updateProjectionMatrix();
-		renderer.setSize(w, h);
+		renderer.setSize(w, h, false);
 		composer.setSize(w, h);
 		controls.handleResize();
 		return true;
@@ -242,23 +250,12 @@ export function createBaseSceneAndRenderer(
 			return;
 		}
 		// Only touch the canvas once we know the container has a real size.
-		// Clearing width/height while still at 0×0 leaves the drawing buffer
-		// stripped until a later layout thrash (e.g. editing a sidebar param).
+		// A 0×0 drawing buffer + NaN aspect leaves a blank view until a later
+		// layout thrash (e.g. editing a sidebar param).
 		if (el.clientWidth < 1 || el.clientHeight < 1) {
 			return;
 		}
-		const cvs = renderer.domElement;
-		cvs.style.width = 'auto';
-		cvs.style.height = 'auto';
-		cvs.removeAttribute('width');
-		cvs.removeAttribute('height');
-		// defer so layout has committed clientWidth/Height after the style reset
-		setTimeout(() => {
-			if (!applySize()) {
-				// style reset raced a 0-size frame — put a usable buffer back
-				requestAnimationFrame(() => applySize());
-			}
-		});
+		applySize();
 	});
 	observer.observe(resizeContainer);
 	observer.observe(el);

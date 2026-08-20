@@ -2,6 +2,7 @@ import { getPreferences } from '$lib/interfaces/preferences.svelte';
 import type { Preset, PresetOption } from '$lib/interfaces/presets';
 import type { DiceSet } from '$lib/interfaces/storage.svelte';
 import { goFirstPreset } from '$lib/presets/go_first';
+import { migrateLegacyDiceSet } from '$lib/utils/die_migrate';
 import { uuid } from '$lib/utils/uuid';
 import { classic } from './classic';
 import { dicethingPreset } from './dicething';
@@ -28,6 +29,7 @@ export async function fromPreset(
 		x.parameters.engraving_depth ??= prefs.defaultEngravingDepth;
 		x.parameters.engraving_tolerance ??= prefs.defaultEngravingTolerance;
 	});
+	migrateLegacyDiceSet(base);
 	return base;
 }
 

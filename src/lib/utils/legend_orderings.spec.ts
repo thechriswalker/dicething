@@ -7,7 +7,7 @@ import {
 	STANDARD_ORDERING,
 	CUSTOM_ORDERING
 } from '$lib/utils/legend_orderings';
-import { legendForValue } from '$lib/utils/legends';
+import { legendForValue, pickForDoublesByIndex } from '$lib/utils/legends';
 import { spindownOrders } from '$lib/utils/spindown_orders';
 import type { DieFaceModel } from '$lib/interfaces/dice';
 
@@ -27,7 +27,27 @@ describe('legend orderings registry', () => {
 		expect(d4Caltrop).toEqual(['standard']);
 
 		const d20 = getOrderings('d20_icosahedron').map((o) => o.id);
-		expect(d20).toEqual(['standard']);
+		expect(d20).toEqual(['standard', 'spindown']);
+	});
+
+	it('offers Percentile on 10-sided kinds (including legacy d00)', () => {
+		expect(getOrderings('d10_trapezohedron').map((o) => o.id)).toEqual([
+			'standard',
+			'percentile'
+		]);
+		expect(getOrderings('d00_trapezohedron').map((o) => o.id)).toEqual([
+			'standard',
+			'percentile'
+		]);
+		expect(getOrderings('d10_crystal').map((o) => o.id)).toEqual([
+			'standard',
+			'percentile',
+			'spindown'
+		]);
+		expect(getOrderings('d10_trapezohedron').map((o) => o.labelKey)).toEqual([
+			'standard_d10',
+			'standard_percentile'
+		]);
 	});
 
 	it('offers Go First A-D on 12-sided dice', () => {
@@ -80,9 +100,17 @@ describe('applyOrderingToFaces', () => {
 	});
 
 	it('Spindown on a die without authored data is a no-op (ordering not offered)', () => {
-		const baseline = buildFaces('d20_icosahedron').map((f) => f.defaultLegend);
-		const faces = buildFaces('d20_icosahedron');
-		applyOrderingToFaces('d20_icosahedron', 'spindown', faces, {});
+		const baseline = buildFaces('d8_trapezohedron').map((f) => f.defaultLegend);
+		const faces = buildFaces('d8_trapezohedron');
+		applyOrderingToFaces('d8_trapezohedron', 'spindown', faces, {});
 		expect(faces.map((f) => f.defaultLegend)).toEqual(baseline);
+	});
+
+	it('Percentile remaps a d10 to tens legends', () => {
+		const faces = buildFaces('d10_trapezohedron');
+		applyOrderingToFaces('d10_trapezohedron', 'percentile', faces, {});
+		expect(faces.filter((f) => f.isNumberFace).map((f) => f.defaultLegend)).toEqual(
+			Array.from({ length: 10 }, (_, i) => pickForDoublesByIndex(i))
+		);
 	});
 });

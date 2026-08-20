@@ -171,7 +171,8 @@
 				"id=trunc_tetra_truncation": "How far each corner is cut back. Higher gives larger number triangles",
 				"id=skew": "How far the faces are skewed. The faces stay congruent, so the die remains fair; higher is more distorted",
 				"id=engraving_depth": "Depth of the legend engraving",
-				"id=engraving_tolerance": "Minimum distance a legend must be inset from the edge of a face"
+				"id=engraving_tolerance": "Minimum distance a legend must be inset from the edge of a face",
+				"id=legend_scaling_mode": "How auto-sized legends are scaled across faces. Individual fits each legend as large as possible; Uniform keeps every legend the same size. Until you choose, this die uses its recommended default"
 			}
 		}
 	],
@@ -183,7 +184,9 @@
 				"key=handedness_left": "Left",
 				"key=handedness_right": "Right",
 				"key=coin_shape_polygon": "Polygon",
-				"key=coin_shape_custom": "Custom"
+				"key=coin_shape_custom": "Custom",
+				"key=legend_scaling_individual": "Individual",
+				"key=legend_scaling_uniform": "Uniform"
 			}
 		}
 	],
@@ -203,6 +206,10 @@
 			"selectors": ["key"],
 			"match": {
 				"key=standard": "Standard",
+				"key=standard_d10": "Standard D10",
+				"key=standard_percentile": "Standard Percentile (D%)",
+				"key=percentile": "Standard Percentile (D%)",
+				"key=units": "Standard D10",
 				"key=spindown": "Spindown",
 				"key=go_first_a": "Go First (A)",
 				"key=go_first_b": "Go First (B)",
@@ -213,7 +220,10 @@
 		}
 	],
 	"dice_parameters_legend_ordering": "Legend Ordering",
-	"dice_parameters_legend_ordering_help": "How the default numbers are laid out across the faces. Editing a face's legend switches this to Custom.",
+	"dice_parameters_legend_ordering_help": "How the default numbers are laid out across the faces. On ten-sided dice, choose Standard D10 (0–9) or Standard Percentile (00–90). Editing a face's legend switches this to Custom.",
+	"dice_parameters_nickname": "Nickname",
+	"dice_parameters_nickname_placeholder": "Optional label (e.g. Logo)",
+	"dice_parameters_nickname_help": "A personal name for this die in the set. Shown when hovering the die in the list; leave blank to use the shape name.",
 	"dice_parameters_copy_ordering": "Copy ordering",
 	"dice_parameters_copy_ordering_done": "Copied!",
 	"legend_ordering_reset_title": "Drop custom legends?",
@@ -230,6 +240,11 @@
 	"dice_parameters_json_copy": "Copy",
 	"dice_parameters_json_reset": "Reset",
 	"dice_parameters_json_apply": "Apply",
+	"dice_parameters_reset_legend_scales": "Reset sizes",
+	"dice_parameters_reset_legend_scales_title": "Reset legend sizes?",
+	"dice_parameters_reset_legend_scales_body": "This clears every face's custom legend scale so they return to the auto-fit size. Offset, rotation, and other face settings are left alone.",
+	"dice_parameters_reset_legend_scales_cancel": "Cancel",
+	"dice_parameters_reset_legend_scales_confirm": "Reset sizes",
 	"dice_current_face": "Current Face",
 	"dice_name": [
 		{
@@ -343,6 +358,8 @@
 	"menu_export_as_json": "As JSON",
 	"menu_export_as_stl": "As 3MF",
 	"controls_add_new_die": "Add new die",
+	"controls_duplicate_die": "Duplicate die",
+	"controls_remove_die": "Remove die",
 	"controls_group_by_shape": "By Shape",
 	"controls_group_by_number": "By Sides",
 	"controls_group_by_rarity": "By Rarity",
@@ -419,7 +436,8 @@
 				"id=trunc_tetra_truncation": "Truncation",
 				"id=skew": "Skew",
 				"id=engraving_depth": "Engraving Depth",
-				"id=engraving_tolerance": "Engraving Tolerance"
+				"id=engraving_tolerance": "Engraving Tolerance",
+				"id=legend_scaling_mode": "Legend Scaling"
 			}
 		}
 	],

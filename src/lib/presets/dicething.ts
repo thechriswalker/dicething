@@ -45,12 +45,13 @@ export const dicethingPreset: Preset = {
 					face_parameters: []
 				},
 				{
-					kind: 'd00_trapezohedron',
+					kind: 'd10_trapezohedron',
 					parameters: {
 						trapezohedron_radius: 14,
 						trapezohedron_height: 36
 					} as Record<string, number>,
-					face_parameters: []
+					face_parameters: [],
+					legend_ordering: 'percentile'
 				},
 				{
 					kind: 'd12_dodecahedron',

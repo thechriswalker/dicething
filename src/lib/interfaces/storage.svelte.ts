@@ -23,6 +23,7 @@ import {
 } from '$lib/utils/die_engine_client';
 import type { StorageUpdatedPayload } from '$lib/utils/die_engine_protocol';
 import { engineTrace, engineTraceSpan } from '$lib/utils/engine_trace';
+import { migrateLegacyDiceSet } from '$lib/utils/die_migrate';
 
 // fired (same-tab) whenever a custom legend set is saved or deleted, with the
 // affected id as the event detail. Cross-tab changes arrive via the localStorage
@@ -62,11 +63,16 @@ export type Dice = {
 	string_parameters?: Record<string, string>;
 	face_parameters: Array<FaceParams>;
 	// which legend ordering drives this die's per-face default legends. a known
-	// ordering id ('standard' | 'spindown' | 'go_first_a'..'d') has the ordering
-	// supply the defaults; 'custom' materialises every legend into
-	// `face_parameters`. optional so older saved sets (undefined == 'standard')
-	// still load. see $lib/dice/legend_orderings.
+	// ordering id ('standard' | 'spindown' | 'percentile' | 'go_first_a'..'d')
+	// has the ordering supply the defaults; 'custom' materialises every legend
+	// into `face_parameters`. optional so older saved sets (undefined == 'standard')
+	// still load. legacy d00_* kinds are migrated to d10_* + percentile on load
+	// (see die_migrate.ts). see $lib/utils/legend_orderings.
 	legend_ordering?: string;
+	// optional user label for this instance (e.g. "D20 Logo"). shown in the die
+	// strip tooltip and editable in the parameters panel; the shape display name
+	// remains derived from kind + ordering.
+	nickname?: string;
 };
 
 export function dieToJSON(die: Dice): string {
@@ -142,6 +148,7 @@ async function hydrateFromEngineSnapshot(payload: StorageUpdatedPayload): Promis
 		payload.legends.map((l) => [l.id, loadMutableLegends(l)] as const)
 	);
 	const sets: Array<DiceSet> = [];
+	const migrated: Array<DiceSet> = [];
 	for (const snap of payload.sets) {
 		try {
 			let legendSet: LegendSet;
@@ -151,16 +158,24 @@ async function hydrateFromEngineSnapshot(payload: StorageUpdatedPayload): Promis
 				legendSet = customById.get(snap.legendsId) ?? (await loadLegends(snap.legendsId));
 			}
 			const diceArr = JSON.parse(snap.dice, reviver) as Dice[];
-			sets.push({
+			const set: DiceSet = {
 				id: snap.id,
 				name: snap.name,
 				updated: snap.updated,
 				dice: diceArr,
 				legends: legendSet
-			});
+			};
+			if (migrateLegacyDiceSet(set)) {
+				migrated.push(set);
+			}
+			sets.push(set);
 		} catch (e) {
 			console.warn('failed to hydrate set from engine storage', snap.id, e);
 		}
+	}
+	// persist d00 → d10 migrations so the next load already has the new kinds.
+	for (const set of migrated) {
+		saveSet(set);
 	}
 	return sets;
 }
@@ -200,6 +215,9 @@ if (browser) {
 				const { legends, ...stored } = diceSetFromJSON(ev.newValue);
 				const legendSet = await loadLegends(legends);
 				const set: DiceSet = { legends: legendSet, ...stored };
+				if (migrateLegacyDiceSet(set)) {
+					saveSet(set);
+				}
 				const idx = savedSets.findIndex((x) => x.id === set.id);
 				if (idx === -1) {
 					savedSets.push(set);
@@ -334,6 +352,9 @@ function getListOfSets() {
 			const { legends, ...stored } = diceSetFromJSON(v);
 			const legendSet = await loadLegends(legends);
 			const set: DiceSet = { legends: legendSet, ...stored };
+			if (migrateLegacyDiceSet(set)) {
+				saveSet(set);
+			}
 			return set;
 		} catch {
 			// not good.

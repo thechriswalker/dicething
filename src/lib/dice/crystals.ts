@@ -6,6 +6,9 @@ import { Legend, pickForDoublesByIndex, pickForNumber } from '$lib/utils/legends
 import { orientCoplanarVertices, rotateShapes } from '$lib/utils/shapes';
 import { Plane, Ray, Shape, Vector2, Vector3 } from 'three';
 
+const boxTiltAngle = Math.PI / 16;
+
+
 const defaultHeight = 16;
 const defaultWidth = 8;
 const defaultCapHeight = 4;
@@ -78,6 +81,7 @@ export const CrystalD00 = crystal(
 	true
 );
 
+
 function crystal(
 	id: string,
 	name: string,
@@ -94,7 +98,8 @@ function crystal(
 		// only the d4 was asked to preview off-axis; the taller crystals keep the
 		// default head-on view.
 		build: build(sides, defaultParameters, tens, sides === 4 ? previewTilt() : undefined),
-		blankParameters: crystalBlankParams(sides, defaultParameters)
+		blankParameters: crystalBlankParams(sides, defaultParameters),
+		boxTransform: new Transform().rotateByAxisAngle(xAxis, boxTiltAngle),
 	};
 }
 

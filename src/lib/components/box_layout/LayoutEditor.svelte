@@ -26,7 +26,7 @@
 		initialItems: Array<EditorItem>;
 		initialBox: { halfX: number; halfY: number };
 		params: BoxParams;
-		dieLabel: (kind: string) => string;
+		dieLabel: (kind: string, dieId: string) => string;
 		onApply: (result: LayoutResult) => void;
 		onClose: () => void;
 	};
@@ -703,7 +703,7 @@
 							/>
 							<span class="inline-block size-3 rounded-sm" style={`background:${dieColour(i)}`}
 							></span>
-							<span>{i + 1}. {dieLabel(it.kind)}</span>
+							<span>{i + 1}. {dieLabel(it.kind, it.dieId)}</span>
 						</label>
 					{/each}
 				</div>

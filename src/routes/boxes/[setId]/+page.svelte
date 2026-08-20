@@ -8,6 +8,8 @@
 	import { waitForSet, type DiceSet } from '$lib/interfaces/storage.svelte';
 	import { getPreferences } from '$lib/interfaces/preferences.svelte';
 	import { m } from '$lib/paraglide/messages';
+	import { dieListLabel } from '$lib/utils/die_display_name';
+	import dice from '$lib/dice';
 	import { createFancyRender, createGridHelper, type SceneRenderer } from '$lib/utils/scene';
 	import { debounce } from '$lib/utils/debounce';
 	import type { BuiltBox, BuildProgress } from '$lib/box/box_builder';
@@ -678,8 +680,13 @@
 	let editorItems = $state<Array<EditorItem>>([]);
 	let editorBox = $state<{ halfX: number; halfY: number }>({ halfX: 0, halfY: 0 });
 
-	function dieLabel(kind: string): string {
-		return m.dice_name({ kind });
+	function dieLabel(kind: string, dieId: string): string {
+		const die = setData?.dice.find((d) => d.id === dieId);
+		return dieListLabel(
+			(die?.kind ?? kind) as keyof typeof dice,
+			die?.legend_ordering,
+			die?.nickname
+		);
 	}
 
 	async function openLayout() {

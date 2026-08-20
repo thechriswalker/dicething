@@ -15,13 +15,15 @@ export const everythingPreset: Preset = {
 	async factory(opts: Array<PresetOption>) {
 		return {
 			legends: await legendPickerFactory(opts[0]),
-			dice: Object.values(dice).map((die) => {
-				return {
-					kind: die.id,
-					parameters: {},
-					face_parameters: []
-				} as UnidentifiedDiceSet['dice'][number];
-			})
+			dice: Object.values(dice)
+				.filter((die) => !die.id.startsWith('d00_'))
+				.map((die) => {
+					return {
+						kind: die.id,
+						parameters: {},
+						face_parameters: []
+					} as UnidentifiedDiceSet['dice'][number];
+				})
 		};
 	}
 };

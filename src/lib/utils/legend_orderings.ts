@@ -9,14 +9,18 @@
 //
 // A die's chosen ordering id lives on `Dice.legend_ordering`. Two ids are
 // special and apply NO override (the model's standard defaults stand):
-//   - 'standard': the baseline.
+//   - 'standard': the baseline (units 0–9 on a d10).
 //   - 'custom':   the user has hand-edited legends, so every effective legend
 //                 is stored explicitly in `face_parameters` instead.
+//
+// Ten-sided dice also offer 'percentile' (00–90). Legacy d00_* kinds are
+// migrated to d10_* + percentile on load (see die_migrate.ts); display names
+// follow via die_display_name.ts.
 
 import type { DieFaceModel } from '$lib/interfaces/dice';
 import dice from '$lib/dice';
 import { spindownOrders } from '$lib/utils/spindown_orders';
-import { Legend, legendForValue } from '$lib/utils/legends';
+import { Legend, legendForValue, pickForDoublesByIndex } from '$lib/utils/legends';
 
 export type LegendOrdering = {
 	// stable id, stored on `Dice.legend_ordering`.
@@ -32,6 +36,11 @@ export type LegendOrdering = {
 // orderings that don't override anything (the model's standard defaults stand).
 export const STANDARD_ORDERING = 'standard';
 export const CUSTOM_ORDERING = 'custom';
+// tens (00–90) numbering for 10-sided dice. display name reads as "D% …".
+export const PERCENTILE_ORDERING = 'percentile';
+// legacy id from when d00_* instances offered an explicit units switch. still
+// recognised by migration (→ standard on d10); no longer offered in the UI.
+export const UNITS_ORDERING = 'units';
 
 // the Go First number sets (4 players' worth of d12s), one per ordering. Each
 // is assigned, in order, to a d12's 12 number faces. Mirrors the historic
@@ -74,10 +83,10 @@ function assignToNumberFaces(
 	return result;
 }
 
-function standardOrdering(): LegendOrdering {
+function standardOrdering(labelKey: string = STANDARD_ORDERING): LegendOrdering {
 	return {
 		id: STANDARD_ORDERING,
-		labelKey: STANDARD_ORDERING,
+		labelKey,
 		legends: (faces) => faces.map((f) => f.defaultLegend)
 	};
 }
@@ -99,21 +108,38 @@ function goFirstOrdering(id: string): LegendOrdering {
 	};
 }
 
+// 00/10/20…90 on the number faces, in build order.
+function percentileOrdering(): LegendOrdering {
+	return {
+		id: PERCENTILE_ORDERING,
+		labelKey: 'standard_percentile',
+		legends: (faces) => {
+			const n = numberFaceIndices(faces).length;
+			const values = Array.from({ length: n }, (_, i) => pickForDoublesByIndex(i));
+			return assignToNumberFaces(faces, values);
+		}
+	};
+}
+
 // the orderings offered for a given die kind. Standard is always first;
-// Spindown only when this die has an authored entry in `spindownOrders`
-// (caltrops and other shapes that are already "spindown-like" by default
-// are omitted); the four Go First arrangements are offered for every
-// 12-sided die.
+// Percentile on every 10-sided die; Spindown when authored; Go First on d12s.
 export function getOrderings(kind: string): Array<LegendOrdering> {
 	const model = dice[kind as keyof typeof dice];
-	const orderings: Array<LegendOrdering> = [standardOrdering()];
+	const sides = model?.tags?.sides;
+	const isTenSided = sides === '10' || sides === '00';
+	const orderings: Array<LegendOrdering> = [
+		standardOrdering(isTenSided ? 'standard_d10' : STANDARD_ORDERING)
+	];
 	if (!model) {
 		return orderings;
+	}
+	if (isTenSided) {
+		orderings.push(percentileOrdering());
 	}
 	if (kind in spindownOrders) {
 		orderings.push(spindownOrdering(kind));
 	}
-	if (model.tags?.sides === '12') {
+	if (sides === '12') {
 		for (const id of Object.keys(GO_FIRST_VALUES)) {
 			orderings.push(goFirstOrdering(id));
 		}
