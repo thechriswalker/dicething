@@ -26,6 +26,7 @@ import { PentagonalHexecontahedronD60 } from './pentagonal_hexecontahedron';
 import { SkewD6 } from './skew_d6';
 import { TetartoidD12 } from './tetartoid';
 import { OddPrismD3, OddPrismD5, OddPrismD7 } from './odd_prism';
+import { TruncatedPrismD3 } from './truncated_prism';
 import { InfinityD4 } from './infinity';
 import {
 	BarrelD4,
@@ -71,6 +72,7 @@ const dice = {
 	d20_barrel: BarrelD20,
 	d00_barrel: BarrelD00,
 	d3_odd_prism: OddPrismD3,
+	d3_truncated_prism: TruncatedPrismD3,
 	d5_odd_prism: OddPrismD5,
 	d7_odd_prism: OddPrismD7,
 	d6_skew: SkewD6,
@@ -121,6 +123,7 @@ const diceTags: Record<keyof typeof dice, DieTags> = {
 	d20_barrel: { kind: 'barrel', sides: '20', rarity: 'rare' },
 	d00_barrel: { kind: 'barrel', sides: '00', rarity: 'rare' },
 	d3_odd_prism: { kind: 'odd', sides: '3', rarity: 'legendary' },
+	d3_truncated_prism: { kind: 'odd', variant: 'truncated', sides: '3', rarity: 'legendary' },
 	d5_odd_prism: { kind: 'odd', sides: '5', rarity: 'legendary' },
 	d7_odd_prism: { kind: 'odd', sides: '7', rarity: 'legendary' },
 	d6_skew: { kind: 'skew', sides: '6', rarity: 'legendary' },
