@@ -173,6 +173,7 @@
 				"id=skew": "How far the faces are skewed. The faces stay congruent, so the die remains fair; higher is more distorted",
 				"id=engraving_depth": "Depth of the legend engraving",
 				"id=engraving_tolerance": "Minimum distance a legend must be inset from the edge of a face",
+				"id=engraving_bevel": "Creates a small inner bevel at the base of the engraving. Built in steps and very slow. 0 keeps a sharp corner",
 				"id=legend_scaling_mode": "How auto-sized legends are scaled across faces. Individual fits each legend as large as possible; Uniform keeps every legend the same size. Until you choose, this die uses its recommended default"
 			}
 		}
@@ -441,6 +442,7 @@
 				"id=skew": "Skew",
 				"id=engraving_depth": "Engraving Depth",
 				"id=engraving_tolerance": "Engraving Tolerance",
+				"id=engraving_bevel": "Engraving Bevel",
 				"id=legend_scaling_mode": "Legend Scaling"
 			}
 		}
@@ -467,6 +469,8 @@
 	"set_config_engraving_hint": "These values are applied to every die in this set and are saved with it, so an exported set engraves the same way on any machine. Individual dice can still be overridden afterwards.",
 	"set_config_engraving_depth": "Engraving depth",
 	"set_config_engraving_tolerance": "Engraving tolerance",
+	"set_config_engraving_bevel": "Engraving bevel",
+	"set_config_engraving_bevel_hint": "Creates a small inner bevel at the base of the engraving, but it is created in steps and very slow.",
 	"set_config_mixed_hint": "Dice in this set currently use different values; changing the slider applies one value to all of them.",
 	"preferences_developer_mode": "Developer mode",
 	"preferences_developer_mode_hint": "Enables developer/advanced features. These might be interesting, but will also allow you to break you dice in ways that otherwise would be prevented. With great power comes great responsibility.",

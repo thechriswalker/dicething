@@ -150,9 +150,14 @@ export function facePenetrationDepth(face: DieFaceModel): number {
 function tagWithOriginalId(man: Manifold, originalId: number): Manifold {
 	const wasm = manifold();
 	const mesh = man.getMesh();
-	const nTri = mesh.numTri;
-	mesh.runOriginalID = new Uint32Array([originalId]);
-	mesh.runIndex = new Uint32Array([0, nTri * 3]);
+	const nRuns = mesh.runIndex.length - 1;
+	if (nRuns === 1) {
+		const nTri = mesh.numTri;
+		mesh.runOriginalID = new Uint32Array([originalId]);
+		mesh.runIndex = new Uint32Array([0, nTri * 3]);
+	} else {
+		mesh.runOriginalID = new Uint32Array(nRuns).fill(originalId);
+	}
 	const tagged = new wasm.Manifold(mesh);
 	man.delete();
 	return tagged;
@@ -481,13 +486,46 @@ export function buildBlankManifoldFromGeometry(
 
 // --- Legend cutters -------------------------------------------------------------
 
+// Progressive inset slices on the whole cross-section (EvenOdd), so outer loops
+// and holes offset together. Do NOT hull/extrude contours separately — a convex
+// hull or positive fill of the outer loop bridges across holes ("0" islands float).
+const CHAMFER_SLICE_PITCH = 0.01; // mm
+
+function buildChamferBand(
+	full: CrossSection,
+	bevel: number,
+	depth: number
+): Manifold {
+	const zBottom = -depth;
+	const slices = Math.max(6, Math.ceil(bevel / CHAMFER_SLICE_PITCH));
+	const h = bevel / slices;
+	const parts: Array<Manifold> = [];
+	for (let i = 0; i < slices; i++) {
+		const z0 = zBottom + i * h;
+		const off = bevel * (1 - (i + 0.5) / slices);
+		const cs = full.offset(-off, 'Square');
+		if (cs.isEmpty()) {
+			cs.delete();
+			continue;
+		}
+		const slice = cs.extrude(h + 1e-5).translate([0, 0, z0]);
+		cs.delete();
+		parts.push(slice);
+	}
+	if (parts.length === 0) {
+		return full.extrude(bevel).translate([0, 0, zBottom]);
+	}
+	return unionManifolds(parts);
+}
+
 export function buildLegendCutter(
 	symbols: Array<Shape>,
 	orientation: SymbolOrientation,
 	depth: number,
 	face: DieFaceModel,
 	faceIndex: number,
-	divisions: number = DefaultDivisions
+	divisions: number = DefaultDivisions,
+	bevel: number = 0
 ): Manifold | undefined {
 	if (symbols.length === 0) {
 		return undefined;
@@ -507,13 +545,31 @@ export function buildLegendCutter(
 		return undefined;
 	}
 	const eps = CUTTER_SURFACE_EPS;
+	const effectiveBevel = Math.min(Math.max(0, bevel), depth - 0.05);
 	// Legacy engrave(): walls run z = 0 (face surface) down to z = -depth. Extrude
 	// along +Z, shift into the die — top flush with the face, extra ε below for
 	// robust boolean subtract. (No rotate 180° X: that mirrors Y and reverses legends.)
-	const h = depth + eps;
-	let cutter = cs.extrude(h, 0, 0, [1, 1]);
-	cs.delete();
-	cutter = cutter.translate([0, 0, -depth]);
+	let cutter: Manifold;
+	if (effectiveBevel <= 1e-6) {
+		const h = depth + eps;
+		cutter = cs.extrude(h, 0, 0, [1, 1]);
+		cs.delete();
+		cutter = cutter.translate([0, 0, -depth]);
+	} else {
+		const verticalH = depth - effectiveBevel + eps;
+		const vertical = cs.extrude(verticalH).translate([0, 0, -(depth - effectiveBevel)]);
+		const insetCs = cs.offset(-effectiveBevel, 'Square');
+		if (insetCs.isEmpty()) {
+			cs.delete();
+			insetCs.delete();
+			cutter = vertical;
+		} else {
+			const chamfer = buildChamferBand(cs, effectiveBevel, depth);
+			cs.delete();
+			insetCs.delete();
+			cutter = unionManifolds([vertical, chamfer]);
+		}
+	}
 	cutter = cutter.transform(transformToMat4(face.transform));
 	return tagWithOriginalId(cutter, cutterOriginalId(faceIndex));
 }
@@ -554,9 +610,18 @@ export function engraveFace(
 	symbols: Array<Shape>,
 	orientation: SymbolOrientation,
 	depth: number,
-	divisions: number = DefaultDivisions
+	divisions: number = DefaultDivisions,
+	bevel: number = 0
 ): Manifold {
-	const cutter = buildLegendCutter(symbols, orientation, depth, face, faceIndex, divisions);
+	const cutter = buildLegendCutter(
+		symbols,
+		orientation,
+		depth,
+		face,
+		faceIndex,
+		divisions,
+		bevel
+	);
 	if (!cutter) {
 		return cloneManifold(blank.manifold);
 	}
@@ -568,6 +633,7 @@ export type EngraveDieArgs = {
 	legends: LegendSet;
 	faceParams: Array<FaceParams>;
 	depth: number;
+	bevel: number;
 	tolerance: number;
 	divisions?: number;
 	getScaleForLegend?: (legend: Legend) => number;
@@ -600,7 +666,8 @@ export function engraveDie(blank: DieManifoldBlank, args: EngraveDieArgs): Manif
 			args.depth + (params.extraDepth ?? 0),
 			face,
 			i,
-			divisions
+			divisions,
+			args.bevel
 		);
 		if (cutter) {
 			cutters.push(cutter);
@@ -862,6 +929,7 @@ export type BuildEngravedDieArgs = {
 	stringParams?: Record<string, string>;
 	faceParams: Array<FaceParams>;
 	depth: number;
+	bevel: number;
 	tolerance: number;
 	divisions?: number;
 	getScaleForLegend?: (legend: Legend) => number;
@@ -880,6 +948,7 @@ export function buildEngravedDieManifold(args: BuildEngravedDieArgs): Manifold {
 		legends: args.legends,
 		faceParams: args.faceParams,
 		depth: args.depth,
+		bevel: args.bevel,
 		tolerance: args.tolerance,
 		divisions: args.divisions,
 		getScaleForLegend: args.getScaleForLegend

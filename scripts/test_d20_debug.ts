@@ -34,6 +34,7 @@ const engraved = engraveDie(blank, {
 	legends,
 	faceParams,
 	depth: 1,
+	bevel: 0,
 	tolerance: 0.5
 });
 console.log('engraved tris', engraved.getMesh().numTri);

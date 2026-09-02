@@ -7,6 +7,7 @@
 	import { m } from '$lib/paraglide/messages';
 	import {
 		engravingParam,
+		engravingBevelParam,
 		engravingToleranceParam,
 		legendScalingModeParam,
 		LEGEND_SCALING_AUTO,
@@ -156,6 +157,7 @@
 	let engravingTolerance = $derived(
 		dparams[engravingToleranceParam.id] ?? engravingToleranceParam.defaultValue
 	);
+	let engravingBevel = $derived(dparams[engravingBevelParam.id] ?? engravingBevelParam.defaultValue);
 	let legendScalingMode = $derived(
 		dparams[legendScalingModeParam.id] ?? legendScalingModeParam.defaultValue
 	);
@@ -366,6 +368,7 @@
 		...model.parameters,
 		legendScalingModeParam,
 		engravingParam,
+		...(devMode ? [engravingBevelParam] : []),
 		engravingToleranceParam
 	]);
 
@@ -1038,6 +1041,29 @@
 							step={engravingToleranceParam.step}
 						></Slider>
 					</label>
+					{#if devMode}
+						<label id="parameter-{engravingBevelParam.id}" class="flex flex-col">
+							<p class="flex items-center justify-between">
+								<span class="flex items-center gap-1">
+									{m.dice_parameters_name({ id: engravingBevelParam.id })}:
+									{@render helpIcon(
+										m.dice_parameters_description({ id: engravingBevelParam.id })
+									)}
+								</span>
+								<span>
+									({engravingBevel})
+								</span>
+							</p>
+							<Slider
+								class="py-1"
+								value={engravingBevel}
+								onChange={(e) => (dparams[engravingBevelParam.id] = e)}
+								min={engravingBevelParam.min}
+								max={engravingBevelParam.max}
+								step={engravingBevelParam.step}
+							></Slider>
+						</label>
+					{/if}
 				{/if}
 			</Collapsible>
 			<Collapsible value="face" title={m.dice_current_face()} defaultOpen={false}>

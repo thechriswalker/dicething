@@ -23,6 +23,7 @@ for (const [id, params] of [
 			legend: f.hidden ? Legend.BLANK : ((i % 20) + 1)
 		})),
 		depth: 1,
+		bevel: 0,
 		tolerance: 0.5
 	});
 	const report = checkMesh(toFlatPositions(manifoldToGeometry(engraved)));

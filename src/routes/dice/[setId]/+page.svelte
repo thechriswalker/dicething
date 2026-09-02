@@ -36,6 +36,7 @@
 	import { m } from '$lib/paraglide/messages';
 	import {
 		engravingParam,
+		engravingBevelParam,
 		engravingToleranceParam,
 		type EngravingError
 	} from '$lib/utils/builder';
@@ -248,6 +249,9 @@
 	let setDepth = $derived(commonEngravingParam(engravingParam.id, engravingParam.defaultValue));
 	let setTolerance = $derived(
 		commonEngravingParam(engravingToleranceParam.id, engravingToleranceParam.defaultValue)
+	);
+	let setBevel = $derived(
+		commonEngravingParam(engravingBevelParam.id, engravingBevelParam.defaultValue)
 	);
 
 	// apply one engraving value to every die in the set (the set-config modal).
@@ -1286,10 +1290,14 @@
 				showTrigger={false}
 				depth={setDepth.value}
 				tolerance={setTolerance.value}
+				bevel={setBevel.value}
 				depthMixed={setDepth.mixed}
 				toleranceMixed={setTolerance.mixed}
+				bevelMixed={setBevel.mixed}
+				showBevel={devMode}
 				onChangeDepth={(v) => setEngravingForAllDice(engravingParam.id, v)}
 				onChangeTolerance={(v) => setEngravingForAllDice(engravingToleranceParam.id, v)}
+				onChangeBevel={(v) => setEngravingForAllDice(engravingBevelParam.id, v)}
 			/>
 			<ShareModal bind:open={shareOpen} showTrigger={false} set={loadedSet} />
 			<DeleteSetDialog

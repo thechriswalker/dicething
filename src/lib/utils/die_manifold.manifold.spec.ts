@@ -56,6 +56,7 @@ describe('die_manifold engraving', () => {
 			legends,
 			faceParams,
 			depth: 1,
+			bevel: 0,
 			tolerance: 0.5
 		});
 		const report = checkMesh(toFlatPositions(manifoldToGeometry(engraved)));
@@ -107,6 +108,7 @@ describe('die_manifold engraving', () => {
 			legends,
 			faceParams,
 			depth: 1,
+			bevel: 0,
 			tolerance: 0.5
 		});
 		const report = checkMesh(toFlatPositions(manifoldToGeometry(engraved)));
@@ -140,6 +142,40 @@ describe('die_manifold engraving', () => {
 			legends,
 			faceParams,
 			depth: 1,
+			bevel: 0,
+			tolerance: 0.5
+		});
+		const report = checkMesh(toFlatPositions(manifoldToGeometry(engraved)));
+		blank.manifold.delete();
+		engraved.delete();
+		expect(report.isWatertight).toBe(true);
+		expect(report.isManifold).toBe(true);
+		expect(report.degenerateTriangleCount).toBe(0);
+		expect(report.isPrintable).toBe(true);
+	});
+
+	it('d6 with engraving bevel stays printable', async () => {
+		const legends = await fonts.voltaire.load();
+		const params = {
+			polyhedron_size: 18,
+			engraving_depth: 1,
+			engraving_bevel: 0.2,
+			engraving_tolerance: 0.5
+		};
+		const built = dice.d6_cube.build(params);
+		const builder = new Builder(dice.d6_cube, legends);
+		const blankMesh = builder.export(
+			params,
+			built.faces.map(() => ({ legend: Legend.BLANK }))
+		);
+		const blank = buildBlankManifoldFromGeometry(blankMesh.geometry, built.faces);
+		const faceParams = scaledFaceParams(built.faces, legends);
+		const engraved = engraveDie(blank, {
+			faces: built.faces,
+			legends,
+			faceParams,
+			depth: 1,
+			bevel: 0.2,
 			tolerance: 0.5
 		});
 		const report = checkMesh(toFlatPositions(manifoldToGeometry(engraved)));

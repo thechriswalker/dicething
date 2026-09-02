@@ -2,26 +2,38 @@
 	import Modal from '$lib/components/modal/Modal.svelte';
 	import Slider from '$lib/components/slider/Slider.svelte';
 	import { m } from '$lib/paraglide/messages';
-	import { engravingParam, engravingToleranceParam } from '$lib/utils/builder';
+	import {
+		engravingParam,
+		engravingBevelParam,
+		engravingToleranceParam
+	} from '$lib/utils/builder';
 	import { SlidersHorizontal } from '@lucide/svelte';
 	import type { HTMLButtonAttributes } from 'svelte/elements';
 
 	let {
 		depth,
 		tolerance,
+		bevel = 0,
 		depthMixed = false,
 		toleranceMixed = false,
+		bevelMixed = false,
+		showBevel = false,
 		onChangeDepth,
 		onChangeTolerance,
+		onChangeBevel,
 		open = $bindable(false),
 		showTrigger = true
 	}: {
 		depth: number;
 		tolerance: number;
+		bevel?: number;
 		depthMixed?: boolean;
 		toleranceMixed?: boolean;
+		bevelMixed?: boolean;
+		showBevel?: boolean;
 		onChangeDepth: (v: number) => void;
 		onChangeTolerance: (v: number) => void;
+		onChangeBevel?: (v: number) => void;
 		open?: boolean;
 		showTrigger?: boolean;
 	} = $props();
@@ -76,7 +88,25 @@
 				/>
 			</label>
 
-			{#if depthMixed || toleranceMixed}
+			{#if showBevel && onChangeBevel}
+				<label class="flex flex-col gap-1">
+					<p class="flex items-center justify-between">
+						<span class="font-semibold">{m.set_config_engraving_bevel()}</span>
+						<span>({bevel})</span>
+					</p>
+					<p class="text-surface-600-400 text-sm">{m.set_config_engraving_bevel_hint()}</p>
+					<Slider
+						class="py-1"
+						value={bevel}
+						onChange={onChangeBevel}
+						min={engravingBevelParam.min}
+						max={engravingBevelParam.max}
+						step={engravingBevelParam.step}
+					/>
+				</label>
+			{/if}
+
+			{#if depthMixed || toleranceMixed || (showBevel && bevelMixed)}
 				<p class="text-warning-700-300 text-sm">{m.set_config_mixed_hint()}</p>
 			{/if}
 		</section>

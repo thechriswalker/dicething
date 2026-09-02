@@ -1009,6 +1009,7 @@ export class Builder {
 			stringParams: this.lastStringParams,
 			faceParams: simplified,
 			depth: dieParams.engraving_depth,
+			bevel: dieParams.engraving_bevel,
 			tolerance: this.currentTolerance,
 			divisions: DefaultDivisions,
 			getScaleForLegend: (l) => this.getDefaultScaleForLegend(l),
@@ -1053,6 +1054,7 @@ export class Builder {
 			legends: this.legends,
 			faceParams: simplified,
 			depth: engravingDepth,
+			bevel: this.lastDieParams.engraving_bevel ?? engravingBevelParam.defaultValue,
 			tolerance: this.currentTolerance,
 			divisions,
 			getScaleForLegend: (l) => this.getDefaultScaleForLegend(l)
@@ -1350,6 +1352,17 @@ export const engravingToleranceParam: DiceParameter = {
 	step: 0.05
 };
 
+// 45° chamfer at the bottom of each engraved cavity (wall-to-floor junction).
+// 0 preserves the legacy vertical wall. Like engraving_depth it is not part of
+// any DieModel's params; it's appended to every die and preserved by simplifyDieParams.
+export const engravingBevelParam: DiceParameter = {
+	id: 'engraving_bevel',
+	defaultValue: 0,
+	min: 0,
+	max: 0.5,
+	step: 0.05
+};
+
 // How auto-computed legend scales are applied across faces. Not declared on
 // DieModel.parameters — every die gets it via simplifyDieParams (like engraving).
 // 0 = honour the model's sizeLegendsIndividually preference; 1 = each legend
@@ -1415,6 +1428,11 @@ function simplifyDieParams(
 		output.engraving_tolerance = clampParam(obj.engraving_tolerance, engravingToleranceParam);
 	} else {
 		output.engraving_tolerance = engravingToleranceParam.defaultValue;
+	}
+	if ('engraving_bevel' in obj) {
+		output.engraving_bevel = clampParam(obj.engraving_bevel, engravingBevelParam);
+	} else {
+		output.engraving_bevel = engravingBevelParam.defaultValue;
 	}
 	// legend scaling mode: only persist when it differs from "auto" (model default).
 	if ('legend_scaling_mode' in obj) {

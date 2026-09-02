@@ -274,6 +274,7 @@
 						legends: currentLegends,
 						faceParams,
 						depth: engravingDepth,
+						bevel: 0,
 						tolerance: engravingTolerance
 					})
 				);
