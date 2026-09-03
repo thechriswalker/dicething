@@ -67,6 +67,7 @@ describe('legend orderings registry', () => {
 			'standard',
 			'dicething',
 			'chessex',
+			'spindown',
 			'go_first_a',
 			'go_first_b',
 			'go_first_c',

@@ -28,9 +28,20 @@ export const spindownOrders: Record<string, Array<Legend>> = {
 	d8_crystal: [1, 7, 2, 4, 8, 6, 3, 5],
 	d10_crystal: [1, 4, 2, 8, 0, 5, 3, 7, 22, 21],
 	d00_crystal: [10, 24, 20, 28, 30, 25, 23, 27, 29, 26],
+	// consecutive values around the band (azimuth order), vs standard opposite-sum placement
+	d12_crystal: [7, 4, 8, 11, 21, 3, 22, 12, 5, 2, 10, 1],
 	d12_dodecahedron: [1, 8, 10, 11, 7, 22, 21, 4, 3, 2, 5, 12],
+	// same Bosch face order / adjacency as d12_dodecahedron
+	d12_tetartoid: [1, 8, 10, 11, 7, 22, 21, 4, 3, 2, 5, 12],
 	d12_rhombic: [1, 7, 10, 22, 11, 21, 2, 3, 5, 4, 12, 8],
 	d20_icosahedron: [1, 19, 4, 17, 9, 15, 2, 13, 21, 12, 7, 11, 8, 16, 10, 14, 3, 18, 5, 20],
 
-	// trapezohedrons, barrels. Might have to write a generator for the d24+ shapes.
+	// barrels: remap so azimuth slots show 1..N (standard uses opposite-sum slot values)
+	d4_barrel: [1, 2, 4, 3],
+	d6_barrel: [1, 2, 3, 6, 5, 4],
+	d8_barrel: [1, 2, 3, 4, 8, 7, 6, 5],
+	d10_barrel: [1, 2, 3, 4, 5, 0, 22, 8, 7, 21],
+	d00_barrel: [10, 20, 23, 24, 25, 30, 29, 28, 27, 26],
+	d12_barrel: [1, 2, 3, 4, 5, 21, 12, 11, 10, 22, 8, 7],
+	d20_barrel: [1, 2, 3, 4, 5, 21, 7, 8, 22, 10, 20, 19, 18, 17, 16, 15, 14, 13, 12, 11]
 };
