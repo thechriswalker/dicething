@@ -9,13 +9,17 @@
 //
 // A die's chosen ordering id lives on `Dice.legend_ordering`. Two ids are
 // special and apply NO override (the model's standard defaults stand):
-//   - 'standard': the baseline (units 0–9 on a d10).
+//   - 'standard': the baseline (units 0–9 on a d10; Bosch layout on regular /
+//                 skew d12s).
 //   - 'custom':   the user has hand-edited legends, so every effective legend
 //                 is stored explicitly in `face_parameters` instead.
 //
 // Ten-sided dice also offer 'percentile' (00–90). Legacy d00_* kinds are
 // migrated to d10_* + percentile on load (see die_migrate.ts); display names
 // follow via die_display_name.ts.
+//
+// Regular and skew d12s also offer 'dicething' (evens around 1) and 'chessex'
+// (lows around 1) as alternatives to the Bosch standard.
 
 import type { DieFaceModel } from '$lib/interfaces/dice';
 import dice from '$lib/dice';
@@ -51,6 +55,19 @@ const GO_FIRST_VALUES: Record<string, Array<number>> = {
 	go_first_b: [2, 7, 10, 15, 18, 23, 26, 31, 34, 39, 42, 47],
 	go_first_c: [3, 6, 12, 13, 17, 24, 25, 32, 36, 37, 43, 46],
 	go_first_d: [4, 5, 9, 16, 20, 21, 28, 29, 33, 40, 44, 45]
+};
+
+// Regular / skew d12 face-layout orderings, indexed by number-face position in
+// the die's *standard* (Bosch) build/explode order. Both d12_dodecahedron and
+// d12_tetartoid use that same standard, so one table covers both.
+//
+// - dicething: historic dicething layout — 1 surrounded by evens, 12 by odds.
+// - chessex:   common commercial layout (Alea Kybos d12_1 / Chessex): 2..6
+//              clockwise around 1 (so lows cluster around 1, highs around 12).
+const D12_LAYOUT_KINDS = new Set(['d12_dodecahedron', 'd12_tetartoid']);
+const D12_LAYOUT_VALUES: Record<string, Array<number>> = {
+	dicething: [1, 3, 11, 5, 9, 7, 6, 4, 8, 2, 10, 12],
+	chessex: [1, 8, 11, 10, 9, 7, 6, 4, 3, 2, 5, 12]
 };
 
 // the build-order indices of the number faces.
@@ -108,6 +125,15 @@ function goFirstOrdering(id: string): LegendOrdering {
 	};
 }
 
+function d12LayoutOrdering(id: string): LegendOrdering {
+	const values = D12_LAYOUT_VALUES[id].map((v) => legendForValue(v));
+	return {
+		id,
+		labelKey: id,
+		legends: (faces) => assignToNumberFaces(faces, values)
+	};
+}
+
 // 00/10/20…90 on the number faces, in build order.
 function percentileOrdering(): LegendOrdering {
 	return {
@@ -123,18 +149,28 @@ function percentileOrdering(): LegendOrdering {
 
 // the orderings offered for a given die kind. Standard is always first;
 // Percentile on every 10-sided die; Spindown when authored; Go First on d12s.
+// Regular/skew d12s also offer Dicething and Chessex face layouts (standard is
+// Bosch).
 export function getOrderings(kind: string): Array<LegendOrdering> {
 	const model = dice[kind as keyof typeof dice];
 	const sides = model?.tags?.sides;
 	const isTenSided = sides === '10' || sides === '00';
+	const isBoschD12 = D12_LAYOUT_KINDS.has(kind);
 	const orderings: Array<LegendOrdering> = [
-		standardOrdering(isTenSided ? 'standard_d10' : STANDARD_ORDERING)
+		standardOrdering(
+			isTenSided ? 'standard_d10' : isBoschD12 ? 'standard_bosch' : STANDARD_ORDERING
+		)
 	];
 	if (!model) {
 		return orderings;
 	}
 	if (isTenSided) {
 		orderings.push(percentileOrdering());
+	}
+	if (isBoschD12) {
+		for (const id of Object.keys(D12_LAYOUT_VALUES)) {
+			orderings.push(d12LayoutOrdering(id));
+		}
 	}
 	if (kind in spindownOrders) {
 		orderings.push(spindownOrdering(kind));

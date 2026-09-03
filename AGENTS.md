@@ -30,6 +30,9 @@ Always use `bun` over `node`/`npx`.
 - `bun run vite-node ...args` - run a standalone script with SvelteKit's
   `$lib/...` import aliases resolved. Use this for any ad-hoc geometry script.
 - `bun run generate:fonts` - regenerate the built-in legend sets from fonts.
+- `bun run generate:previews` - rasterise catalogue die thumbnails
+  (`static/previews/{kind}/{legend}.webp`) via Playwright; run after changing
+  preview camera/materials, die registry, or builtin fonts.
 
 ### Testing
 

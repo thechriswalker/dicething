@@ -26,6 +26,9 @@ export const numberingOrders: Record<string, NumberingOrder> = {
 		[3, 4, 2, 1, 5, 0]
 	],
 	// d12_tetartoid (d12, chiral): [left, right]
+	// Bosch / OptiDice standard (2,6,3,4,5 around 12). Right hand is the mirror
+	// cycle; both share the same build-index permutation so explode order matches
+	// the regular d12 dodecahedron.
 	d12_tetartoid: [
 		[6, 8, 0, 7, 5, 1, 4, 2, 10, 3, 11, 9],
 		[6, 8, 0, 7, 5, 1, 4, 2, 10, 3, 11, 9]

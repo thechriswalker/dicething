@@ -50,11 +50,23 @@ describe('legend orderings registry', () => {
 		]);
 	});
 
-	it('offers Go First A-D on 12-sided dice', () => {
+	it('offers Dicething / Chessex / Go First on Bosch d12s', () => {
 		const d12 = getOrderings('d12_dodecahedron').map((o) => o.id);
 		expect(d12).toEqual([
 			'standard',
+			'dicething',
+			'chessex',
 			'spindown',
+			'go_first_a',
+			'go_first_b',
+			'go_first_c',
+			'go_first_d'
+		]);
+		expect(getOrderings('d12_dodecahedron').map((o) => o.labelKey)[0]).toBe('standard_bosch');
+		expect(getOrderings('d12_tetartoid').map((o) => o.id)).toEqual([
+			'standard',
+			'dicething',
+			'chessex',
 			'go_first_a',
 			'go_first_b',
 			'go_first_c',
@@ -62,9 +74,12 @@ describe('legend orderings registry', () => {
 		]);
 	});
 
-	it('Go First is offered on the other 12-sided shapes too', () => {
+	it('Go First is offered on the other 12-sided shapes too (without Dicething/Chessex)', () => {
 		for (const kind of ['d12_rhombic', 'd12_trapezohedron', 'd12_crystal'] as const) {
-			expect(getOrderings(kind).map((o) => o.id)).toContain('go_first_a');
+			const ids = getOrderings(kind).map((o) => o.id);
+			expect(ids).toContain('go_first_a');
+			expect(ids).not.toContain('dicething');
+			expect(ids).not.toContain('chessex');
 		}
 	});
 
@@ -97,6 +112,20 @@ describe('applyOrderingToFaces', () => {
 		const faces = buildFaces('d6_cube');
 		applyOrderingToFaces('d6_cube', 'spindown', faces, {});
 		expect(faces.map((f) => f.defaultLegend)).toEqual(spindownOrders.d6_cube);
+	});
+
+	it('Dicething / Chessex remap d12 number faces from the Bosch baseline', () => {
+		const dicething = buildFaces('d12_dodecahedron');
+		applyOrderingToFaces('d12_dodecahedron', 'dicething', dicething, {});
+		expect(dicething.map((f) => f.defaultLegend)).toEqual(
+			[1, 3, 11, 5, 9, 7, 6, 4, 8, 2, 10, 12].map((v) => legendForValue(v))
+		);
+
+		const chessex = buildFaces('d12_tetartoid');
+		applyOrderingToFaces('d12_tetartoid', 'chessex', chessex, {});
+		expect(chessex.map((f) => f.defaultLegend)).toEqual(
+			[1, 8, 11, 10, 9, 7, 6, 4, 3, 2, 5, 12].map((v) => legendForValue(v))
+		);
 	});
 
 	it('Spindown on a die without authored data is a no-op (ordering not offered)', () => {

@@ -11,6 +11,7 @@ import {
 	STORE_LEGENDS,
 	STORE_SETS
 } from './die_engine_idb';
+import { idbDeleteDiePreviewsForLegend } from './die_preview_idb';
 
 export async function loadStorageSnapshot(): Promise<StorageUpdatedPayload> {
 	const [setEntries, legendEntries] = await Promise.all([
@@ -65,6 +66,12 @@ export async function deleteSetRecord(setId: string): Promise<void> {
 export async function saveLegendRecord(legendJson: string): Promise<void> {
 	const stored = JSON.parse(legendJson) as { id: string };
 	await idbPut(STORE_LEGENDS, stored.id, legendJson);
+	// glyphs changed — drop any cached thumbnails for this set
+	try {
+		await idbDeleteDiePreviewsForLegend(stored.id);
+	} catch {
+		// preview cache may be unavailable
+	}
 }
 
 export async function deleteLegendRecord(legendId: string): Promise<void> {
@@ -73,6 +80,11 @@ export async function deleteLegendRecord(legendId: string): Promise<void> {
 		await idbDeleteFont(legendId);
 	} catch {
 		// font blob may not exist
+	}
+	try {
+		await idbDeleteDiePreviewsForLegend(legendId);
+	} catch {
+		// preview cache may be unavailable
 	}
 }
 

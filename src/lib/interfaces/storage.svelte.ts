@@ -63,7 +63,8 @@ export type Dice = {
 	string_parameters?: Record<string, string>;
 	face_parameters: Array<FaceParams>;
 	// which legend ordering drives this die's per-face default legends. a known
-	// ordering id ('standard' | 'spindown' | 'percentile' | 'go_first_a'..'d')
+	// ordering id ('standard' | 'spindown' | 'percentile' | 'dicething' |
+	// 'chessex' | 'go_first_a'..'d')
 	// has the ordering supply the defaults; 'custom' materialises every legend
 	// into `face_parameters`. optional so older saved sets (undefined == 'standard')
 	// still load. legacy d00_* kinds are migrated to d10_* + percentile on load

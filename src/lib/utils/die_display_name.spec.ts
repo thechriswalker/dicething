@@ -16,11 +16,13 @@ describe('die display names', () => {
 		expect(dieDisplayName('d00_trapezohedron', undefined)).toBe('D% Trapezohedron');
 	});
 
-	it('appends Spindown / Go First suffixes', () => {
+	it('appends Spindown / Go First / Dicething / Chessex suffixes', () => {
 		expect(dieDisplayName('d12_dodecahedron', 'spindown')).toBe('D12 Dodecahedron Spindown');
 		expect(dieDisplayName('d12_dodecahedron', 'go_first_a')).toBe(
 			'D12 Dodecahedron Go First (A)'
 		);
+		expect(dieDisplayName('d12_dodecahedron', 'dicething')).toBe('D12 Dodecahedron Dicething');
+		expect(dieDisplayName('d12_tetartoid', 'chessex')).toBe('D12 Skew Chessex');
 	});
 
 	it('prefer nickname in list labels', () => {

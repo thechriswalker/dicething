@@ -45,7 +45,7 @@ export function dieDisplayName(kind: keyof typeof dice, ordering: string | undef
 	const nameKind = displayNameKind(kind, ordering);
 	let name = m.dice_name({ kind: nameKind });
 	const id = ordering ?? STANDARD_ORDERING;
-	if (id === 'spindown' || id.startsWith('go_first')) {
+	if (id === 'spindown' || id === 'dicething' || id === 'chessex' || id.startsWith('go_first')) {
 		name = `${name} ${m.legend_ordering_option({ key: id })}`;
 	}
 	return name;

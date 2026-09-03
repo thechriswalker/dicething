@@ -18,6 +18,13 @@ export default defineConfig({
 			outdir: './src/lib/paraglide'
 		})
 	],
+	server: {
+		watch: {
+			// catalogue thumbnails are regenerated in bulk; ignore so a manual
+			// copy into static/previews does not bounce the dev server.
+			ignored: ['**/static/previews/**']
+		}
+	},
 	build: {
 		target: browserTargets
 	},

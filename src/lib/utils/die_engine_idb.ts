@@ -1,15 +1,39 @@
-// Shared IndexedDB layer for sets, legends, and font blobs. Main thread only.
+// Shared IndexedDB layer for sets, legends, font blobs, and die preview
+// thumbnails. Main thread only.
 
 export const DB_NAME = 'dicething';
-export const DB_VERSION = 2;
+export const DB_VERSION = 3;
 export const STORE_FONTS = 'fonts';
 export const STORE_SETS = 'sets';
 export const STORE_LEGENDS = 'legends';
+/** Die thumbnail blobs keyed by diePreviewCacheKey; value includes legendSetId. */
+export const STORE_DIE_PREVIEWS = 'die_previews';
+/** LRU bookkeeping: legendSetId → { accessedAt }. Evict whole sets together. */
+export const STORE_DIE_PREVIEW_LRU = 'die_preview_lru';
 
 let dbPromise: Promise<IDBDatabase> | null = null;
 
 function canUseIdb(): boolean {
 	return typeof indexedDB !== 'undefined';
+}
+
+function ensureStores(db: IDBDatabase) {
+	if (!db.objectStoreNames.contains(STORE_FONTS)) {
+		db.createObjectStore(STORE_FONTS);
+	}
+	if (!db.objectStoreNames.contains(STORE_SETS)) {
+		db.createObjectStore(STORE_SETS);
+	}
+	if (!db.objectStoreNames.contains(STORE_LEGENDS)) {
+		db.createObjectStore(STORE_LEGENDS);
+	}
+	if (!db.objectStoreNames.contains(STORE_DIE_PREVIEWS)) {
+		const previews = db.createObjectStore(STORE_DIE_PREVIEWS);
+		previews.createIndex('legendSetId', 'legendSetId', { unique: false });
+	}
+	if (!db.objectStoreNames.contains(STORE_DIE_PREVIEW_LRU)) {
+		db.createObjectStore(STORE_DIE_PREVIEW_LRU);
+	}
 }
 
 export function openEngineDb(): Promise<IDBDatabase> {
@@ -20,16 +44,7 @@ export function openEngineDb(): Promise<IDBDatabase> {
 		dbPromise = new Promise((resolve, reject) => {
 			const req = indexedDB.open(DB_NAME, DB_VERSION);
 			req.onupgradeneeded = () => {
-				const db = req.result;
-				if (!db.objectStoreNames.contains(STORE_FONTS)) {
-					db.createObjectStore(STORE_FONTS);
-				}
-				if (!db.objectStoreNames.contains(STORE_SETS)) {
-					db.createObjectStore(STORE_SETS);
-				}
-				if (!db.objectStoreNames.contains(STORE_LEGENDS)) {
-					db.createObjectStore(STORE_LEGENDS);
-				}
+				ensureStores(req.result);
 			};
 			req.onsuccess = () => resolve(req.result);
 			req.onerror = () => reject(req.error);

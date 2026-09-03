@@ -17,6 +17,7 @@
 		"test": "npm run test:unit -- --run",
 		"test:slow": "vitest --project slow --run",
 		"generate:fonts": "vite-node --options.transformMode.ssr='/.*/' src/lib/fonts/build_builtins.ts",
+		"generate:previews": "vite-node --options.transformMode.ssr='/.*/' scripts/generate_die_previews.ts",
 		"vite-node": "vite-node --options.transformMode.ssr='/.*/'"
 	},
 	"devDependencies": {
@@ -42,6 +43,7 @@
 		"globals": "^16.5.0",
 		"jsdom": "^26.1.0",
 		"lucide-static": "^0.508.0",
+		"playwright": "^1.62.1",
 		"prettier": "^3.7.4",
 		"prettier-plugin-svelte": "^3.4.0",
 		"prettier-plugin-tailwindcss": "^0.7.2",

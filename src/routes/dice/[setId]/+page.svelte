@@ -1486,7 +1486,7 @@
 													}}
 												>
 													{#if setData}
-														<DiePreview die={preview} legends={setData.legends} enabled={sceneLive} />
+														<DiePreview die={preview} legends={setData.legends} />
 													{/if}
 													<span class="text-sm">{m.dice_name({ kind: preview.kind })}</span>
 												</button>

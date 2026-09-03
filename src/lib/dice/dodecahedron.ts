@@ -37,75 +37,77 @@ const top = Math.tan((Math.PI * 3) / 10);
 // ratio from horizontal to the bottom 2 edges
 const bot = Math.tan(innerAngle);
 
-const dodecahedron_faces: Array<PolyhedronFace> = [
-	{ axis: xAxis, angle: 0 }, // 1 face: point that forwards.
+// Face placements in a convenient geographic order: face 0 opposite face 11,
+// then two belts. Numbering 1..12 in *this* order is the historic "dicething"
+// layout (1 surrounded by evens, 12 by odds). Standard numbering is Bosch
+// (below), which keeps the same 1/12 poles and reshuffles the belts.
+const dodecahedron_faces_geographic: Array<PolyhedronFace> = [
+	{ axis: xAxis, angle: 0 }, // pole (+z)
 	{
-		// face 2
 		preRotation: -innerAngle / 2,
 		axis: new Vector3(top, -1, 0).normalize(),
 		angle: -face2faceAngle
 	},
 	{
-		// face 3
 		axis: new Vector3(-1, bot, 0).normalize(),
 		angle: Math.PI - face2faceAngle,
 		preRotation: (innerAngle * 3) / 2
 	},
 	{
-		// face 4
 		axis: xAxis,
 		angle: face2faceAngle,
 		preRotation: Math.PI
 	},
 	{
-		// face 5
 		axis: new Vector3(-1, -bot, 0).normalize(),
 		angle: Math.PI - face2faceAngle,
 		preRotation: -(innerAngle * 3) / 2
 	},
-
 	{
-		//face 6
 		axis: new Vector3(-top, -1).normalize(),
 		angle: face2faceAngle,
 		preRotation: innerAngle / 2
 	},
 	{
-		// face 7
 		axis: new Vector3(-top, -1).normalize(),
 		angle: Math.PI + face2faceAngle,
 		preRotation: innerAngle / 2
 	},
 	{
-		// face 8
 		axis: new Vector3(-1, -bot, 0).normalize(),
 		angle: -face2faceAngle,
 		preRotation: -(innerAngle * 3) / 2
 	},
 	{
-		//face 9
 		axis: xAxis,
 		angle: Math.PI + face2faceAngle,
 		preRotation: Math.PI
 	},
 	{
-		// face 10
 		axis: new Vector3(-1, bot, 0).normalize(),
 		angle: -face2faceAngle,
 		preRotation: (innerAngle * 3) / 2
 	},
 	{
-		//face 11
 		preRotation: -innerAngle / 2,
 		axis: new Vector3(top, -1, 0).normalize(),
 		angle: Math.PI - face2faceAngle
 	},
 	{
-		//face 12
 		axis: xAxis,
 		angle: Math.PI
-	}
+	} // pole (-z)
 ];
+
+// Bosch / OptiDice standard: opposite faces sum to 13, and 2,6,3,4,5 run
+// around 12 (Robert Bosch). Same layout the d12 skew uses via numbering_orders.
+// Index i here is the explode/standard face for value i+1; the value is a
+// geographic-order index.
+const BOSCH_FROM_GEOGRAPHIC = [0, 2, 10, 4, 8, 6, 5, 3, 7, 1, 9, 11];
+const dodecahedron_faces: Array<PolyhedronFace> = BOSCH_FROM_GEOGRAPHIC.map(
+	(i) => dodecahedron_faces_geographic[i]
+);
+
 export const DodecahedronD12 = polyhedron(
 	'd12_dodecahedron',
 	'D12 Dodecahedron',

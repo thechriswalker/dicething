@@ -19,6 +19,7 @@ import {
 import { Builder } from './builder';
 import { parseDieJson } from './die_worker_parse';
 import { resolveWorkerLegends } from './die_worker_legends';
+import { diePreviewCacheKey } from './die_preview_key';
 import type { PreviewRequest, PreviewResponse } from './die_preview_protocol';
 
 const previewCache = new Map<string, ImageBitmap>();
@@ -94,22 +95,6 @@ function fitPreviewCamera(camera: PerspectiveCamera, object: Object3D) {
 	camera.lookAt(center);
 }
 
-function previewCacheKey(
-	d: Dice,
-	legendSetId: string,
-	legendUpdated?: number
-): string {
-	return JSON.stringify({
-		kind: d.kind,
-		legendSetId,
-		legendUpdated,
-		parameters: d.parameters,
-		face_parameters: d.face_parameters,
-		string_parameters: d.string_parameters ?? {},
-		legend_ordering: d.legend_ordering
-	});
-}
-
 async function renderPreview(
 	dieJson: string,
 	legendSetId: string,
@@ -118,7 +103,7 @@ async function renderPreview(
 	reqId: number
 ): Promise<void> {
 	const die = parseDieJson(dieJson);
-	const key = previewCacheKey(die, legendSetId, legendUpdated);
+	const key = diePreviewCacheKey(die, legendSetId, legendUpdated);
 	const cached = previewCache.get(key);
 	if (cached) {
 		const clone = await createImageBitmap(cached);
