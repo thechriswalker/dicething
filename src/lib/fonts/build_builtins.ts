@@ -6,12 +6,13 @@ import {
 	createShapesFromFont,
 	createShapesFromSVG,
 	defaultStrings,
+	fivePlayerStrings,
 	defaultRenderOptions,
 	type FontString,
 	svgIconScale
 } from '$lib/utils/font';
 import { MAKER_LOGO_SLOT } from '$lib/utils/legends';
-import { dirname } from 'node:path';
+import { dirname, resolve } from 'node:path';
 
 import { DOMParser } from 'xmldom';
 import type { Shape } from 'three';
@@ -94,13 +95,15 @@ async function buildAll() {
 		}
 		const d = entry.name;
 		const fontDir = d;
-		console.log("loading font:", d)
-		const {default: mod } = await import(builtins + '/' + d + '/index.ts');
-		console.log("font:", mod)
-		const src = builtins + '/' + d + '/' + mod.font_file;
+		console.log('loading font:', d);
+		const { default: mod } = await import(builtins + '/' + d + '/index.ts');
+		console.log('font:', mod);
+		// resolve so fonts can share a sibling's TTF (e.g. five_player_voltaire → voltaire).
+		const src = resolve(builtins, d, mod.font_file);
 		const dst = generated + '/' + d + '.json';
 		const renderOptions = mod.render_options ?? defaultRenderOptions;
-		const strings = addRenderOptions(defaultStrings, renderOptions);
+		const charset = mod.character_set === 'five_player' ? fivePlayerStrings : defaultStrings;
+		const strings = addRenderOptions(charset, renderOptions, mod.default_letter_spacing);
 		await createFontBasedLegends(src, dst, d, mod.display_name, strings, icons);
 		fontMeta.push({
 			varname: d,

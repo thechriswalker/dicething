@@ -1,6 +1,6 @@
 import { Shape } from 'three';
 import { m } from '$lib/paraglide/messages';
-import { defaultStrings, legendNameForText } from './font';
+import { defaultStrings, FIVE_PLAYER_MAX, legendNameForText } from './font';
 import { shapeFromJSON, shapeToJSON, encodeShapeSlot } from './to_json';
 
 export enum Legend {
@@ -38,9 +38,15 @@ export enum Legend {
 	DOUBLE_ZERO = 30,
 	MAKER_LOGO = 31,
 	// slots 32-103 hold the remaining numbers (21-99 that aren't a "tens"
-	// glyph). Custom symbols start after those.
+	// glyph). Custom symbols start after those — and so do 100–300 on the
+	// five_player_voltaire set (see legendForValue / FIVE_PLAYER_VOLTAIRE_ID).
 	CUSTOM_SYMBOLS_START = 104
 }
+
+// Builtin id (unprefixed) for the Go First 5-player legend set that carries
+// glyphs 100–300 in the custom-symbol slot range.
+export const FIVE_PLAYER_VOLTAIRE_ID = 'five_player_voltaire';
+export const FIVE_PLAYER_VOLTAIRE_BUILTIN = 'builtin:' + FIVE_PLAYER_VOLTAIRE_ID;
 
 // The maker logo lives at this slot; the legend generators splice it in here,
 // between the standard slots (0-30) and the remaining numbers (32+).
@@ -78,7 +84,10 @@ const slotToText: Map<Legend, string> = (() => {
 // Localized display name for a known legend slot (blank, maker logo, or any of
 // the canonical numeric/special slots), or undefined for custom-symbol slots
 // (which carry a user-supplied name instead).
-export function localizedLegendName(l: Legend): string | undefined {
+//
+// `setId` lets the five_player_voltaire builtin reclaim CUSTOM_SYMBOLS_START+
+// as numbers 100–300 instead of "Custom Legend (n)".
+export function localizedLegendName(l: Legend, setId?: string): string | undefined {
 	if (l === Legend.BLANK) {
 		return m.legend_name({ key: 'blank', n: 0 });
 	}
@@ -88,6 +97,14 @@ export function localizedLegendName(l: Legend): string | undefined {
 	const tok = slotToText.get(l);
 	if (tok !== undefined) {
 		return legendNameForText(tok);
+	}
+	// five_player_voltaire stores 100–300 in the custom-symbol range.
+	if (
+		setId === FIVE_PLAYER_VOLTAIRE_BUILTIN &&
+		l >= Legend.CUSTOM_SYMBOLS_START &&
+		l <= Legend.CUSTOM_SYMBOLS_START + (FIVE_PLAYER_MAX - 100)
+	) {
+		return legendNameForText(String(l - Legend.CUSTOM_SYMBOLS_START + 100));
 	}
 	// custom-symbol slots have no canonical token: number them from 1 via the
 	// `legend_name` wildcard ("Custom Legend (n)").
@@ -99,13 +116,18 @@ export function localizedLegendName(l: Legend): string | undefined {
 
 // The Legend slot that should display a given numeric value. 6 and 9 resolve to
 // their marked variants (as large dice always want the disambiguating dot);
-// everything else is looked up by its literal text in the combined set.
+// 100–300 live in the custom-symbol range (only five_player_voltaire ships
+// those glyphs); everything else is looked up by its literal text in the
+// combined 0–99 set.
 export function legendForValue(value: number): Legend {
 	if (value === 6) {
 		return Legend.SIX_MARKED;
 	}
 	if (value === 9) {
 		return Legend.NINE_MARKED;
+	}
+	if (value >= 100 && value <= FIVE_PLAYER_MAX) {
+		return (Legend.CUSTOM_SYMBOLS_START + (value - 100)) as Legend;
 	}
 	const slot = textToSlot.get(String(value)); // this is the magic for large numbers.
 	return slot === undefined ? Legend.BLANK : slot;
@@ -262,7 +284,8 @@ export function loadImmutableLegends(s: SerialisedLegendSet): ImmutableLegendSet
 			}
 			// canonical slots derive their name from the active locale; custom
 			// symbols use the generic "Custom Legend (n)" name (also localized).
-			return localizedLegendName(l) ?? debugLegendName(l);
+			// five_player_voltaire reclaims the custom range as 100–300.
+			return localizedLegendName(l, s.id) ?? debugLegendName(l);
 		},
 		get(l: Legend) {
 			// anything not in the array is a blank.
@@ -328,7 +351,7 @@ export function loadMutableLegends(s: SerialisedLegendSet): MutableLegendSet {
 			}
 			// canonical slots derive their name from the active locale; custom
 			// symbols use the generic "Custom Legend (n)" name (also localized).
-			return localizedLegendName(l) ?? debugLegendName(l);
+			return localizedLegendName(l, s.id) ?? debugLegendName(l);
 		},
 		get(l: Legend) {
 			// anything not in the array is a blank.

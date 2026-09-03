@@ -42,6 +42,10 @@ let legendAreaVisible = false;
 let fancyEnabled = false;
 let currentSet: DiceSet | undefined;
 
+// Latest requested build generation per dieId.
+// Used to avoid running expensive geometry builds for stale queued requests.
+const latestBuildGenerationByDieId = new Map<string, number>();
+
 function post(
 	msg: EngineResponse | { type: 'selection'; state: EngineSelectionState },
 	transfer?: Transferable[]
@@ -214,6 +218,7 @@ async function handleRequest(msg: EngineRequest) {
 				}
 				builders.clear();
 				activeBuilder = undefined;
+				latestBuildGenerationByDieId.clear();
 				post({ reqId, type: 'ok' });
 				break;
 			}
@@ -228,6 +233,18 @@ async function handleRequest(msg: EngineRequest) {
 				}
 				const die = parseDieJson(msg.dieJson);
 				const builder = ensureBuilder(die, currentSet.legends);
+				const latest = latestBuildGenerationByDieId.get(msg.dieId);
+				if (latest !== undefined && latest !== msg.generation) {
+					// Stale request: resolve quickly without doing the expensive build.
+					// The main thread discards stale results via its own generation guard,
+					// so metadata content doesn't have to match this skipped build.
+					post({
+						reqId,
+						type: 'buildDone',
+						metadata: metadataFromBuilder(builder, die.id, msg.generation)
+					});
+					break;
+				}
 				const mountViewport = msg.kind === 'buildDie' && !!msg.mountViewport;
 				runBuild(builder, die, msg.explode, msg.generation, reqId, mountViewport);
 				break;
@@ -413,6 +430,9 @@ async function drain() {
 
 self.onmessage = (event: MessageEvent<EngineRequest>) => {
 	const msg = event.data;
+	if (msg.kind === 'buildDie' || msg.kind === 'patchDie') {
+		latestBuildGenerationByDieId.set(msg.dieId, msg.generation);
+	}
 	pending.push({ msg, seq: enqueueSeq++ });
 	engineTrace('worker:queued', {
 		kind: msg.kind,

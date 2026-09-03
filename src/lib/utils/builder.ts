@@ -25,6 +25,7 @@ import {
 	DoubleSide
 } from 'three';
 import { DefaultDivisions, Part, PreviewDivisions } from './engraving';
+import { engineTrace, engineTraceEnabled } from './engine_trace';
 import {
 	buildBlankFaceCapGeometry,
 	buildEngravedDieExport,
@@ -164,6 +165,13 @@ export class Builder {
 	private renderCount = 0;
 	private forceRerenderBlank = true;
 	private forceRerenderFaces = true;
+	/** Set at the end of each `build()` — used by timing scripts. */
+	public lastBuildInfo = {
+		ms: 0,
+		dieChanged: false,
+		rebuiltFaces: 0,
+		sharedEngraved: false
+	};
 	private lastDieParams: Record<string, number> = {};
 	private lastStringParams: Record<string, string> = {};
 	// the legend ordering applied to the last build/export. tracked so a change
@@ -587,24 +595,53 @@ export class Builder {
 			// face params (they're always blank), so only the blank changing matters.
 			this.rebuildHiddenClump(dieParams.engraving_depth);
 		}
+		const tBuild = now();
+		let rebuiltFaces = 0;
 		let sharedEngraved: Manifold | undefined;
 		if (this.useManifoldEngraving && !this.flatLegendPreview) {
-			for (let i = 0; i < this.faces.length; i++) {
-				if (this.faces[i].hidden) {
-					continue;
+			// Shared whole-die engraving is faster when *many* faces changed, but
+			// it is wasted work for the common case: live editing one face's
+			// offset/rotation. In that scenario we want per-face engraving
+			// (`engraveFace`) so unchanged faces keep their existing geometry.
+			if (dieChanged || this.forceRerenderFaces) {
+				const tShare = now();
+				sharedEngraved = this.buildEngravedManifoldOnce(
+					dieParams.engraving_depth,
+					faceParams,
+					PreviewDivisions
+				);
+				if (engineTraceEnabled()) {
+					engineTrace('builder.engraveDie', { ms: Math.round(now() - tShare) });
 				}
-				const newFaceParams = simplifyFaceParams(faceParams[i], this.faces[i]);
-				if (
-					dieChanged ||
-					this.forceRerenderFaces ||
-					faceParamsNotEqual(this.lastFaceParams[i], newFaceParams, this.faces[i])
-				) {
+			} else {
+				let changedVisibleFaces = 0;
+				for (let i = 0; i < this.faces.length; i++) {
+					if (this.faces[i].hidden) {
+						continue;
+					}
+					const newFaceParams = simplifyFaceParams(faceParams[i], this.faces[i]);
+					if (faceParamsNotEqual(this.lastFaceParams[i], newFaceParams, this.faces[i])) {
+						changedVisibleFaces++;
+						// If more than one visible face changed, shared whole-die engraving
+						// is more likely to be cheaper than re-engraving each face.
+						if (changedVisibleFaces > 1) {
+							break;
+						}
+					}
+				}
+				if (changedVisibleFaces > 1) {
+					const tShare = now();
 					sharedEngraved = this.buildEngravedManifoldOnce(
 						dieParams.engraving_depth,
 						faceParams,
 						PreviewDivisions
 					);
-					break;
+					if (engineTraceEnabled()) {
+						engineTrace('builder.engraveDie', {
+							ms: Math.round(now() - tShare),
+							reason: 'multiFace'
+						});
+					}
 				}
 			}
 		}
@@ -631,6 +668,7 @@ export class Builder {
 				} else {
 					this.faceObjects[i].remove(...this.faceObjects[i].children);
 				}
+				rebuiltFaces++;
 				this.lastFaceParams[i] = newFaceParams;
 				this.buildFace(i, dieParams.engraving_depth, newFaceParams, {
 					forExport: false,
@@ -674,6 +712,15 @@ export class Builder {
 		}
 		this.forceRerenderBlank = false;
 		this.forceRerenderFaces = false;
+		if (engineTraceEnabled()) {
+			engineTrace('builder.build', {
+				id: this.model.id,
+				ms: Math.round(now() - tBuild),
+				dieChanged,
+				rebuiltFaces,
+				sharedEngraved: !!sharedEngraved
+			});
+		}
 
 		// position/orient the (origin-built) face groups. on the first build we snap
 		// straight to the requested state; afterwards we let any in-flight animation
@@ -688,6 +735,12 @@ export class Builder {
 		this.applyProgress();
 
 		this.renderCount++;
+		this.lastBuildInfo = {
+			ms: Math.round(now() - tBuild),
+			dieChanged,
+			rebuiltFaces,
+			sharedEngraved: !!sharedEngraved
+		};
 		return this.renderCount;
 	}
 
@@ -1078,16 +1131,20 @@ export class Builder {
 		const face = this.faces[i];
 		const legend = params.legend ?? face.defaultLegend;
 		const symbols = this.legends.get(legend);
-		if (!params.scale) {
-			params.scale = this.getDefaultScaleForLegend(legend);
-		}
+		// Resolve scale locally — never write it back onto `params`. That object is
+		// stored in lastFaceParams; mutating scale makes every later build look like
+		// every face changed (undefined vs a number) and forces a full-die re-engrave.
+		const orientation: FaceParams = {
+			...params,
+			scale: params.scale ?? this.getDefaultScaleForLegend(legend)
+		};
 		let error: EngravingError | null = null;
 		const depth = engravingDepth + (params.extraDepth ?? 0);
 		const divisions = opts.forExport ? DefaultDivisions : PreviewDivisions;
 
 		if (
 			legend !== Legend.BLANK &&
-			!canEngraveLegend(face.shape, symbols, params, this.currentTolerance, face.convex !== false)
+			!canEngraveLegend(face.shape, symbols, orientation, this.currentTolerance, face.convex !== false)
 		) {
 			error = {
 				faceIndex: i,
@@ -1100,13 +1157,18 @@ export class Builder {
 
 		let parts: Array<BufferGeometry>;
 		if (opts.sharedEngraved) {
+			const t0 = now();
 			parts = extractFaceGeometry(opts.sharedEngraved, face, i, depth);
+			if (engineTraceEnabled() && i === 0) {
+				engineTrace('builder.extractFace', { ms: +(now() - t0).toFixed(2), face: i, shared: true });
+			}
 		} else {
 			const dieParams = {
 				...this.lastDieParams,
 				engraving_depth: engravingDepth,
 				engraving_tolerance: this.currentTolerance
 			};
+			const tBlank = now();
 			const blankGeo = this.blankExportGeometry(dieParams);
 			const blank = getOrBuildBlankManifold(
 				this.model.id,
@@ -1115,15 +1177,28 @@ export class Builder {
 				this.lastStringParams,
 				{ source: 'export', exportGeometry: blankGeo, divisions }
 			);
+			const blankMs = now() - tBlank;
 
 			let man;
+			const tEngrave = now();
 			if (legend === Legend.BLANK || error) {
 				man = cloneManifold(blank.manifold);
 			} else {
-				man = engraveFace(blank, face, i, symbols, params, depth, divisions);
+				man = engraveFace(blank, face, i, symbols, orientation, depth, divisions);
 			}
+			const engraveMs = now() - tEngrave;
+			const tExtract = now();
 			parts = extractFaceGeometry(man, face, i, depth);
+			const extractMs = now() - tExtract;
 			man.delete();
+			if (engineTraceEnabled()) {
+				engineTrace('builder.engraveFace', {
+					face: i,
+					blankMs: +blankMs.toFixed(1),
+					engraveMs: +engraveMs.toFixed(1),
+					extractMs: +extractMs.toFixed(1)
+				});
+			}
 		}
 
 		if (!opts.forExport) {
@@ -1163,13 +1238,14 @@ export class Builder {
 		const face = this.faces[i];
 		const legend = params.legend ?? face.defaultLegend;
 		const symbols = this.legends.get(legend);
-		if (!params.scale) {
-			params.scale = this.getDefaultScaleForLegend(legend);
-		}
+		const orientation: FaceParams = {
+			...params,
+			scale: params.scale ?? this.getDefaultScaleForLegend(legend)
+		};
 		let error: EngravingError | null = null;
 		if (
 			legend !== Legend.BLANK &&
-			!canEngraveLegend(face.shape, symbols, params, this.currentTolerance, face.convex !== false)
+			!canEngraveLegend(face.shape, symbols, orientation, this.currentTolerance, face.convex !== false)
 		) {
 			error = {
 				faceIndex: i,
@@ -1187,14 +1263,14 @@ export class Builder {
 
 		if (legend !== Legend.BLANK && symbols.length > 0) {
 			let oriented = symbols;
-			if (params.scale && params.scale !== 1) {
-				oriented = scaleShapes(params.scale, ...oriented);
+			if (orientation.scale && orientation.scale !== 1) {
+				oriented = scaleShapes(orientation.scale, ...oriented);
 			}
-			if (params.rotation) {
-				oriented = rotateShapes(params.rotation, ...oriented);
+			if (orientation.rotation) {
+				oriented = rotateShapes(orientation.rotation, ...oriented);
 			}
-			if (params.offset && params.offset.lengthSq() !== 0) {
-				oriented = translateShapes(params.offset, ...oriented);
+			if (orientation.offset && orientation.offset.lengthSq() !== 0) {
+				oriented = translateShapes(orientation.offset, ...oriented);
 			}
 			const symbolFlat = shapeGeometry(oriented, divisions);
 			symbolFlat.userData = { diceThingPart: Part.Engraved };

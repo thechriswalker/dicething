@@ -2,6 +2,7 @@
 import { loadImmutableLegends, type LegendSet } from "$lib/utils/legends";
 import alice_in_wonderlandSVG from './generated/alice_in_wonderland.svg';
 import averiaSVG from './generated/averia.svg';
+import five_player_voltaireSVG from './generated/five_player_voltaire.svg';
 import germania_oneSVG from './generated/germania_one.svg';
 import josefin_mediumSVG from './generated/josefin_medium.svg';
 import mononokiSVG from './generated/mononoki.svg';
@@ -12,6 +13,7 @@ import tekturSVG from './generated/tektur.svg';
 import voltaireSVG from './generated/voltaire.svg';
 import alice_in_wonderlandFontUrl from './builtins/alice_in_wonderland/alice_in_wonderland.ttf?url';
 import averiaFontUrl from './builtins/averia/averia.ttf?url';
+import five_player_voltaireFontUrl from './builtins/five_player_voltaire/voltaire.ttf?url';
 import germania_oneFontUrl from './builtins/germania_one/germania_one.ttf?url';
 import josefin_mediumFontUrl from './builtins/josefin_medium/josefin_medium.ttf?url';
 import mononokiFontUrl from './builtins/mononoki/mononoki.ttf?url';
@@ -22,6 +24,7 @@ import tekturFontUrl from './builtins/tektur/tektur.ttf?url';
 import voltaireFontUrl from './builtins/voltaire/voltaire.ttf?url';
 import alice_in_wonderlandLicense from './builtins/alice_in_wonderland/license.txt?raw';
 import averiaLicense from './builtins/averia/license.txt?raw';
+import five_player_voltaireLicense from './builtins/five_player_voltaire/license.txt?raw';
 import germania_oneLicense from './builtins/germania_one/license.txt?raw';
 import josefin_mediumLicense from './builtins/josefin_medium/license.txt?raw';
 import mononokiLicense from './builtins/mononoki/license.txt?raw';
@@ -77,12 +80,13 @@ export type Builtin = {
     readonly load: () => Promise<ReturnType<typeof loadImmutableLegends>>;
 }
 
-type BuiltinID = "blanks"|"alice_in_wonderland"|"averia"|"germania_one"|"josefin_medium"|"mononoki"|"norse"|"open_dyslexic"|"siamese_katsong"|"tektur"|"voltaire";
+type BuiltinID = "blanks"|"alice_in_wonderland"|"averia"|"five_player_voltaire"|"germania_one"|"josefin_medium"|"mononoki"|"norse"|"open_dyslexic"|"siamese_katsong"|"tektur"|"voltaire";
 
 const builtins: Record<BuiltinID, Builtin> = {
 	blanks: { id: "blanks", name: "Blanks", fontUrl: "", license: "", licenseKind: "", load: async () => blanks, preview: "" } as Builtin,
     alice_in_wonderland: { id: "alice_in_wonderland", name: "Alice in Wonderland", preview: alice_in_wonderlandSVG, fontUrl: alice_in_wonderlandFontUrl, license: alice_in_wonderlandLicense, licenseKind: "Custom", load: deferredFontLoader("alice_in_wonderland") } as Builtin,
     averia: { id: "averia", name: "Averia", preview: averiaSVG, fontUrl: averiaFontUrl, license: averiaLicense, licenseKind: "SIL-OFL v1.1", load: deferredFontLoader("averia") } as Builtin,
+    five_player_voltaire: { id: "five_player_voltaire", name: "Five Player Voltaire", preview: five_player_voltaireSVG, fontUrl: five_player_voltaireFontUrl, license: five_player_voltaireLicense, licenseKind: "SIL-OFL v1.1", load: deferredFontLoader("five_player_voltaire") } as Builtin,
     germania_one: { id: "germania_one", name: "Germania One", preview: germania_oneSVG, fontUrl: germania_oneFontUrl, license: germania_oneLicense, licenseKind: "SIL-OFL v1.1", load: deferredFontLoader("germania_one") } as Builtin,
     josefin_medium: { id: "josefin_medium", name: "Josefin Sans", preview: josefin_mediumSVG, fontUrl: josefin_mediumFontUrl, license: josefin_mediumLicense, licenseKind: "SIL-OFL v1.1", load: deferredFontLoader("josefin_medium") } as Builtin,
     mononoki: { id: "mononoki", name: "mononoki", preview: mononokiSVG, fontUrl: mononokiFontUrl, license: mononokiLicense, licenseKind: "SIL-OFL v1.1", load: deferredFontLoader("mononoki") } as Builtin,

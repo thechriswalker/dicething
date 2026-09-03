@@ -95,7 +95,10 @@
 			"declarations": ["input id"],
 			"selectors": ["id"],
 			"match": {
+				"id=players": "Players",
+				"id=d6_shape": "D6 Shape",
 				"id=d12_shape": "D12 Shape",
+				"id=d60_shape": "D60 Shape",
 				"id=*": "Option"
 			}
 		}
@@ -105,7 +108,7 @@
 			"declarations": ["input preset"],
 			"selectors": ["preset"],
 			"match": {
-				"preset=go_first": "Go First Dice (4 Players)",
+				"preset=go_first": "Go First Dice",
 				"preset=scratch": "Start from Scratch",
 				"preset=classic": "Classic 7 Dice D&D Set",
 				"preset=dicething": "DiceThing Custom 7",
@@ -120,7 +123,7 @@
 			"declarations": ["input preset"],
 			"selectors": ["preset"],
 			"match": {
-				"preset=go_first": "A set of 4d12 that always roll different numbers and have a equal chance of each die being first (and second, third, fourth).",
+				"preset=go_first": "Permutation-fair dice for deciding play order: 3d6, 4d12, or 5d60. Every die has an equal chance of each rank, and no ties are possible. Pick the player count and the matching shape (5-player sets use Five Player Voltaire for numbers up to 300).",
 				"preset=scratch": "Empty set so you can start from a blank slate",
 				"preset=classic": "The standard 7 D&D dice set with a caltrop D4. Sized around a 14mm D6",
 				"preset=dicething": "A larger than standard set with the shapes that I like (no caltrops!)",
@@ -220,12 +223,13 @@
 				"key=go_first_b": "Go First (B)",
 				"key=go_first_c": "Go First (C)",
 				"key=go_first_d": "Go First (D)",
+				"key=go_first_e": "Go First (E)",
 				"key=custom": "Custom"
 			}
 		}
 	],
 	"dice_parameters_legend_ordering": "Legend Ordering",
-	"dice_parameters_legend_ordering_help": "How the default numbers are laid out across the faces. On ten-sided dice, choose Standard D10 (0–9) or Standard Percentile (00–90). On regular and skew D12s, Standard is the Bosch layout; Dicething and Chessex are alternate face arrangements. Editing a face's legend switches this to Custom.",
+	"dice_parameters_legend_ordering_help": "How the default numbers are laid out across the faces. On ten-sided dice, choose Standard D10 (0–9) or Standard Percentile (00–90). On regular and skew D12s, Standard is the Bosch layout; Dicething and Chessex are alternate face arrangements. Go First orderings on D6 / D12 / D60 are the 3 / 4 / 5 player sets (5-player needs the Five Player Voltaire legends). Editing a face's legend switches this to Custom.",
 	"dice_parameters_nickname": "Nickname",
 	"dice_parameters_nickname_placeholder": "Optional label (e.g. Logo)",
 	"dice_parameters_nickname_help": "A personal name for this die in the set. Shown when hovering the die in the list; leave blank to use the shape name.",

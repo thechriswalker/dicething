@@ -51,6 +51,17 @@ const remainingNumbers: string = Array.from({ length: 99 - 21 + 1 }, (_, i) => i
 
 export const defaultStrings = baseStrings + ' ' + remainingNumbers;
 
+// 100–300 for the five-player Go First (5d60) legend set. These land at
+// CUSTOM_SYMBOLS_START+ in slot order (same as if they were appended to
+// defaultStrings before the logo splice). Only `five_player_voltaire` ships
+// with these glyphs; other builtins stop at 99.
+export const FIVE_PLAYER_MAX = 300;
+export const fivePlayerExtraNumbers: string = Array.from(
+	{ length: FIVE_PLAYER_MAX - 100 + 1 },
+	(_, i) => String(i + 100)
+).join(' ');
+export const fivePlayerStrings = defaultStrings + ' ' + fivePlayerExtraNumbers;
+
 export const defaultRenderOptions: Record<string, FontRenderOptions> = {
 	'6.': { letterSpacing: -0.1 },
 	'9.': { letterSpacing: -0.1 }
@@ -94,12 +105,18 @@ export function numberStringToWords(s: string): string {
 
 export function addRenderOptions(
 	strings: string,
-	fontRenderOptions: Record<string, FontRenderOptions> = defaultRenderOptions
+	fontRenderOptions: Record<string, FontRenderOptions> = defaultRenderOptions,
+	defaultLetterSpacing?: number
 ): Array<FontString> {
 	return strings.split(' ').map((s) => {
+		const specific = fontRenderOptions[s];
+		const letterSpacing = specific?.letterSpacing ?? defaultLetterSpacing;
 		const o: FontString = { text: s };
-		if (s in fontRenderOptions) {
-			o.renderOptions = fontRenderOptions[s];
+		if (letterSpacing !== undefined || specific) {
+			o.renderOptions = {
+				...specific,
+				...(letterSpacing !== undefined ? { letterSpacing } : {})
+			};
 		}
 		return o;
 	});
