@@ -1,9 +1,8 @@
 import type { Builtin, FontRenderOptions } from '../type';
 
-// Tight tracking for three-digit Go First numbers so they fit the usual legend
-// box — but skip any glyph with consecutive 2s (Voltaire's "22" collapses to
-// invisible at -0.08). Shares the Voltaire TTF/license via symlinks; only this
-// builtin generates glyphs past 99.
+// Voltaire with tight tracking for three-digit Go First numbers (100–300).
+// Shares the Voltaire TTF/license via symlinks; only this builtin generates
+// glyphs past 99 by default (users can also build five-player sets from any font).
 const TIGHT_LETTER_SPACING = -0.08;
 
 function threeDigitTightOptions(): Record<string, FontRenderOptions> {

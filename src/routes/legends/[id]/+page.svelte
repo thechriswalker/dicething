@@ -15,8 +15,11 @@
 	} from '$lib/interfaces/storage.svelte';
 	import { m } from '$lib/paraglide/messages';
 	import {
+		appendFivePlayerGlyphs,
+		applyLetterSpacingToAllFontGlyphs,
 		combineImportPieces,
 		getEditableFont,
+		missingFivePlayerCount,
 		shapesFromFontText,
 		shapesFromSVG,
 		svgImportPieces,
@@ -102,6 +105,76 @@
 		}
 	}
 
+	let addingFivePlayer = $state(false);
+	let fivePlayerNote = $state('');
+	const fivePlayerMissing = $derived(
+		set && fontBuffer ? missingFivePlayerCount(set) : 0
+	);
+
+	// Global letter-spacing applied to every font-sourced glyph. Seeded from the
+	// first font source when the set loads; the per-slot slider still edits one
+	// glyph at a time after that.
+	let globalLetterSpacing = $state(0);
+	let globalSpacingSeededFor = '';
+	$effect(() => {
+		if (!set || set.id === globalSpacingSeededFor) {
+			return;
+		}
+		globalSpacingSeededFor = set.id;
+		let seeded = 0;
+		for (const l of set) {
+			const src = set.getSource(l);
+			if (src?.kind === 'font') {
+				seeded = src.letterSpacing ?? 0;
+				break;
+			}
+		}
+		globalLetterSpacing = seeded;
+	});
+
+	const applyGlobalSpacingDebounced = debounce<void>(250, () => {
+		if (!set || !fontBuffer) {
+			return;
+		}
+		applyLetterSpacingToAllFontGlyphs(set, fontBuffer, globalLetterSpacing);
+		// Keep the side-panel slider in sync when the selected slot is font-based.
+		const src = set.getSource(selectedLegend);
+		if (src?.kind === 'font') {
+			letterSpacing = globalLetterSpacing;
+		}
+		commit();
+	});
+
+	async function addFivePlayerNumbers() {
+		if (!set || !fontBuffer || addingFivePlayer) {
+			return;
+		}
+		addingFivePlayer = true;
+		fivePlayerNote = '';
+		try {
+			// Yield so the busy label can paint before the synchronous font work.
+			await new Promise((r) => setTimeout(r, 0));
+			const { added, skippedOccupied } = appendFivePlayerGlyphs(
+				set,
+				fontBuffer,
+				globalLetterSpacing
+			);
+			commit();
+			if (added === 0 && skippedOccupied === 0) {
+				fivePlayerNote = m.legends_editor_add_five_player_none();
+			} else if (skippedOccupied > 0) {
+				fivePlayerNote = m.legends_editor_add_five_player_partial({
+					added,
+					skipped: skippedOccupied
+				});
+			} else {
+				fivePlayerNote = m.legends_editor_add_five_player_done({ added });
+			}
+		} finally {
+			addingFivePlayer = false;
+		}
+	}
+
 	// per-legend editable fields, synced when the selected slot changes.
 	let charText = $state('');
 	let letterSpacing = $state(0);
@@ -183,6 +256,7 @@
 	// flush pending regeneration + save so the builder reads the latest shapes.
 	beforeNavigate(() => {
 		regenerateDebounced.flush();
+		applyGlobalSpacingDebounced.flush();
 		persistDebounced.flush();
 	});
 
@@ -516,6 +590,44 @@
 					<input class="input" type="text" bind:value={name} oninput={onNameInput} />
 				</label>
 				<p class="text-surface-600-400 text-sm">{m.legends_editor_font_source()}: {fontSource}</p>
+				{#if fontBuffer}
+					<label class="label max-w-md">
+						<span class="label-text">
+							{m.legends_editor_global_letter_spacing()}: {globalLetterSpacing.toFixed(2)}
+						</span>
+						<input
+							type="range"
+							min="-0.5"
+							max="0.5"
+							step="0.01"
+							bind:value={globalLetterSpacing}
+							oninput={() => applyGlobalSpacingDebounced()}
+						/>
+						<span class="text-surface-600-400 text-xs"
+							>{m.legends_editor_global_letter_spacing_help()}</span
+						>
+					</label>
+				{/if}
+				{#if fontBuffer && fivePlayerMissing > 0}
+					<div class="flex flex-col gap-1">
+						<button
+							type="button"
+							class="btn preset-tonal-secondary self-start"
+							disabled={addingFivePlayer}
+							onclick={addFivePlayerNumbers}
+						>
+							{addingFivePlayer
+								? m.legends_editor_add_five_player_busy()
+								: m.legends_editor_add_five_player()}
+						</button>
+						<p class="text-surface-600-400 text-xs">{m.legends_editor_add_five_player_help()}</p>
+						{#if fivePlayerNote}
+							<p class="text-sm">{fivePlayerNote}</p>
+						{/if}
+					</div>
+				{:else if fivePlayerNote}
+					<p class="text-sm">{fivePlayerNote}</p>
+				{/if}
 
 				<!-- print-problem check -->
 				<div class="flex flex-col gap-2">

@@ -77,6 +77,8 @@ export type Builtin = {
 	// the font's license text, for attribution/display. Empty for blanks.
 	readonly license: string;
 	readonly licenseKind: string;
+	// Which glyph range this builtin ships. 'five_player' includes 100–300.
+	readonly characterSet?: 'default' | 'five_player';
     readonly load: () => Promise<ReturnType<typeof loadImmutableLegends>>;
 }
 
@@ -86,7 +88,7 @@ const builtins: Record<BuiltinID, Builtin> = {
 	blanks: { id: "blanks", name: "Blanks", fontUrl: "", license: "", licenseKind: "", load: async () => blanks, preview: "" } as Builtin,
     alice_in_wonderland: { id: "alice_in_wonderland", name: "Alice in Wonderland", preview: alice_in_wonderlandSVG, fontUrl: alice_in_wonderlandFontUrl, license: alice_in_wonderlandLicense, licenseKind: "Custom", load: deferredFontLoader("alice_in_wonderland") } as Builtin,
     averia: { id: "averia", name: "Averia", preview: averiaSVG, fontUrl: averiaFontUrl, license: averiaLicense, licenseKind: "SIL-OFL v1.1", load: deferredFontLoader("averia") } as Builtin,
-    five_player_voltaire: { id: "five_player_voltaire", name: "Five Player Voltaire", preview: five_player_voltaireSVG, fontUrl: five_player_voltaireFontUrl, license: five_player_voltaireLicense, licenseKind: "SIL-OFL v1.1", load: deferredFontLoader("five_player_voltaire") } as Builtin,
+    five_player_voltaire: { id: "five_player_voltaire", name: "Five Player Voltaire", preview: five_player_voltaireSVG, fontUrl: five_player_voltaireFontUrl, license: five_player_voltaireLicense, licenseKind: "SIL-OFL v1.1", characterSet: "five_player", load: deferredFontLoader("five_player_voltaire") } as Builtin,
     germania_one: { id: "germania_one", name: "Germania One", preview: germania_oneSVG, fontUrl: germania_oneFontUrl, license: germania_oneLicense, licenseKind: "SIL-OFL v1.1", load: deferredFontLoader("germania_one") } as Builtin,
     josefin_medium: { id: "josefin_medium", name: "Josefin Sans", preview: josefin_mediumSVG, fontUrl: josefin_mediumFontUrl, license: josefin_mediumLicense, licenseKind: "SIL-OFL v1.1", load: deferredFontLoader("josefin_medium") } as Builtin,
     mononoki: { id: "mononoki", name: "mononoki", preview: mononokiSVG, fontUrl: mononokiFontUrl, license: mononokiLicense, licenseKind: "SIL-OFL v1.1", load: deferredFontLoader("mononoki") } as Builtin,

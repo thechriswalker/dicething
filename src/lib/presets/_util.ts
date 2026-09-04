@@ -5,11 +5,16 @@ import type { LegendSet } from '$lib/utils/legends';
 
 // the pre-selected legend set in the new-set picker. When a preset doesn't pass
 // an explicit value it falls back to the user's preferred default legend set.
-export function legendPickerOption(defaultValue?: string): PresetOptionLegend {
+export function legendPickerOption(
+	defaultValue?: string,
+	extra: Partial<Omit<PresetOptionLegend, 'kind' | 'id' | 'value'>> & { id?: string } = {}
+): PresetOptionLegend {
+	const { id, ...rest } = extra;
 	return {
-		id: 'legend',
+		id: id ?? 'legend',
 		kind: 'legend',
-		value: defaultValue ?? getPreferences().defaultLegendSet
+		value: defaultValue ?? getPreferences().defaultLegendSet,
+		...rest
 	};
 }
 

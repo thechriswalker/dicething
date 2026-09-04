@@ -85,9 +85,14 @@ const slotToText: Map<Legend, string> = (() => {
 // the canonical numeric/special slots), or undefined for custom-symbol slots
 // (which carry a user-supplied name instead).
 //
-// `setId` lets the five_player_voltaire builtin reclaim CUSTOM_SYMBOLS_START+
-// as numbers 100–300 instead of "Custom Legend (n)".
-export function localizedLegendName(l: Legend, setId?: string): string | undefined {
+// `setId` / `characterSet` let five-player sets reclaim CUSTOM_SYMBOLS_START+
+// as numbers 100–300 instead of "Custom Legend (n)". Also recognises a font
+// source whose text is already "100"…"300".
+export function localizedLegendName(
+	l: Legend,
+	setId?: string,
+	opts?: { characterSet?: LegendCharacterSet; sourceText?: string }
+): string | undefined {
 	if (l === Legend.BLANK) {
 		return m.legend_name({ key: 'blank', n: 0 });
 	}
@@ -98,13 +103,19 @@ export function localizedLegendName(l: Legend, setId?: string): string | undefin
 	if (tok !== undefined) {
 		return legendNameForText(tok);
 	}
-	// five_player_voltaire stores 100–300 in the custom-symbol range.
+	const fivePlayer =
+		opts?.characterSet === 'five_player' ||
+		setId === FIVE_PLAYER_VOLTAIRE_BUILTIN ||
+		isFivePlayerSourceText(opts?.sourceText);
 	if (
-		setId === FIVE_PLAYER_VOLTAIRE_BUILTIN &&
+		fivePlayer &&
 		l >= Legend.CUSTOM_SYMBOLS_START &&
 		l <= Legend.CUSTOM_SYMBOLS_START + (FIVE_PLAYER_MAX - 100)
 	) {
 		return legendNameForText(String(l - Legend.CUSTOM_SYMBOLS_START + 100));
+	}
+	if (isFivePlayerSourceText(opts?.sourceText)) {
+		return legendNameForText(opts!.sourceText!);
 	}
 	// custom-symbol slots have no canonical token: number them from 1 via the
 	// `legend_name` wildcard ("Custom Legend (n)").
@@ -112,6 +123,14 @@ export function localizedLegendName(l: Legend, setId?: string): string | undefin
 		return m.legend_name({ key: 'custom', n: l + 1 - Legend.CUSTOM_SYMBOLS_START });
 	}
 	return undefined;
+}
+
+function isFivePlayerSourceText(text: string | undefined): boolean {
+	if (!text) {
+		return false;
+	}
+	const n = Number(text);
+	return Number.isInteger(n) && String(n) === text && n >= 100 && n <= FIVE_PLAYER_MAX;
 }
 
 // The Legend slot that should display a given numeric value. 6 and 9 resolve to
@@ -222,10 +241,14 @@ export type LegendSet = {
 	readonly name: string;
 	readonly mutable: boolean;
 	readonly length: number;
+	/** Which glyph range this set targets; five_player includes 100–300. */
+	readonly characterSet?: LegendCharacterSet;
 	get(l: Legend): Array<Shape>;
 	getLegendName(l: Legend): string;
 	toJSON(): SerialisedLegendSet;
 } & Iterable<Legend>;
+
+export type LegendCharacterSet = 'default' | 'five_player';
 
 export type SerialisedLegendSet = {
 	id: string;
@@ -238,6 +261,8 @@ export type SerialisedLegendSet = {
 	font?: LegendFontOrigin;
 	// per-slot generation recipe (custom sets only). aligned with shapes/names.
 	sources?: Array<LegendSource | null>;
+	// which character set this set was built for (affects naming of 100–300).
+	characterSet?: LegendCharacterSet;
 };
 
 // these are the inbuilt ones.
@@ -256,6 +281,7 @@ export type MutableLegendSet = LegendSet & {
 	name: string;
 	font?: LegendFontOrigin;
 	updated?: number;
+	characterSet?: LegendCharacterSet;
 	getSource(l: Legend): LegendSource | undefined;
 	set(l: Legend, shapes: Array<Shape>, source?: LegendSource | null): void;
 	// like set(), but accepts shapes already in the compact serialized form
@@ -271,10 +297,14 @@ export function loadImmutableLegends(s: SerialisedLegendSet): ImmutableLegendSet
 		cache.set(l, shapes);
 		return shapes;
 	};
+	const characterSet =
+		s.characterSet ??
+		(s.id === FIVE_PLAYER_VOLTAIRE_BUILTIN ? ('five_player' as const) : undefined);
 	return {
 		id: s.id,
 		name: s.name,
 		mutable: false,
+		characterSet,
 		get length() {
 			return data.length;
 		},
@@ -284,34 +314,33 @@ export function loadImmutableLegends(s: SerialisedLegendSet): ImmutableLegendSet
 			}
 			// canonical slots derive their name from the active locale; custom
 			// symbols use the generic "Custom Legend (n)" name (also localized).
-			// five_player_voltaire reclaims the custom range as 100–300.
-			return localizedLegendName(l, s.id) ?? debugLegendName(l);
+			// five_player sets reclaim the custom range as 100–300.
+			return localizedLegendName(l, s.id, { characterSet }) ?? debugLegendName(l);
 		},
 		get(l: Legend) {
 			// anything not in the array is a blank.
 			if (l in data === false) {
 				return []; // BLANK
 			}
-			let s = cache.get(l);
-			if (!s) {
-				// need to generate this.
-				s = load(l);
+			let cached = cache.get(l);
+			if (!cached) {
+				cached = load(l);
 			}
-			return s;
+			return cached;
 		},
 		clone(): MutableLegendSet {
-			// update the ID
 			const id = crypto.randomUUID();
 			return loadMutableLegends({
 				id,
 				name: s.name,
 				shapes: s.shapes,
 				font: s.font,
-				sources: s.sources
+				sources: s.sources,
+				characterSet
 			});
 		},
 		toJSON() {
-			return s;
+			return { ...s, characterSet };
 		},
 		*[Symbol.iterator]() {
 			const l = data.length;
@@ -342,6 +371,7 @@ export function loadMutableLegends(s: SerialisedLegendSet): MutableLegendSet {
 		mutable: true,
 		font: s.font,
 		updated: s.updated,
+		characterSet: s.characterSet,
 		get length() {
 			return data.length;
 		},
@@ -349,21 +379,25 @@ export function loadMutableLegends(s: SerialisedLegendSet): MutableLegendSet {
 			if (l in data === false) {
 				l = Legend.BLANK;
 			}
-			// canonical slots derive their name from the active locale; custom
-			// symbols use the generic "Custom Legend (n)" name (also localized).
-			return localizedLegendName(l, s.id) ?? debugLegendName(l);
+			const src = sources[l];
+			const sourceText = src?.kind === 'font' ? src.text : undefined;
+			return (
+				localizedLegendName(l, s.id, {
+					characterSet: set.characterSet,
+					sourceText
+				}) ?? debugLegendName(l)
+			);
 		},
 		get(l: Legend) {
 			// anything not in the array is a blank.
 			if (l in data === false) {
 				return []; // BLANK
 			}
-			let s = cache.get(l);
-			if (!s) {
-				// need to generate this.
-				s = load(l);
+			let cached = cache.get(l);
+			if (!cached) {
+				cached = load(l);
 			}
-			return s;
+			return cached;
 		},
 		getSource(l) {
 			return sources[l] ?? undefined;
@@ -396,7 +430,8 @@ export function loadMutableLegends(s: SerialisedLegendSet): MutableLegendSet {
 				shapes: data.map((slot) => encodeShapeSlot(slot ?? [])),
 				updated: self.updated,
 				font: self.font,
-				sources: sources.map((src) => (src ? { ...src } : src))
+				sources: sources.map((src) => (src ? { ...src } : src)),
+				characterSet: self.characterSet
 			};
 		},
 		*[Symbol.iterator]() {

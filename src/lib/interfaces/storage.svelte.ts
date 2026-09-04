@@ -421,12 +421,16 @@ export async function cloneLegendSet(src: LegendSet): Promise<MutableLegendSet> 
 	if (isBuiltin(src.id)) {
 		const builtinId = src.id.slice('builtin:'.length);
 		font = { kind: 'builtin', builtinId };
+		const builtinMeta = builtins[builtinId as keyof typeof builtins];
+		const charset =
+			src.characterSet ??
+			(builtinMeta?.characterSet === 'five_player' ? 'five_player' : 'default');
 		// Builtins are bundled without their per-slot sources. Rebuild them from
-		// the standard combined set so the clone's glyphs keep their "characters"
-		// (editable / regenerable).
+		// the matching character set so the clone's glyphs stay regenerable.
 		if (!sources || sources.length === 0) {
-			sources = defaultSources();
+			sources = defaultSources(charset);
 		}
+		serial.characterSet ??= charset;
 	} else if (font?.kind === 'uploaded') {
 		try {
 			const blob = await getFont(src.id);

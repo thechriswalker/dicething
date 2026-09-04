@@ -11,6 +11,8 @@ import {
 	createShapesFromSVGChecked,
 	defaultStrings,
 	finalizeImportedShapes,
+	fivePlayerExtraNumbers,
+	fivePlayerStrings,
 	svgIconScale,
 	svgPieces,
 	unsupportedSVGElements,
@@ -21,15 +23,20 @@ export type { SvgPiece, SvgPieceAction } from './font';
 import type { Shape } from 'three';
 import { encodeShapeSlot } from './to_json';
 import { shapesRowToSVGData } from './shapes';
+import { addUnderline } from './underline';
 import {
+	Legend,
 	loadMutableLegends,
 	MAKER_LOGO_SLOT,
+	type LegendCharacterSet,
 	type LegendFontOrigin,
 	type LegendSet,
 	type LegendSource,
 	type MutableLegendSet,
 	type SerialisedLegendSet
 } from './legends';
+
+export type { LegendCharacterSet };
 
 // Build an editable legend set by rendering each glyph of the given character
 // set from the font. The maker logo (MAKER_LOGO slot) is spliced in at
@@ -39,8 +46,10 @@ export function legendSetFromFont(
 	buffer: ArrayBufferLike,
 	name: string,
 	characters: string = defaultStrings,
-	id: string = crypto.randomUUID()
+	id: string = crypto.randomUUID(),
+	opts: { characterSet?: LegendCharacterSet } = {}
 ): MutableLegendSet {
+	const characterSet = opts.characterSet ?? inferCharacterSet(characters);
 	const strings = addRenderOptions(characters);
 	const shapes = createShapesFromFont(buffer, strings).map((slot) => encodeShapeSlot(slot));
 	const sources: Array<LegendSource | null> = strings.map((s) => ({
@@ -68,18 +77,26 @@ export function legendSetFromFont(
 		shapes,
 		font: { kind: 'uploaded' },
 		updated: Date.now(),
-		sources
+		sources,
+		characterSet
 	};
 	return loadMutableLegends(serial);
 }
 
+function inferCharacterSet(characters: string): LegendCharacterSet {
+	const tokens = characters.split(/\s+/).filter(Boolean);
+	return tokens.includes('300') && tokens.includes('100') ? 'five_player' : 'default';
+}
+
 // Rebuild the per-slot generation recipe (sources) for a builtin legend set.
-// Builtins are generated offline from the standard combined set (see
-// build_builtins.ts) but the bundled JSON doesn't carry the per-slot sources,
-// so a fresh clone has no "characters" to show/edit. We reconstruct them here
-// from the same character set the builtins are built from.
-export function defaultSources(): Array<LegendSource | null> {
-	const strings = addRenderOptions(defaultStrings);
+// Builtins are generated offline but the bundled JSON doesn't carry sources, so
+// a fresh clone has no "characters" to show/edit. Reconstruct from the same
+// charset the builtin was built with.
+export function defaultSources(
+	characterSet: LegendCharacterSet = 'default'
+): Array<LegendSource | null> {
+	const chars = characterSet === 'five_player' ? fivePlayerStrings : defaultStrings;
+	const strings = addRenderOptions(chars);
 	const sources: Array<LegendSource | null> = strings.map((s) => ({
 		kind: 'font',
 		text: s.text,
@@ -89,6 +106,113 @@ export function defaultSources(): Array<LegendSource | null> {
 	const at = Math.min(MAKER_LOGO_SLOT, sources.length);
 	sources.splice(at, 0, { kind: 'svg' });
 	return sources;
+}
+
+/** How many of 100–300 are still missing (empty / wrong) on this set. */
+export function missingFivePlayerCount(set: MutableLegendSet): number {
+	let missing = 0;
+	const extras = fivePlayerExtraNumbers.split(' ');
+	for (let i = 0; i < extras.length; i++) {
+		const slot = (Legend.CUSTOM_SYMBOLS_START + i) as Legend;
+		const text = extras[i];
+		const src = set.getSource(slot);
+		const shapes = slot < set.length ? set.get(slot) : [];
+		if (src?.kind === 'font' && src.text === text && shapes.length > 0) {
+			continue;
+		}
+		if (shapes.length > 0 && !(src?.kind === 'font' && src.text === text)) {
+			continue;
+		}
+		missing++;
+	}
+	return missing;
+}
+
+/**
+ * Append / fill glyphs 100–300 from the source font into CUSTOM_SYMBOLS_START+.
+ * Skips slots that already have the matching number, and slots occupied by
+ * unrelated glyphs. Marks the set as a five_player character set.
+ * `letterSpacing` (ems) is applied to every newly generated glyph when set.
+ */
+export function appendFivePlayerGlyphs(
+	set: MutableLegendSet,
+	buffer: ArrayBufferLike,
+	letterSpacing?: number
+): { added: number; skippedOccupied: number } {
+	const extras = fivePlayerExtraNumbers.split(' ');
+	const needed: Array<{ slot: Legend; text: string }> = [];
+	let skippedOccupied = 0;
+
+	for (let i = 0; i < extras.length; i++) {
+		const slot = (Legend.CUSTOM_SYMBOLS_START + i) as Legend;
+		const text = extras[i];
+		const src = set.getSource(slot);
+		const shapes = slot < set.length ? set.get(slot) : [];
+		if (src?.kind === 'font' && src.text === text && shapes.length > 0) {
+			continue;
+		}
+		if (shapes.length > 0 && !(src?.kind === 'font' && src.text === text)) {
+			skippedOccupied++;
+			continue;
+		}
+		needed.push({ slot, text });
+	}
+
+	set.characterSet = 'five_player';
+	if (needed.length === 0) {
+		return { added: 0, skippedOccupied };
+	}
+
+	const spacing = letterSpacing || undefined;
+	const strings = needed.map((n) => ({
+		text: n.text,
+		renderOptions: spacing != null ? { letterSpacing: spacing } : undefined
+	}));
+	const generated = createShapesFromFont(buffer, strings);
+
+	// Pad any gap between current length and CUSTOM_SYMBOLS_START with blanks.
+	for (let i = set.length; i < Legend.CUSTOM_SYMBOLS_START; i++) {
+		set.setSerialized(i, [], null);
+	}
+
+	for (let i = 0; i < needed.length; i++) {
+		const { slot, text } = needed[i];
+		set.setSerialized(slot, encodeShapeSlot(generated[i]), {
+			kind: 'font',
+			text,
+			letterSpacing: spacing
+		});
+	}
+	return { added: needed.length, skippedOccupied };
+}
+
+/**
+ * Re-render every font-sourced glyph with the given letter spacing (ems).
+ * Preserves underline settings. Returns how many slots were updated.
+ */
+export function applyLetterSpacingToAllFontGlyphs(
+	set: MutableLegendSet,
+	buffer: ArrayBufferLike,
+	letterSpacing: number
+): number {
+	const spacing = letterSpacing || undefined;
+	let updated = 0;
+	for (const l of set) {
+		const src = set.getSource(l);
+		if (src?.kind !== 'font' || !src.text) {
+			continue;
+		}
+		let shapes = shapesFromFontText(buffer, src.text, spacing);
+		if (src.underline) {
+			shapes = addUnderline(shapes, src.underline);
+		}
+		set.setSerialized(l, shapes, {
+			...src,
+			letterSpacing: spacing
+		});
+		updated++;
+	}
+	return updated;
 }
 
 // Generate a preview image (an SVG data URL) for a legend set on the fly, by

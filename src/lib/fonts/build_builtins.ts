@@ -112,6 +112,7 @@ async function buildAll() {
 			licenseFile: mod.license_file,
 			licenseKind: JSON.stringify(mod.license_kind),
 			name: JSON.stringify(mod.display_name),
+			characterSet: mod.character_set === 'five_player' ? 'five_player' : undefined,
 			import: JSON.stringify('.' + genSuffix + '/' + d + '.json')
 		});
 	}
@@ -165,6 +166,8 @@ export type Builtin = {
 	// the font's license text, for attribution/display. Empty for blanks.
 	readonly license: string;
 	readonly licenseKind: string;
+	// Which glyph range this builtin ships. 'five_player' includes 100–300.
+	readonly characterSet?: 'default' | 'five_player';
     readonly load: () => Promise<ReturnType<typeof loadImmutableLegends>>;
 }
 
@@ -174,6 +177,8 @@ const builtins: Record<BuiltinID, Builtin> = {
 	blanks: { id: "blanks", name: "Blanks", fontUrl: "", license: "", licenseKind: "", load: async () => blanks, preview: "" } as Builtin,
 ${fontMeta
 	.map((x) => {
+		const charset =
+			x.characterSet != null ? `, characterSet: ${JSON.stringify(x.characterSet)}` : '';
 		return (
 			'    ' +
 			x.varname +
@@ -192,6 +197,7 @@ ${fontMeta
 			'License' +
 			', licenseKind: ' +
 			x.licenseKind +
+			charset +
 			', load: deferredFontLoader("' +
 			x.varname +
 			'")' +

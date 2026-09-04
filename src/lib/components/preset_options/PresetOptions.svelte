@@ -1,6 +1,10 @@
 <script lang="ts">
 	import builtins, { blanks } from '$lib/fonts';
-	import type { PresetOption } from '$lib/interfaces/presets';
+	import {
+		isPresetOptionVisible,
+		type PresetOption,
+		type PresetOptionLegend
+	} from '$lib/interfaces/presets';
 	import { Switch } from '@skeletonlabs/skeleton-svelte';
 	import Slider from '../slider/Slider.svelte';
 	import { onMount } from 'svelte';
@@ -39,14 +43,41 @@
 		localName = name;
 	});
 
-	function submit() {
-		const selected: Array<PresetOption> = options.map((v, i) => {
-			const o = { ...v };
-			if (values[i] !== undefined) {
-				o.value = values[i];
+	function optionValue(idx: number): string | number | boolean | undefined {
+		const opt = options[idx];
+		return values[idx] !== undefined ? values[idx] : opt.value;
+	}
+
+	const valuesById = $derived.by(() => {
+		const out: Record<string, string | number | boolean | undefined> = {};
+		for (let i = 0; i < options.length; i++) {
+			out[options[i].id] = optionValue(i);
+		}
+		return out;
+	});
+
+	function filteredBuiltins(opt: PresetOptionLegend) {
+		return Object.values(builtins).filter((f) => {
+			if (f.id === 'blanks') {
+				return false;
 			}
-			return o;
+			if (!opt.characterSet) {
+				return true;
+			}
+			return (f.characterSet ?? 'default') === opt.characterSet;
 		});
+	}
+
+	function submit() {
+		const selected: Array<PresetOption> = options
+			.map((v, i) => {
+				const o = { ...v };
+				if (values[i] !== undefined) {
+					o.value = values[i];
+				}
+				return o;
+			})
+			.filter((o) => isPresetOptionVisible(o, valuesById));
 		onSubmit?.(localName, selected);
 	}
 </script>
@@ -61,85 +92,116 @@
 		bind:value={localName}
 	/>
 	{#each options as opt, idx}
-		{#if opt.kind == 'bool'}
-			<p class="h5">{m.preset_options_bool_title({ id: opt.id })}</p>
-			<Switch
-				class="items-end justify-center"
-				defaultChecked={values[idx] ?? opt.value}
-				onCheckedChange={(d) => {
-					values[idx] = d.checked;
-				}}
-			>
-				<Switch.Label>{m.preset_options_bool_disabled({ id: opt.id })}</Switch.Label>
+		{#if isPresetOptionVisible(opt, valuesById)}
+			{#if opt.kind == 'bool'}
+				<p class="h5">{m.preset_options_bool_title({ id: opt.id })}</p>
+				<Switch
+					class="items-end justify-center"
+					defaultChecked={values[idx] ?? opt.value}
+					onCheckedChange={(d) => {
+						values[idx] = d.checked;
+					}}
+				>
+					<Switch.Label>{m.preset_options_bool_disabled({ id: opt.id })}</Switch.Label>
 
-				<Switch.Control>
-					<Switch.Thumb />
-				</Switch.Control>
-				<Switch.Label>{m.preset_options_bool_enabled({ id: opt.id })}</Switch.Label>
-				<Switch.HiddenInput />
-			</Switch>
-		{/if}
-		{#if opt.kind == 'range'}
-			<Slider
-				class="py-1"
-				value={values[idx] ?? opt.value}
-				onChange={(e) => (values[idx] = e)}
-				min={opt.min}
-				max={opt.max}
-				step={opt.step}
-			></Slider>
-		{/if}
-		{#if opt.kind == 'select'}
-			<p class="h5">{m.preset_options_select_title({ id: opt.id })}</p>
-			<select class="select" onchange={(e) => (values[idx] = e.currentTarget.value)}>
-				{#each opt.options as entry}
-					<option value={entry[0]} selected={entry[0] === (values[idx] ?? opt.value)}>
-						{entry[1]}
-					</option>
-				{/each}
-			</select>
-		{/if}
-		{#if opt.kind == 'die'}
-			<p class="h5">{m.preset_options_select_title({ id: opt.id })}</p>
-			<div class="grid grid-flow-col gap-4">
-				{#each opt.options as kind}
-					{@const border =
-						kind == (values[idx] ?? opt.value)
-							? 'preset-filled-primary-500 preset-outlined-primary-500'
-							: 'preset-filled-surface-50-950 preset-outlined hover:preset-outlined-primary-500'}
-					<button
-						class={'flex flex-col items-center justify-between gap-2 rounded-md p-2 ' + border}
-						onclick={() => {
-							values[idx] = kind;
-						}}
-					>
-						<DiePreview class="max-w-18" die={previewDie(kind)} legends={blanks} />
-						<strong>{m.dice_name({ kind })}</strong>
-					</button>
-				{/each}
-			</div>
-		{/if}
-		{#if opt.kind == 'legend'}
-			{@const builtinList = Object.values(builtins).filter((f) => f.id !== 'blanks')}
-			<p class="h5">{m.preset_options_pick_legends()}</p>
-			{#if savedLegends.length > 0}
-				<p class="h6">{m.preset_options_custom()}</p>
-				<div class="grid grid-cols-3 gap-4">
-					{#each savedLegends as set}
+					<Switch.Control>
+						<Switch.Thumb />
+					</Switch.Control>
+					<Switch.Label>{m.preset_options_bool_enabled({ id: opt.id })}</Switch.Label>
+					<Switch.HiddenInput />
+				</Switch>
+			{/if}
+			{#if opt.kind == 'range'}
+				<Slider
+					class="py-1"
+					value={values[idx] ?? opt.value}
+					onChange={(e) => (values[idx] = e)}
+					min={opt.min}
+					max={opt.max}
+					step={opt.step}
+				></Slider>
+			{/if}
+			{#if opt.kind == 'select'}
+				<p class="h5">{m.preset_options_select_title({ id: opt.id })}</p>
+				<select class="select" onchange={(e) => (values[idx] = e.currentTarget.value)}>
+					{#each opt.options as entry}
+						<option value={entry[0]} selected={entry[0] === (values[idx] ?? opt.value)}>
+							{entry[1]}
+						</option>
+					{/each}
+				</select>
+			{/if}
+			{#if opt.kind == 'die'}
+				<p class="h5">{m.preset_options_select_title({ id: opt.id })}</p>
+				<div class="grid grid-flow-col gap-4">
+					{#each opt.options as kind}
 						{@const border =
-							set.id == (values[idx] ?? opt.value)
+							kind == (values[idx] ?? opt.value)
+								? 'preset-filled-primary-500 preset-outlined-primary-500'
+								: 'preset-filled-surface-50-950 preset-outlined hover:preset-outlined-primary-500'}
+						<button
+							class={'flex flex-col items-center justify-between gap-2 rounded-md p-2 ' + border}
+							onclick={() => {
+								values[idx] = kind;
+							}}
+						>
+							<DiePreview class="max-w-18" die={previewDie(kind)} legends={blanks} />
+							<strong>{m.dice_name({ kind })}</strong>
+						</button>
+					{/each}
+				</div>
+			{/if}
+			{#if opt.kind == 'legend'}
+				{@const builtinList = filteredBuiltins(opt)}
+				{@const customList = savedLegends.filter(
+					(s) => !opt.characterSet || (s.characterSet ?? 'default') === opt.characterSet
+				)}
+				{@const showCustom = customList.length > 0}
+				<p class="h5">{m.preset_options_pick_legends()}</p>
+				{#if showCustom}
+					<p class="h6">{m.preset_options_custom()}</p>
+					<div class="grid grid-cols-3 gap-4">
+						{#each customList as set}
+							{@const border =
+								set.id == (values[idx] ?? opt.value)
+									? 'preset-filled-primary-500 preset-outlined-primary-500'
+									: 'preset-filled-surface-50-950 preset-outlined hover:preset-outlined-primary-500'}
+							<button
+								class={'flex flex-col justify-between gap-2 rounded-md p-2  ' + border}
+								onclick={() => {
+									values[idx] = set.id;
+								}}
+							>
+								<strong>{set.name}</strong>
+								<div class="flex h-[24px] items-center justify-center">
+									<img
+										src={legendSetPreview(set)}
+										alt={m.preset_options_font_preview()}
+										class="max-h-[24px] dark:invert"
+									/>
+								</div>
+							</button>
+						{/each}
+					</div>
+					<hr class="hr" />
+				{/if}
+				<p class="h6">{m.preset_options_builtin()}</p>
+				<div class="grid grid-cols-3 gap-4">
+					{#each builtinList as f}
+						{@const border =
+							f.id == (values[idx] ?? opt.value)
 								? 'preset-filled-primary-500 preset-outlined-primary-500'
 								: 'preset-filled-surface-50-950 preset-outlined hover:preset-outlined-primary-500'}
 						<button
 							class={'flex flex-col justify-between gap-2 rounded-md p-2  ' + border}
 							onclick={() => {
-								values[idx] = set.id;
+								values[idx] = f.id;
 							}}
 						>
-							<strong>{set.name}</strong>
+							<strong>{f.name}</strong>
 							<div class="flex h-[24px] items-center justify-center">
 								<img
-									src={legendSetPreview(set)}
+									src={f.preview}
 									alt={m.preset_options_font_preview()}
 									class="max-h-[24px] dark:invert"
 								/>
@@ -147,32 +209,7 @@
 						</button>
 					{/each}
 				</div>
-				<hr class="hr" />
 			{/if}
-			<p class="h6">{m.preset_options_builtin()}</p>
-			<div class="grid grid-cols-3 gap-4">
-				{#each builtinList as f}
-					{@const border =
-						f.id == (values[idx] ?? opt.value)
-							? 'preset-filled-primary-500 preset-outlined-primary-500'
-							: 'preset-filled-surface-50-950 preset-outlined hover:preset-outlined-primary-500'}
-					<button
-						class={'flex flex-col justify-between gap-2 rounded-md p-2  ' + border}
-						onclick={() => {
-							values[idx] = f.id;
-						}}
-					>
-						<strong>{f.name}</strong>
-						<div class="flex h-[24px] items-center justify-center">
-							<img
-								src={f.preview}
-								alt={m.preset_options_font_preview()}
-								class="max-h-[24px] dark:invert"
-							/>
-						</div>
-					</button>
-				{/each}
-			</div>
 		{/if}
 	{/each}
 	<button class="btn preset-filled-primary-500 w-full" onclick={submit}

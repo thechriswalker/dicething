@@ -14,7 +14,7 @@
 	import { m } from '$lib/paraglide/messages';
 	import { legendSetFromFont, legendSetPreview } from '$lib/utils/create_legends';
 	import { download, exportLegendSetJson } from '$lib/utils/export';
-	import { defaultStrings } from '$lib/utils/font';
+	import { defaultStrings, fivePlayerStrings } from '$lib/utils/font';
 	import { type LegendSet } from '$lib/utils/legends';
 	import {
 		Copy,
@@ -37,9 +37,8 @@
 
 	// create-from-font modal state
 	let createName = $state('');
-	// 'default' uses the standard combined character set; 'custom' lets the user
-	// supply their own space-separated token list (order defines the slot layout).
-	let createCharsMode = $state<'default' | 'custom'>('default');
+	// 'default' / 'five_player' use built-in token lists; 'custom' is freeform.
+	let createCharsMode = $state<'default' | 'five_player' | 'custom'>('default');
 	let createChars = $state(defaultStrings);
 	let createFile = $state<File | undefined>(undefined);
 
@@ -108,8 +107,17 @@
 			const chars =
 				createCharsMode === 'custom' && createChars.trim()
 					? createChars.trim().replace(/\s+/g, ' ')
-					: defaultStrings;
-			const set = legendSetFromFont(buffer, name, chars);
+					: createCharsMode === 'five_player'
+						? fivePlayerStrings
+						: defaultStrings;
+			const set = legendSetFromFont(buffer, name, chars, crypto.randomUUID(), {
+				characterSet:
+					createCharsMode === 'five_player'
+						? 'five_player'
+						: createCharsMode === 'default'
+							? 'default'
+							: undefined
+			});
 			await putFont(set.id, buffer);
 			saveLegendSet(set);
 			close();
@@ -187,10 +195,22 @@
 								<span>{m.legends_create_chars_default()}</span>
 							</label>
 							<label class="flex flex-row items-center gap-2">
+								<input
+									type="radio"
+									class="radio"
+									value="five_player"
+									bind:group={createCharsMode}
+								/>
+								<span>{m.legends_create_chars_five_player()}</span>
+							</label>
+							<label class="flex flex-row items-center gap-2">
 								<input type="radio" class="radio" value="custom" bind:group={createCharsMode} />
 								<span>{m.legends_create_chars_custom()}</span>
 							</label>
 						</fieldset>
+						{#if createCharsMode === 'five_player'}
+							<p class="text-surface-600-400 text-xs">{m.legends_create_chars_five_player_help()}</p>
+						{/if}
 						{#if createCharsMode === 'custom'}
 							<label class="label">
 								<span class="label-text">{m.legends_create_chars_label()}</span>

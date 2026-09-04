@@ -10,9 +10,8 @@ source of truth.
 */
 
 import dice from '$lib/dice';
-import builtins, { loadBuiltinById } from '$lib/fonts';
+import builtins from '$lib/fonts';
 import type { Preset, PresetOptionDie, PresetOptionSelection } from '$lib/interfaces/presets';
-import { FIVE_PLAYER_VOLTAIRE_BUILTIN } from '$lib/utils/legends';
 import { legendPickerFactory, legendPickerOption } from './_util';
 
 const shapesForSides = (sides: string): Array<string> =>
@@ -49,18 +48,29 @@ export const goFirstPreset: Preset = {
 				],
 				value: '4'
 			} satisfies PresetOptionSelection,
-			legendPickerOption(builtins.germania_one.id),
+			// Standard fonts for 3/4-player; five_player charset only for 5d60.
+			legendPickerOption(builtins.germania_one.id, {
+				characterSet: 'default',
+				visibleWhen: { option: 'players', equals: ['3', '4'] }
+			}),
+			legendPickerOption(builtins.five_player_voltaire.id, {
+				id: 'legend_five_player',
+				characterSet: 'five_player',
+				visibleWhen: { option: 'players', equals: '5' }
+			}),
 			{
 				kind: 'die',
 				id: 'd6_shape',
 				options: d6,
-				value: d6.includes('d6_cube') ? 'd6_cube' : d6[0]
+				value: d6.includes('d6_cube') ? 'd6_cube' : d6[0],
+				visibleWhen: { option: 'players', equals: '3' }
 			},
 			{
 				kind: 'die',
 				id: 'd12_shape',
 				options: d12,
-				value: d12.includes('d12_dodecahedron') ? 'd12_dodecahedron' : d12[0]
+				value: d12.includes('d12_dodecahedron') ? 'd12_dodecahedron' : d12[0],
+				visibleWhen: { option: 'players', equals: '4' }
 			},
 			{
 				kind: 'die',
@@ -68,14 +78,14 @@ export const goFirstPreset: Preset = {
 				options: d60,
 				value: d60.includes('d60_deltoidal_hexecontahedron')
 					? 'd60_deltoidal_hexecontahedron'
-					: d60[0]
+					: d60[0],
+				visibleWhen: { option: 'players', equals: '5' }
 			}
 		];
 	},
 	async factory(opts) {
 		const playersOpt = opts.find((o) => o.id === 'players') as PresetOptionSelection;
 		const players = playersOpt?.value ?? '4';
-		const legendOption = opts.find((o) => o.kind === 'legend')!;
 
 		const sides = players === '3' ? '6' : players === '5' ? '60' : '12';
 		const shapeId = players === '3' ? 'd6_shape' : players === '5' ? 'd60_shape' : 'd12_shape';
@@ -89,11 +99,16 @@ export const goFirstPreset: Preset = {
 		const count = Number(players);
 		const orderings = GO_FIRST_ORDERINGS.slice(0, count);
 
-		// 5d60 needs glyphs 100–300; only five_player_voltaire ships them.
-		const legends =
-			players === '5'
-				? await loadBuiltinById(FIVE_PLAYER_VOLTAIRE_BUILTIN)
-				: await legendPickerFactory(legendOption);
+		const legendOpt =
+			opts.find((o) => o.id === (players === '5' ? 'legend_five_player' : 'legend')) ??
+			opts.find((o) => o.kind === 'legend');
+		const legends = legendOpt
+			? await legendPickerFactory(legendOpt)
+			: await legendPickerFactory(
+					legendPickerOption(
+						players === '5' ? builtins.five_player_voltaire.id : builtins.germania_one.id
+					)
+				);
 
 		return {
 			legends,
