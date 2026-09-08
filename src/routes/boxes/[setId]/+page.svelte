@@ -815,7 +815,7 @@
 
 <div class="flex h-full flex-row gap-4 p-4">
 	<Scene class="relative h-full grow" {sceneReady}>
-		<ul class="absolute top-2 left-2 flex flex-col gap-2">
+		<ul class="absolute top-2 left-2 flex flex-col gap-2 z-10">
 			<li class="card {controlPresetClass} flex w-56 flex-col gap-1 p-2 text-sm">
 				<span class="flex justify-between">
 					<span>{m.boxes_tuning_die_opacity()}</span>
