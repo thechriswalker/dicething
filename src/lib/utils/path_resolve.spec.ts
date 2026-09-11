@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { DOMParser } from 'xmldom';
-import { ShapeUtils, type Shape } from 'three';
+import { Shape, ShapeUtils } from 'three';
 import { createShapesFromFont, addRenderOptions } from './font';
+import { resolveShapeBoundaries } from './path_resolve';
 import { shapeFromJSON } from './to_json';
 
 // resolveShapeBoundaries runs at font-generation time. Josefin's "9" has a
@@ -47,5 +48,62 @@ describe('resolveShapeBoundaries figure-8 glyphs (josefin)', () => {
 		const shapes = resolve('0');
 		expect(shapes).toHaveLength(1);
 		expect(shapes[0].holes).toHaveLength(1);
+	});
+});
+
+describe('resolveShapeBoundaries overlapping path sections', () => {
+	// Fonts sometimes emit one "path" as several overlapping filled subpaths
+	// (multiple M…Z sections) that should union under the nonzero rule into a
+	// single outline — optionally with a hole where the arrangement leaves a
+	// zero-winding pocket. Without T-junction / collinear-overlap splits the
+	// tracer kept only the pocket and dropped the outer ring.
+	function poly(pts: Array<[number, number]>): Shape {
+		const s = new Shape();
+		s.moveTo(pts[0][0], pts[0][1]);
+		for (let i = 1; i < pts.length; i++) {
+			s.lineTo(pts[i][0], pts[i][1]);
+		}
+		s.autoClose = true;
+		return s;
+	}
+
+	it('unions three overlapping subpaths into outer + hole', () => {
+		// Coordinates scaled like legend font size (unitsPerEm ≈ 1000).
+		const scale = 0.01;
+		const shapes = [
+			[
+				[1050, 1870],
+				[210, 2270],
+				[3820, 6340],
+				[4990, 6340],
+				[1050, 1870]
+			],
+			[
+				[210, 1300],
+				[210, 2270],
+				[6310, 2270],
+				[6310, 1300],
+				[210, 1300]
+			],
+			[
+				[3910, 6340],
+				[5030, 6340],
+				[5030, -130],
+				[3910, -130],
+				[3910, 6340]
+			]
+		].map((pts) =>
+			poly(pts.map(([x, y]) => [x * scale, y * scale] as [number, number]))
+		);
+
+		const out = resolveShapeBoundaries(shapes);
+		expect(out).toHaveLength(1);
+		expect(out[0].holes).toHaveLength(1);
+		const outerArea = Math.abs(ShapeUtils.area(out[0].getPoints()));
+		const holeArea = Math.abs(ShapeUtils.area(out[0].holes[0].getPoints()));
+		// Broken result was only the ~357 hole triangle.
+		expect(outerArea).toBeGreaterThan(1500);
+		expect(holeArea).toBeGreaterThan(300);
+		expect(holeArea).toBeLessThan(500);
 	});
 });

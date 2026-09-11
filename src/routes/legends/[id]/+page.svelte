@@ -2,6 +2,7 @@
 	import { beforeNavigate, goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import Layout from '$lib/components/layout/Layout.svelte';
+	import FontContourInspect from '$lib/components/font_inspect/FontContourInspect.svelte';
 	import LegendPreview from '$lib/components/legend_viewer/LegendPreview.svelte';
 	import LegendViewer from '$lib/components/legend_viewer/LegendViewer.svelte';
 	import ShapesPreview from '$lib/components/legend_viewer/ShapesPreview.svelte';
@@ -1118,6 +1119,32 @@
 								<span class="text-surface-600-400 text-xs">
 									slot {selectedLegend} · {set.getLegendName(selectedLegend)} · {devJson.length} chars
 								</span>
+							</div>
+
+							<div class="flex flex-col gap-2 border-t pt-2">
+								<div class="flex items-center justify-between gap-2">
+									<span class="text-sm font-semibold">Font contours (dev)</span>
+									<a class="btn btn-sm preset-tonal-surface" href="/sandbox/font">
+										Open sandbox
+									</a>
+								</div>
+								{#if fontBuffer && set.getSource(selectedLegend)?.kind === 'font'}
+									<FontContourInspect
+										buffer={fontBuffer}
+										text={charText}
+										{letterSpacing}
+									/>
+								{:else if !fontBuffer}
+									<p class="text-surface-600-400 text-xs">
+										Loading source font…
+									</p>
+								{:else}
+									<p class="text-surface-600-400 text-xs">
+										Selected slot has no font source. Pick a font-sourced glyph, or use
+										<a class="anchor" href="/sandbox/font">/sandbox/font</a>
+										to inspect an arbitrary TTF.
+									</p>
+								{/if}
 							</div>
 						{/if}
 					</div>

@@ -491,47 +491,177 @@ function loopsToShapes(loops: Array<Array<Vector2>>): Array<Shape> {
 
 export function createShapesFromFont(fontData: ArrayBufferLike, strings: Array<FontString>) {
 	const font = Font.load(asArrayBuffer(fontData));
+	return strings.map((s) => inspectFontStringWith(font, s).json);
+}
+
+// Per-shaped-glyph summary for the font contour inspector (dev /sandbox).
+export type FontGlyphInspect = {
+	glyphId: number;
+	xAdvance: number;
+	yAdvance: number;
+	xOffset: number;
+	yOffset: number;
+	/** Contours returned by text-shaper; null/undefined means the glyph was skipped. */
+	contourCount: number | null;
+	pointCount: number;
+	/** True when getGlyphContours returned nothing usable. */
+	empty: boolean;
+};
+
+export type FontShapeStageStats = {
+	shapeCount: number;
+	holeCount: number;
+	curveCount: number;
+	/** Errors thrown while building an SVG path (empty glyphs often fail here). */
+	svgErrors: Array<string>;
+};
+
+// Full pipeline dump for one source token. Used by the legend-editor developer
+// panel and `/sandbox/font` to diagnose imports that produce blank SVG previews.
+export type FontStringInspect = {
+	text: string;
+	unitsPerEm: number;
+	scale: number;
+	glyphs: Array<FontGlyphInspect>;
+	/** After contour→Shape conversion, before resolveShapeBoundaries. */
+	rawShapes: Array<Shape>;
+	/** After preprocessShapes (resolve + simplify). */
+	resolvedShapes: Array<Shape>;
+	/** After centerShapes — what we store (as JSON). */
+	centeredShapes: Array<Shape>;
+	json: Array<unknown>;
+	warnings: Array<string>;
+	stats: {
+		raw: FontShapeStageStats;
+		resolved: FontShapeStageStats;
+		centered: FontShapeStageStats;
+	};
+};
+
+export function inspectFontString(
+	fontData: ArrayBufferLike,
+	text: string,
+	renderOptions?: FontRenderOptions
+): FontStringInspect {
+	const font = Font.load(asArrayBuffer(fontData));
+	return inspectFontStringWith(font, { text, renderOptions });
+}
+
+function inspectFontStringWith(font: Font, s: FontString): FontStringInspect {
 	const scale = LEGEND_FONT_SIZE / font.unitsPerEm;
 	const uBuffer = new UnicodeBuffer();
+	uBuffer.addStr(s.text);
+	const glyphBuffer = shape(font, uBuffer, { features: [kerning()] });
+	const shaped = glyphBufferToShapedGlyphs(glyphBuffer);
 
-	const legendShapes: Array<Array<Shape>> = strings.map((s) => {
-		uBuffer.clear();
-		uBuffer.addStr(s.text);
-		const glyphBuffer = shape(font, uBuffer, { features: [kerning()] });
-		const shaped = glyphBufferToShapedGlyphs(glyphBuffer);
+	const letterSpacing = s.renderOptions?.letterSpacing ?? 0;
+	const spacing = letterSpacing * LEGEND_FONT_SIZE;
 
-		const letterSpacing = s.renderOptions?.letterSpacing ?? 0;
-		const spacing = letterSpacing * LEGEND_FONT_SIZE;
+	const warnings: Array<string> = [];
+	const glyphs: Array<FontGlyphInspect> = [];
+	const rawShapes: Array<Shape> = [];
+	let x = 0;
+	let y = 0;
 
-		const shapes: Array<Shape> = [];
-		let x = 0;
-		let y = 0;
-		for (const glyph of shaped) {
-			const contours = font.getGlyphContours(glyph.glyphId);
-			if (contours) {
-				const ox = x + glyph.xOffset * scale;
-				const oy = y + glyph.yOffset * scale;
-				for (const contour of contours) {
-					// text-shaper's contourToPathQuadratic breaks early when the
-					// contour starts with consecutive duplicate on-curve points
-					// (current === startPoint), emitting a degenerate M/L/Z. Some
-					// fonts (e.g. TitleRen) do this; strip those duplicates first.
-					const commands = contourToPath(dedupeContourPoints(contour));
-					shapes.push(...glyphPathToShapes(commands, ox, oy, scale));
+	if (shaped.length === 0) {
+		warnings.push('text-shaper returned no glyphs for this string (missing cmap entries?)');
+	}
+
+	for (const glyph of shaped) {
+		const contours = font.getGlyphContours(glyph.glyphId);
+		const contourCount = contours ? contours.length : null;
+		let pointCount = 0;
+		let empty = !contours || contours.length === 0;
+
+		if (contours) {
+			const ox = x + glyph.xOffset * scale;
+			const oy = y + glyph.yOffset * scale;
+			for (const contour of contours) {
+				pointCount += contour.length;
+				// text-shaper's contourToPathQuadratic breaks early when the
+				// contour starts with consecutive duplicate on-curve points
+				// (current === startPoint), emitting a degenerate M/L/Z. Some
+				// fonts (e.g. TitleRen) do this; strip those duplicates first.
+				const commands = contourToPath(dedupeContourPoints(contour));
+				const converted = glyphPathToShapes(commands, ox, oy, scale);
+				if (converted.length === 0) {
+					warnings.push(
+						`glyph ${glyph.glyphId}: contour converted to zero shapes (degenerate path?)`
+					);
 				}
+				rawShapes.push(...converted);
 			}
-			x += glyph.xAdvance * scale + spacing;
-			y += glyph.yAdvance * scale;
+		} else {
+			warnings.push(`glyph ${glyph.glyphId}: getGlyphContours returned nothing`);
 		}
 
-		if (shapes.length === 0) {
-			return [];
-		}
-		const cleaned = preprocessShapes(shapes);
-		return centerShapes(...cleaned).map(shapeToJSON);
-	});
+		glyphs.push({
+			glyphId: glyph.glyphId,
+			xAdvance: glyph.xAdvance,
+			yAdvance: glyph.yAdvance,
+			xOffset: glyph.xOffset,
+			yOffset: glyph.yOffset,
+			contourCount,
+			pointCount,
+			empty
+		});
 
-	return legendShapes;
+		x += glyph.xAdvance * scale + spacing;
+		y += glyph.yAdvance * scale;
+	}
+
+	if (rawShapes.length === 0) {
+		warnings.push('no shapes after contour conversion — slot will be blank');
+	}
+
+	const resolvedShapes = rawShapes.length === 0 ? [] : preprocessShapes(rawShapes);
+	if (rawShapes.length > 0 && resolvedShapes.length === 0) {
+		warnings.push('resolveShapeBoundaries dropped every contour');
+	}
+
+	const centeredShapes = resolvedShapes.length === 0 ? [] : centerShapes(...resolvedShapes);
+	const json = centeredShapes.map(shapeToJSON);
+
+	return {
+		text: s.text,
+		unitsPerEm: font.unitsPerEm,
+		scale,
+		glyphs,
+		rawShapes,
+		resolvedShapes,
+		centeredShapes,
+		json,
+		warnings,
+		stats: {
+			raw: shapeStageStats(rawShapes),
+			resolved: shapeStageStats(resolvedShapes),
+			centered: shapeStageStats(centeredShapes)
+		}
+	};
+}
+
+function shapeStageStats(shapes: Array<Shape>): FontShapeStageStats {
+	let holeCount = 0;
+	let curveCount = 0;
+	const svgErrors: Array<string> = [];
+	for (const s of shapes) {
+		curveCount += s.curves.length;
+		holeCount += s.holes.length;
+		for (const h of s.holes) {
+			curveCount += h.curves.length;
+		}
+		try {
+			// Same work shapesToSVG does; catch here so the inspector can report
+			// glyphs that "exist" as shapes but fail when turned into SVG paths.
+			s.getPoints();
+			for (const h of s.holes) {
+				h.getPoints();
+			}
+		} catch (e) {
+			svgErrors.push(e instanceof Error ? e.message : String(e));
+		}
+	}
+	return { shapeCount: shapes.length, holeCount, curveCount, svgErrors };
 }
 
 function asArrayBuffer(data: ArrayBufferLike): ArrayBuffer {

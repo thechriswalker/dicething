@@ -128,6 +128,25 @@ export function resolveShapeBoundaries(
 		arr.push(t);
 	};
 
+	// Endpoint-on-edge (T-junction / collinear overlap): split the edge that
+	// contains the other edge's endpoint in its interior. Collinear overlaps
+	// never yield a proper crossing (segmentIntersect returns null), but their
+	// overlap endpoints are always among the four segment ends — so this also
+	// covers shared collinear spans common in overlapping font path sections.
+	const onEdgeEps = Math.max(o.epsilon, o.flattenTolerance);
+	const recordEndpointOnEdge = (p: Vector2, edge: Edge): boolean => {
+		const tSeg = segmentParamOfPoint(edge.a, edge.b, p, onEdgeEps);
+		if (tSeg === null) {
+			return false;
+		}
+		const tCurve = edge.t0 + tSeg * (edge.t1 - edge.t0);
+		if (tCurve <= 1e-6 || tCurve >= 1 - 1e-6) {
+			return false;
+		}
+		recordSplit(edge.ci, edge.cj, tCurve);
+		return true;
+	};
+
 	let anyIntersection = false;
 	for (let ai = 0; ai < contourEdges.length; ai++) {
 		const edgesA = contourEdges[ai];
@@ -147,25 +166,34 @@ export function resolveShapeBoundaries(
 						continue;
 					}
 					const hit = segmentIntersect(ea.a, ea.b, eb.a, eb.b);
-					if (!hit) {
-						continue;
+					if (hit) {
+						// Map the segment-fraction back to a curve parameter, then
+						// refine on the real curves so the point is exact.
+						const tA = ea.t0 + hit.t * (ea.t1 - ea.t0);
+						const tB = eb.t0 + hit.u * (eb.t1 - eb.t0);
+						const refined = refineIntersection(
+							contours[ea.ci][ea.cj],
+							tA,
+							contours[eb.ci][eb.cj],
+							tB
+						);
+						if (refined) {
+							recordSplit(ea.ci, ea.cj, refined.tA);
+							recordSplit(eb.ci, eb.cj, refined.tB);
+							anyIntersection = true;
+							continue;
+						}
 					}
-					// Map the segment-fraction back to a curve parameter, then
-					// refine on the real curves so the point is exact.
-					const tA = ea.t0 + hit.t * (ea.t1 - ea.t0);
-					const tB = eb.t0 + hit.u * (eb.t1 - eb.t0);
-					const refined = refineIntersection(
-						contours[ea.ci][ea.cj],
-						tA,
-						contours[eb.ci][eb.cj],
-						tB
-					);
-					if (!refined) {
-						continue;
+					// No interior crossing — still split for T-junctions and
+					// collinear overlaps (endpoint of one edge on the other).
+					if (
+						recordEndpointOnEdge(ea.a, eb) ||
+						recordEndpointOnEdge(ea.b, eb) ||
+						recordEndpointOnEdge(eb.a, ea) ||
+						recordEndpointOnEdge(eb.b, ea)
+					) {
+						anyIntersection = true;
 					}
-					recordSplit(ea.ci, ea.cj, refined.tA);
-					recordSplit(eb.ci, eb.cj, refined.tB);
-					anyIntersection = true;
 				}
 			}
 		}
@@ -240,15 +268,20 @@ export function resolveShapeBoundaries(
 		}
 	}
 
+	// Overlapping contours often leave two coincident boundary fragments on the
+	// same span (same start/end nodes, same midpoint). Keep one — duplicates
+	// break loop tracing (extra outgoing edges at every node along the span).
+	const uniqueKept = dedupeCoincidentFragments(kept, o.epsilon);
+
 	// A self-intersection splits the outline at the two curve vertices flanking
 	// the crossing, and the classifier discards the tiny interior segment
 	// between them. That leaves the surviving arc dangling at two endpoints that
 	// are the same pinch point geometrically but carry different node ids, so
 	// the loop can never close. Weld such dangling endpoints back together.
-	weldDanglingEndpoints(kept, nodes, o.sideOffset * 3);
+	weldDanglingEndpoints(uniqueKept, nodes, o.sideOffset * 3);
 
 	// Reconnect kept fragments into closed loops.
-	const rawLoops = traceLoops(kept);
+	const rawLoops = traceLoops(uniqueKept);
 
 	// Turn loops into Shapes (outline + holes).
 	return buildShapes(rawLoops, shapes);
@@ -375,6 +408,47 @@ function segmentIntersect(
 		return null;
 	}
 	return { t, u };
+}
+
+// Parameter t in (0,1) if p lies on the interior of segment ab, else null.
+function segmentParamOfPoint(a: Vector2, b: Vector2, p: Vector2, eps: number): number | null {
+	const abx = b.x - a.x;
+	const aby = b.y - a.y;
+	const len2 = abx * abx + aby * aby;
+	if (len2 < eps * eps) {
+		return null;
+	}
+	const t = ((p.x - a.x) * abx + (p.y - a.y) * aby) / len2;
+	if (t <= 1e-9 || t >= 1 - 1e-9) {
+		return null;
+	}
+	const dx = a.x + t * abx - p.x;
+	const dy = a.y + t * aby - p.y;
+	if (dx * dx + dy * dy > eps * eps) {
+		return null;
+	}
+	return t;
+}
+
+// Drop duplicate boundary fragments that cover the same oriented span. Two arcs
+// between the same nodes that take different routes (a digon) have different
+// midpoints and are both kept.
+function dedupeCoincidentFragments(frags: Fragment[], eps: number): Fragment[] {
+	const out: Fragment[] = [];
+	const eps2 = eps * eps;
+	for (const f of frags) {
+		const mid = f.curve.getPoint(0.5);
+		const dup = out.some((g) => {
+			if (g.startNode !== f.startNode || g.endNode !== f.endNode) {
+				return false;
+			}
+			return distSq(g.curve.getPoint(0.5), mid) <= eps2;
+		});
+		if (!dup) {
+			out.push(f);
+		}
+	}
+	return out;
 }
 
 // Newton refinement so that cA(tA) == cB(tB) precisely. Returns null if the

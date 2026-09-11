@@ -391,6 +391,7 @@
 	<div class="flex h-full flex-col">
 		<Scene class="w-full grow" sceneReady={onSceneReady} />
 		<div class="flex flex-row flex-wrap items-start gap-4 p-6">
+			<a class="btn btn-sm preset-tonal-surface" href="/sandbox/font">Font contours</a>
 			<div class="flex flex-col text-sm">
 				<span>Mesh</span>
 				<div class="flex gap-1">
