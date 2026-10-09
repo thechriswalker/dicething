@@ -1,5 +1,4 @@
-import { Box3, Group, Mesh, Vector2, Vector3 } from 'three';
-import { STLExporter } from 'three/examples/jsm/exporters/STLExporter.js';
+import { Box3, Mesh, Vector2, Vector3 } from 'three';
 import { zipSync, type Zippable } from 'fflate';
 import dice from '$lib/dice';
 import type { DieFaceModel } from '$lib/interfaces/dice';
@@ -338,9 +337,7 @@ function translateNamedMeshes(named: Array<NamedMesh>, dx: number, dz: number): 
 	}
 }
 
-// --- STL -------------------------------------------------------------------
-
-const _exporter = new STLExporter();
+// --- shared mesh extraction ------------------------------------------------
 
 function vertexForExport(
 	x: number,
@@ -353,6 +350,16 @@ function vertexForExport(
 		return [x, -z, y];
 	}
 	return [x, y, z];
+}
+
+// Prefer the live Manifold solid (already welded + validated). Fall back to
+// routing the Three.js preview geometry through Manifold so hard-edge seams
+// collapse — never emit the display mesh's non-indexed float soup directly.
+function toIndexedMesh(named: NamedMesh): IndexedMesh {
+	if (named.manifold) {
+		return manifoldToIndexedMesh(named.manifold);
+	}
+	return geometryToIndexedMesh(named.mesh.geometry);
 }
 
 // Expand an indexed Manifold mesh into the flat 9-floats-per-triangle buffer
@@ -380,27 +387,123 @@ export function manifoldToFlatPositions(man: Manifold, upAxis: UpAxis = 'y'): Fl
 	return indexedMeshToFlatPositions(manifoldToIndexedMesh(man), upAxis);
 }
 
-function stlBinary(object: Mesh | Group): Uint8Array {
-	const data = _exporter.parse(object, { binary: true }) as unknown as DataView;
-	return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+function namedToFlatPositions(named: NamedMesh, upAxis: UpAxis): Float32Array {
+	return indexedMeshToFlatPositions(toIndexedMesh(named), upAxis);
 }
 
-function stlBinaryOfMeshes(meshes: Array<Mesh>): Uint8Array {
-	const group = new Group();
-	for (const m of meshes) {
-		group.add(m);
+// --- STL -------------------------------------------------------------------
+//
+// STL is a triangle soup: it cannot store shared vertices, so "manifold" is a
+// property of the *numbers* (identical float32 coords at shared corners) rather
+// than of the file format. Writing from Manifold's indexed mesh (expanding each
+// triangle from the same vertProperties entries) keeps those bits identical.
+// The old Three.js STLExporter path went through the display mesh's non-indexed
+// geometry and often failed external repair tools' weld checks.
+
+const STL_HEADER_BYTES = 80;
+const STL_TRI_BYTES = 50; // 12*float32 + uint16 attribute
+
+// Binary STL from a flat 9-floats-per-triangle position buffer (print-bed frame).
+export function flatPositionsToStlBinary(positions: Float32Array, header = 'dicething'): Uint8Array {
+	const triCount = Math.floor(positions.length / 9);
+	const out = new Uint8Array(STL_HEADER_BYTES + 4 + triCount * STL_TRI_BYTES);
+	const view = new DataView(out.buffer);
+	const enc = new TextEncoder();
+	const hdr = enc.encode(header.slice(0, STL_HEADER_BYTES));
+	out.set(hdr, 0);
+	view.setUint32(STL_HEADER_BYTES, triCount, true);
+	let o = STL_HEADER_BYTES + 4;
+	for (let t = 0; t < triCount; t++) {
+		const i = t * 9;
+		const ax = positions[i];
+		const ay = positions[i + 1];
+		const az = positions[i + 2];
+		const bx = positions[i + 3];
+		const by = positions[i + 4];
+		const bz = positions[i + 5];
+		const cx = positions[i + 6];
+		const cy = positions[i + 7];
+		const cz = positions[i + 8];
+		const abx = bx - ax;
+		const aby = by - ay;
+		const abz = bz - az;
+		const acx = cx - ax;
+		const acy = cy - ay;
+		const acz = cz - az;
+		let nx = aby * acz - abz * acy;
+		let ny = abz * acx - abx * acz;
+		let nz = abx * acy - aby * acx;
+		const len = Math.hypot(nx, ny, nz);
+		if (len > 0) {
+			nx /= len;
+			ny /= len;
+			nz /= len;
+		}
+		view.setFloat32(o, nx, true);
+		view.setFloat32(o + 4, ny, true);
+		view.setFloat32(o + 8, nz, true);
+		view.setFloat32(o + 12, ax, true);
+		view.setFloat32(o + 16, ay, true);
+		view.setFloat32(o + 20, az, true);
+		view.setFloat32(o + 24, bx, true);
+		view.setFloat32(o + 28, by, true);
+		view.setFloat32(o + 32, bz, true);
+		view.setFloat32(o + 36, cx, true);
+		view.setFloat32(o + 40, cy, true);
+		view.setFloat32(o + 44, cz, true);
+		view.setUint16(o + 48, 0, true);
+		o += STL_TRI_BYTES;
 	}
-	return stlBinary(group);
+	return out;
+}
+
+// Inverse of flatPositionsToStlBinary — for tests / mesh_check round-trips.
+export function stlBinaryToFlatPositions(bytes: Uint8Array): Float32Array {
+	const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+	const triCount = view.getUint32(STL_HEADER_BYTES, true);
+	const out = new Float32Array(triCount * 9);
+	let o = 0;
+	let p = STL_HEADER_BYTES + 4;
+	for (let t = 0; t < triCount; t++) {
+		// skip normal (12 bytes)
+		p += 12;
+		for (let k = 0; k < 9; k++) {
+			out[o++] = view.getFloat32(p, true);
+			p += 4;
+		}
+		p += 2; // attribute
+	}
+	return out;
+}
+
+function concatFlatPositions(chunks: Array<Float32Array>): Float32Array {
+	let total = 0;
+	for (const c of chunks) {
+		total += c.length;
+	}
+	const out = new Float32Array(total);
+	let o = 0;
+	for (const c of chunks) {
+		out.set(c, o);
+		o += c.length;
+	}
+	return out;
+}
+
+function stlBinaryOfNamed(named: Array<NamedMesh>, upAxis: UpAxis): Uint8Array {
+	const flats = named.map((n) => namedToFlatPositions(n, upAxis));
+	return flatPositionsToStlBinary(concatFlatPositions(flats));
 }
 
 // All meshes combined into a single STL (they should already be laid out).
-export function exportStlSingle(meshes: Array<Mesh>): Blob {
-	return new Blob([stlBinaryOfMeshes(meshes) as BlobPart], { type: 'model/stl' });
+// `upAxis` is the source frame's up axis ('y' for dice, 'z' for boxes).
+export function exportStlSingle(named: Array<NamedMesh>, upAxis: UpAxis = 'y'): Blob {
+	return new Blob([stlBinaryOfNamed(named, upAxis) as BlobPart], { type: 'model/stl' });
 }
 
 // One STL per group, packed into a single ZIP: each group's meshes are merged
 // into one combined STL (the group's meshes should already be laid out).
-export function exportStlGroupZip(groups: Array<ThreeMfMeshGroup>): Blob {
+export function exportStlGroupZip(groups: Array<ThreeMfMeshGroup>, upAxis: UpAxis = 'y'): Blob {
 	const files: Zippable = {};
 	const used = new Set<string>();
 	for (const g of groups) {
@@ -410,24 +513,24 @@ export function exportStlGroupZip(groups: Array<ThreeMfMeshGroup>): Blob {
 			filename = `${g.name}_${i++}.stl`;
 		}
 		used.add(filename);
-		files[filename] = stlBinaryOfMeshes(g.meshes.map((n) => n.mesh));
+		files[filename] = stlBinaryOfNamed(g.meshes, upAxis);
 	}
 	const zipped = zipSync(files);
 	return new Blob([zipped as BlobPart], { type: 'application/zip' });
 }
 
 // One STL per mesh, packed into a single ZIP.
-export function exportStlZip(named: Array<NamedMesh>): Blob {
+export function exportStlZip(named: Array<NamedMesh>, upAxis: UpAxis = 'y'): Blob {
 	const files: Zippable = {};
 	const used = new Set<string>();
-	for (const { name, mesh } of named) {
-		let filename = `${name}.stl`;
+	for (const n of named) {
+		let filename = `${n.name}.stl`;
 		let i = 1;
 		while (used.has(filename)) {
-			filename = `${name}_${i++}.stl`;
+			filename = `${n.name}_${i++}.stl`;
 		}
 		used.add(filename);
-		files[filename] = stlBinary(mesh);
+		files[filename] = stlBinaryOfNamed([n], upAxis);
 	}
 	const zipped = zipSync(files);
 	return new Blob([zipped as BlobPart], { type: 'application/zip' });
@@ -444,11 +547,7 @@ function toThreeMfObject(named: NamedMesh, used: Set<string>): ThreeMfObject {
 		uniqueName = `${named.name}_${i++}`;
 	}
 	used.add(uniqueName);
-	if (named.manifold) {
-		return { name: uniqueName, ...manifoldToIndexedMesh(named.manifold) };
-	}
-	const { positions, indices } = geometryToIndexedMesh(named.mesh.geometry);
-	return { name: uniqueName, positions, indices };
+	return { name: uniqueName, ...toIndexedMesh(named) };
 }
 
 export function disposeNamedManifolds(named: Array<NamedMesh>): void {

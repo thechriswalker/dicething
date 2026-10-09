@@ -1203,6 +1203,17 @@ export class Builder {
 
 		if (!opts.forExport) {
 			parts = parts.map((g) => this.geometryToFaceLocal(g, face));
+			// When the legend won't fit, the face stays blank (same as export) but we
+			// still show a floating red ShapeGeometry of the oriented symbol so the
+			// editor makes the overflow obvious. Built in face-local coords (same as
+			// the old engrave() Part.Symbol path), so it must be added *after*
+			// geometryToFaceLocal.
+			if (error && legend !== Legend.BLANK && symbols.length > 0) {
+				const floating = this.buildFloatingSymbolGeometry(symbols, orientation, divisions);
+				if (floating) {
+					parts.push(floating);
+				}
+			}
 		} else {
 			parts = parts.map((g) => {
 				const ng = toNonIndexed(g);
@@ -1217,6 +1228,33 @@ export class Builder {
 			console.warn(`extractFaceGeometry returned nothing for face ${i}`);
 		}
 		return parts;
+	}
+
+	// Face-local flat triangulation of an oriented legend, tagged as Part.Symbol
+	// with diceThingSymbolOK=false so the build() mesh pass paints it red and
+	// visible. Used only as the "won't fit" preview aid.
+	private buildFloatingSymbolGeometry(
+		symbols: Array<Shape>,
+		orientation: FaceParams,
+		divisions: number
+	): BufferGeometry | undefined {
+		let oriented = symbols;
+		if (orientation.scale && orientation.scale !== 1) {
+			oriented = scaleShapes(orientation.scale, ...oriented);
+		}
+		if (orientation.rotation) {
+			oriented = rotateShapes(orientation.rotation, ...oriented);
+		}
+		if (orientation.offset && orientation.offset.lengthSq() !== 0) {
+			oriented = translateShapes(orientation.offset, ...oriented);
+		}
+		if (oriented.length === 0) {
+			return undefined;
+		}
+		const symbolOutline = shapeGeometry(oriented, divisions);
+		symbolOutline.userData = { diceThingPart: Part.Symbol, diceThingSymbolOK: false };
+		symbolOutline.translate(0, 0, 0.1);
+		return symbolOutline;
 	}
 
 	public getDefaultScaleForLegend(l: Legend): number {

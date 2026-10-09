@@ -625,17 +625,13 @@ function trayCutter(
 	return tray;
 }
 
-// Thin roof left over a print-in magnet pocket; pause the print at this height
-// so the magnet can be dropped in before the bridge layer prints.
-export const MAGNET_PRINTIN_BRIDGE_MM = 0.4;
-
 // Seam-plane Z where a slicer should pause before the print-in magnet bridge.
 export function magnetPauseZ(params: BoxParams, seam: number): number | undefined {
 	const mag = params.magnets;
 	if (!mag.enabled || mag.mode !== 'printin') {
 		return undefined;
 	}
-	return seam - MAGNET_PRINTIN_BRIDGE_MM;
+	return seam - mag.cover;
 }
 
 // Magnet bore manifolds, sunk DOWN from the seam surface `topZ`. push-in bores
@@ -649,7 +645,7 @@ function magnetBores(params: BoxParams, corners: Array<Vector2>, topZ: number): 
 	}
 	const radius = mag.diameter / 2 + mag.tolerance;
 	const depth = mag.thickness + mag.tolerance;
-	const bridge = mag.mode === 'printin' ? MAGNET_PRINTIN_BRIDGE_MM : 0;
+	const bridge = mag.mode === 'printin' ? mag.cover : 0;
 	const bores: Array<Manifold> = [];
 	for (const c of corners) {
 		const top = topZ - bridge;
@@ -1701,7 +1697,11 @@ export async function buildBox(
 	// equal-height halves. Each half must be deep enough for the deepest half-die
 	// (mid-point at the seam) and for the magnet bores.
 	const maxHalf = prepared.reduce((m, d) => Math.max(m, d.size.z / 2), 0);
-	const magDepth = p.magnets.enabled ? p.magnets.thickness + p.magnets.tolerance : 0;
+	const magDepth = p.magnets.enabled
+		? p.magnets.thickness +
+			p.magnets.tolerance +
+			(p.magnets.mode === 'printin' ? p.magnets.cover : 0)
+		: 0;
 	const half = p.floor + Math.max(maxHalf, magDepth, 1);
 	const seam = half; // top face of each printed half = the seam plane.
 

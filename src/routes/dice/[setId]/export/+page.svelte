@@ -16,11 +16,15 @@
 		download,
 		exportDieGeometrySig,
 		exportOptionCacheSig,
+		exportStlGroupZip,
+		exportStlSingle,
+		exportStlZip,
 		exportThreeMfGrouped,
 		exportThreeMfGroupZip,
 		exportThreeMfZip,
 		groupMeshesByCategory,
 		layoutNamedMeshes,
+		type ExportFormat,
 		type NamedMesh,
 		type OptionStates
 	} from '$lib/utils/export';
@@ -53,6 +57,7 @@
 	// broken), keyed by die id. used to default-exclude broken dice and warn.
 	let dieErrors = $state<Record<string, Array<EngravingError>>>({});
 	let includeDice = $state(true);
+	let format = $state<ExportFormat>('3mf');
 	let fileLayout = $state<'single' | 'group' | 'object'>('single');
 
 	let optionStates = $state<OptionStates>(
@@ -850,15 +855,27 @@
 			const name = (setData.name || 'set').replace(/[^a-z0-9-_]+/gi, '_');
 			const groups = groupMeshesByCategory(named, name);
 			if (fileLayout === 'object') {
-				download(await exportThreeMfZip(named, 'y'), `${name}.zip`);
+				download(
+					format === '3mf' ? await exportThreeMfZip(named, 'y') : exportStlZip(named, 'y'),
+					`${name}.zip`
+				);
 			} else if (fileLayout === 'group' && groups.length > 1) {
 				for (const g of groups) {
 					layoutNamedMeshes(g.meshes);
 				}
-				download(await exportThreeMfGroupZip(groups, 'y'), `${name}.zip`);
+				download(
+					format === '3mf'
+						? await exportThreeMfGroupZip(groups, 'y')
+						: exportStlGroupZip(groups, 'y'),
+					`${name}.zip`
+				);
 			} else {
 				layoutNamedMeshes(named);
-				download(await exportThreeMfGrouped(groups, 'y'), `${name}.3mf`);
+				if (format === '3mf') {
+					download(await exportThreeMfGrouped(groups, 'y'), `${name}.3mf`);
+				} else {
+					download(exportStlSingle(named, 'y'), `${name}.stl`);
+				}
 			}
 		} catch (err) {
 			console.error('export failed', err);
@@ -1252,6 +1269,19 @@
 							{/if}
 						</div>
 					{/each}
+				</div>
+			</Collapsible>
+
+			<Collapsible title={m.export_format()}>
+				<div class="flex flex-col gap-2 pt-2">
+					<label class="flex items-center gap-2 text-sm">
+						<input type="radio" class="radio" value="3mf" bind:group={format} />
+						<span>3MF</span>
+					</label>
+					<label class="flex items-center gap-2 text-sm">
+						<input type="radio" class="radio" value="stl" bind:group={format} />
+						<span>STL</span>
+					</label>
 				</div>
 			</Collapsible>
 

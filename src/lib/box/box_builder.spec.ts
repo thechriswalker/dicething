@@ -1,13 +1,21 @@
 import { describe, it, expect } from 'vitest';
-import { MAGNET_PRINTIN_BRIDGE_MM, magnetPauseZ } from './box_builder';
+import { magnetPauseZ } from './box_builder';
 import { defaultBoxParams } from './types';
 
 describe('magnetPauseZ', () => {
-	it('returns seam minus the print-in bridge thickness', () => {
+	it('returns seam minus the print-in cover thickness', () => {
 		const p = defaultBoxParams();
 		p.magnets.enabled = true;
 		p.magnets.mode = 'printin';
-		expect(magnetPauseZ(p, 15)).toBe(15 - MAGNET_PRINTIN_BRIDGE_MM);
+		expect(magnetPauseZ(p, 15)).toBe(15 - p.magnets.cover);
+	});
+
+	it('tracks a custom cover thickness', () => {
+		const p = defaultBoxParams();
+		p.magnets.enabled = true;
+		p.magnets.mode = 'printin';
+		p.magnets.cover = 0.8;
+		expect(magnetPauseZ(p, 15)).toBe(14.2);
 	});
 
 	it('is undefined for push-in magnets', () => {

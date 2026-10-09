@@ -763,11 +763,11 @@
 			const lid = new Mesh(built.lid.clone(), normalMat);
 			base.geometry.translate(0, -halfOffset, 0);
 			lid.geometry.translate(0, halfOffset, 0);
+			const named: Array<NamedMesh> = [
+				{ name: `${name}_box_base`, mesh: base, group: 'box' },
+				{ name: `${name}_box_lid`, mesh: lid, group: 'box' }
+			];
 			if (format === '3mf') {
-				const named: Array<NamedMesh> = [
-					{ name: `${name}_box_base`, mesh: base, group: 'box' },
-					{ name: `${name}_box_lid`, mesh: lid, group: 'box' }
-				];
 				// base + lid are one print-in-place piece: keep them as a single
 				// grouped 3MF object so the slicer never treats them as two parts.
 				download(
@@ -775,7 +775,7 @@
 					`${name}_box.3mf`
 				);
 			} else {
-				download(exportStlSingle([base, lid]), `${name}_box.stl`);
+				download(exportStlSingle(named, 'z'), `${name}_box.stl`);
 			}
 			return;
 		}
@@ -788,18 +788,18 @@
 			if (format === '3mf') {
 				download(await exportThreeMfZip(named, 'z', threemfOpts), `${name}_box.zip`);
 			} else {
-				download(exportStlZip(named), `${name}_box.zip`);
+				download(exportStlZip(named, 'z'), `${name}_box.zip`);
 			}
 		} else {
 			const base = new Mesh(built.base.clone(), normalMat);
 			const lid = new Mesh(built.lid.clone(), normalMat);
 			// place side by side so they don't overlap in one file (Z-up frame).
 			lid.geometry.translate(built.outer.x + 8, 0, 0);
+			const named: Array<NamedMesh> = [
+				{ name: `${name}_box_base`, mesh: base, group: 'box' },
+				{ name: `${name}_box_lid`, mesh: lid, group: 'box' }
+			];
 			if (format === '3mf') {
-				const named: Array<NamedMesh> = [
-					{ name: `${name}_box_base`, mesh: base, group: 'box' },
-					{ name: `${name}_box_lid`, mesh: lid, group: 'box' }
-				];
 				// the base and lid are halves of one box: group them into a single
 				// 3MF object rather than two independent build items.
 				download(
@@ -807,7 +807,7 @@
 					`${name}_box.3mf`
 				);
 			} else {
-				download(exportStlSingle([base, lid]), `${name}_box.stl`);
+				download(exportStlSingle(named, 'z'), `${name}_box.stl`);
 			}
 		}
 	}
@@ -1100,6 +1100,14 @@
 								BOX_PARAM_SLIDER_BOUNDS.magnets.tolerance,
 								(v) => setMagnet('tolerance', v)
 							)}
+							{#if config.params.magnets.mode === 'printin'}
+								{@render sliderRow(
+									m.boxes_magnet_cover(),
+									config.params.magnets.cover,
+									BOX_PARAM_SLIDER_BOUNDS.magnets.cover,
+									(v) => setMagnet('cover', v)
+								)}
+							{/if}
 						{/if}
 
 						<label class="flex items-center justify-between gap-2 text-sm">

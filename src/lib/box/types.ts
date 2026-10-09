@@ -43,9 +43,11 @@ export type MagnetConfig = {
 	// magnet disc dimensions (the EDDC reference uses 6mm x 3mm).
 	diameter: number;
 	thickness: number;
-	// extra clearance added to the bore so the magnet drops in / the bridge
-	// clears.
+	// extra radial + depth clearance added to the bore so the magnet drops in.
 	tolerance: number;
+	// solid roof left over a print-in magnet pocket (mm). Ignored for push-in.
+	// Default ~2.5× a typical 0.2 mm FDM layer so the bridge actually covers.
+	cover: number;
 	// push-in: an open bore from the seam. print-in: a blind pocket bridged over
 	// partway so the magnet is captured mid-print.
 	mode: MagnetMode;
@@ -155,6 +157,7 @@ export const BOX_PARAM_DEFAULTS: BoxParams = {
 		diameter: 6,
 		thickness: 3,
 		tolerance: 0.15,
+		cover: 0.5,
 		mode: 'pushin'
 	},
 	hinge: {
@@ -194,7 +197,8 @@ export const BOX_PARAM_SLIDER_BOUNDS = {
 		count: { min: 0, max: 4, step: 2 },
 		diameter: { min: 2, max: 12, step: 1 },
 		thickness: { min: 1, max: 6, step: 1 },
-		tolerance: { min: 0, max: 1, step: 0.05 }
+		tolerance: { min: 0, max: 1, step: 0.05 },
+		cover: { min: 0.2, max: 2, step: 0.05 }
 	},
 	hinge: {
 		pinRadius: { min: 1, max: 8, step: 0.1 },
@@ -220,6 +224,7 @@ export const BOX_PARAM_SLIDER_BOUNDS = {
 		diameter: ParamSliderBounds;
 		thickness: ParamSliderBounds;
 		tolerance: ParamSliderBounds;
+		cover: ParamSliderBounds;
 	};
 	hinge: {
 		pinRadius: ParamSliderBounds;
