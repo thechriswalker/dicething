@@ -5,11 +5,13 @@ import type {
 	DieBuildMetadata,
 	EngineOutlineState,
 	EnginePointerEvent,
+	EngineProgress,
 	EngineRequest,
 	EngineResponse,
 	EngineSelectionState,
 	SerialisedExportMesh,
-	StorageUpdatedPayload
+	StorageUpdatedPayload,
+	SupportsBuildResult
 } from './die_engine_protocol';
 import { ENGINE_STORAGE_CHANNEL } from './die_engine_protocol';
 import { migrateLocalStorageToIdb } from './die_engine_migrate';
@@ -28,7 +30,7 @@ import { Mesh, MeshNormalMaterial } from 'three';
 type Pending = {
 	resolve: (value: unknown) => void;
 	reject: (error: unknown) => void;
-	onProgress?: (p: { phase: string; label?: string }) => void;
+	onProgress?: (p: EngineProgress) => void;
 };
 
 let worker: Worker | undefined;
@@ -140,6 +142,8 @@ function onWorkerMessage(
 		p.reject(new Error(m.error));
 	} else if (m.type === 'buildDone') {
 		p.resolve(m.metadata);
+	} else if (m.type === 'supportsResult') {
+		p.resolve(m.result);
 	} else if (m.type === 'storageUpdated') {
 		storageSnapshot = m.payload;
 		for (const fn of storageListeners) {
@@ -204,7 +208,8 @@ async function handleStorageOnMain(
 
 function request<T>(
 	kind: EngineRequest['kind'],
-	payload: Omit<EngineRequest, 'reqId' | 'kind'> = {}
+	payload: Omit<EngineRequest, 'reqId' | 'kind'> = {},
+	onProgress?: (p: EngineProgress) => void
 ): Promise<T> {
 	if (kind.startsWith('storage.')) {
 		const span = engineTraceSpan(`client:${kind}`);
@@ -231,7 +236,8 @@ function request<T>(
 			reject: (error: unknown) => {
 				span.end({ error: error instanceof Error ? error.message : String(error) });
 				reject(error);
-			}
+			},
+			onProgress
 		});
 		const msg = { reqId, kind, ...payload } as EngineRequest;
 		if (kind === 'initViewport' && 'canvas' in payload) {
@@ -423,7 +429,8 @@ export function exportDieInEngine(
 	dieJson: string,
 	legendsJson: string,
 	includeDice: boolean,
-	optionStatesJson: string
+	optionStatesJson: string,
+	onProgress?: (p: EngineProgress) => void
 ): Promise<EngineExportResult> {
 	return request<{
 		type: 'exportResult';
@@ -431,12 +438,16 @@ export function exportDieInEngine(
 		engravingErrors: EngineExportResult['engravingErrors'];
 		meshReport: MeshCheckReport;
 		groupVolumesMm3: Record<string, number>;
-	}>('exportDie', {
-		dieJson,
-		legendsJson,
-		includeDice,
-		optionStatesJson
-	}).then((r) => {
+	}>(
+		'exportDie',
+		{
+			dieJson,
+			legendsJson,
+			includeDice,
+			optionStatesJson
+		},
+		onProgress
+	).then((r) => {
 		const mat = new MeshNormalMaterial();
 		return {
 			engravingErrors: r.engravingErrors,
@@ -450,6 +461,40 @@ export function exportDieInEngine(
 			}))
 		};
 	});
+}
+
+let supportsGeneration = 0;
+
+export function buildSupportsInEngine(
+	settings: import('./supports').SupportSettings,
+	mode: 'placement' | 'solid',
+	onProgress?: (p: EngineProgress) => void,
+	layers?: import('./supports').SupportLayerVisibility
+): Promise<SupportsBuildResult> {
+	const generation = ++supportsGeneration;
+	return request<SupportsBuildResult>(
+		'buildSupports',
+		{
+			settingsJson: JSON.stringify(settings),
+			mode,
+			generation,
+			layersJson: layers ? JSON.stringify(layers) : undefined
+		},
+		onProgress
+	);
+}
+
+export function cancelSupportsInEngine(): Promise<void> {
+	const generation = ++supportsGeneration;
+	return request<void>('cancelSupports', { generation }).then(() => undefined);
+}
+
+export function setSupportsPreviewInEngine(enabled: boolean): Promise<void> {
+	return request<void>('setSupportsPreview', { enabled }).then(() => undefined);
+}
+
+export function clearSupportsPreviewInEngine(): Promise<void> {
+	return request<void>('clearSupportsPreview', {}).then(() => undefined);
 }
 
 export function meshCheckInEngine(

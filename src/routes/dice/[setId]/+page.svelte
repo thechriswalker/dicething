@@ -32,7 +32,7 @@
 	} from '$lib/interfaces/storage.svelte';
 	import type { LegendSet } from '$lib/utils/legends';
 	import type { DieTags, FaceParams } from '$lib/interfaces/dice';
-	import { getPreferences } from '$lib/interfaces/preferences.svelte';
+	import { getPreferences, setPreference } from '$lib/interfaces/preferences.svelte';
 	import { m } from '$lib/paraglide/messages';
 	import {
 		engravingParam,
@@ -43,6 +43,9 @@
 	import { DieEditorFacade } from '$lib/utils/die_editor_facade';
 	import {
 		buildEngineDie,
+		buildSupportsInEngine,
+		cancelSupportsInEngine,
+		clearSupportsPreviewInEngine,
 		loadEngineSet,
 		lookAtEngineFace,
 		resetEngineCamera,
@@ -51,8 +54,17 @@
 		setEngineAutoRotate,
 		setEngineFancy,
 		setEngineLegendAreaVisible,
-		setEngineOutline
+		setEngineOutline,
+		setSupportsPreviewInEngine
 	} from '$lib/utils/die_engine_client';
+	import {
+		DEFAULT_SUPPORT_LAYER_VISIBILITY,
+		DEFAULT_SUPPORT_SETTINGS,
+		SUPPORT_SETTING_LIMITS,
+		mergeSupportSettings,
+		type SupportLayerVisibility,
+		type SupportSettings
+	} from '$lib/utils/supports/types';
 	import SetConfigModal from '$lib/components/set_config/SetConfigModal.svelte';
 	import { computeLandWarning } from '$lib/utils/stability';
 	import { legendsJsonForEngine } from '$lib/utils/preview_legends';
@@ -71,6 +83,7 @@
 		FileCode,
 		Focus,
 		Frame,
+		Info,
 		LayoutGrid,
 		Plus,
 		Rotate3d,
@@ -80,6 +93,7 @@
 		SquareDashed,
 		Squircle,
 		Trash2,
+		UtilityPole,
 		WandSparkles,
 		X,
 		Settings,
@@ -378,7 +392,12 @@
 	} | null = null;
 
 	// camera transitions are handled in the worker viewport.
-	function animateCameraTo(_endPos: Vector3, _endUp: Vector3, _endTarget: Vector3, _endZoom: number) {}
+	function animateCameraTo(
+		_endPos: Vector3,
+		_endUp: Vector3,
+		_endTarget: Vector3,
+		_endZoom: number
+	) {}
 	function stepCameraTween() {}
 	function faceCameraState(_idx: number): { pos: Vector3; up: Vector3 } {
 		return { pos: new Vector3(0, 10, 40), up: new Vector3(0, 1, 0) };
@@ -547,7 +566,11 @@
 		}
 		const span = engineTraceSpan('loadSetInEngine');
 		const { legends, ...rest } = setData;
-		const forStorage = { ...rest, legends: legends.id, dice: diceFromJSON(diceToJSON(setData.dice)) };
+		const forStorage = {
+			...rest,
+			legends: legends.id,
+			dice: diceFromJSON(diceToJSON(setData.dice))
+		};
 		const setJson = JSON.stringify(forStorage);
 		await loadEngineSet(setData.id, setJson, legendsJsonForEngine(legends));
 		span.end({ dice: setData.dice.length, legends: legends.id });
@@ -829,8 +852,114 @@
 		setEngineLegendAreaVisible(legendAreaVisible);
 	});
 
-	// developer-mode wireframe toggle for the scene (shown only in developer mode).
+	// Print-supports preview (mutually exclusive with explode).
 	const prefs = getPreferences();
+	let supportsPreviewOn = $state(false);
+	let supportsMode = $state<'placement' | 'solid'>('placement');
+	let supportSettings = $state<SupportSettings>(
+		mergeSupportSettings({ ...DEFAULT_SUPPORT_SETTINGS, ...prefs.supportSettings })
+	);
+
+	function formatSupportMm(v: number): string {
+		const rounded = Math.round(v * 100) / 100;
+		return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(2).replace(/0$/, '');
+	}
+	let supportsBusy = $state(false);
+	let supportsProgressLabel = $state('');
+	let supportsProgressFrac = $state(0);
+	let supportsStats = $state<{
+		edges: number;
+		legends: number;
+		contacts: number;
+		tipFins: number;
+	} | null>(null);
+	let supportLayers = $state<SupportLayerVisibility>({ ...DEFAULT_SUPPORT_LAYER_VISIBILITY });
+
+	async function rebuildSupportsPreview() {
+		if (!supportsPreviewOn) {
+			return;
+		}
+		supportsBusy = true;
+		supportsProgressLabel = '';
+		supportsProgressFrac = 0;
+		try {
+			const result = await buildSupportsInEngine(
+				supportSettings,
+				supportsMode,
+				(p) => {
+					supportsProgressLabel = p.label ?? p.phase;
+					supportsProgressFrac = p.fraction ?? 0;
+				},
+				supportLayers
+			);
+			supportsStats = {
+				edges: result.edgeLineCount,
+				legends: result.legendPointCount,
+				contacts: result.contactCount,
+				tipFins: result.tipPostFinCount
+			};
+		} catch (e) {
+			console.warn('supports preview failed', e);
+		} finally {
+			supportsBusy = false;
+		}
+	}
+
+	function updateSupportLayer<K extends keyof SupportLayerVisibility>(
+		key: K,
+		value: SupportLayerVisibility[K]
+	) {
+		supportLayers = { ...supportLayers, [key]: value };
+		if (supportsPreviewOn) {
+			scheduleSupportsRebuild(0);
+		}
+	}
+
+	const scheduleSupportsRebuild = debounce(300, (_: number) => {
+		void rebuildSupportsPreview();
+	});
+
+	function toggleSupportsPreview() {
+		supportsPreviewOn = !supportsPreviewOn;
+		if (supportsPreviewOn) {
+			if (explodeMode) {
+				explodeMode = false;
+				setEngineExploded(false);
+			}
+			void setSupportsPreviewInEngine(true);
+			void rebuildSupportsPreview();
+		} else {
+			void cancelSupportsInEngine();
+			void clearSupportsPreviewInEngine();
+			supportsStats = null;
+			supportsBusy = false;
+		}
+	}
+
+	function updateSupportSetting<K extends keyof SupportSettings>(
+		key: K,
+		value: SupportSettings[K]
+	) {
+		supportSettings = { ...supportSettings, [key]: value };
+		setPreference('supportSettings', { ...supportSettings });
+		if (supportsPreviewOn) {
+			scheduleSupportsRebuild(0);
+		}
+	}
+
+	$effect(() => {
+		// Rebuild when the active die finishes a build while supports preview is on.
+		// Stats clear immediately; the worker drops the old overlay on die switch
+		// and at the start of each rebuild so stale supports never linger.
+		renderPass;
+		dieId;
+		if (supportsPreviewOn) {
+			supportsStats = null;
+			scheduleSupportsRebuild(0);
+		}
+	});
+
+	// developer-mode wireframe toggle for the scene (shown only in developer mode).
 	let devMode = $derived(prefs.developerMode);
 	let wireframeOn = $state(false);
 	$effect(() => {
@@ -838,6 +967,15 @@
 			wireframeOn = false;
 		}
 		ctx?.setWireframe(wireframeOn);
+	});
+	$effect(() => {
+		if (!devMode && supportsPreviewOn) {
+			supportsPreviewOn = false;
+			void cancelSupportsInEngine();
+			void clearSupportsPreviewInEngine();
+			supportsStats = null;
+			supportsBusy = false;
+		}
 	});
 
 	// face selection has three modes:
@@ -1315,346 +1453,703 @@
 			<Progress value={null} />
 		</div>
 	{:else if pageLoad === 'ready' && setData}
-	<div class="flex h-full min-h-0 flex-col">
-		<div
-			class={'flex flex-row flex-wrap items-center justify-start gap-4 pb-4' +
-				(formatPaintMode ? ' opacity-50' : '')}
-			inert={formatPaintMode}
-		>
-			{#each setData?.dice as die}
-				{@const dieErrors = dieEngravingErrors[die.id] ?? []}
-				{@const landWarning = dieLandWarnings[die.id] ?? false}
-				{#snippet dieTip()}
-					{@const shapeName = dieDisplayName(die.kind, die.legend_ordering)}
-					{@const nick = die.nickname?.trim()}
-					<div class="flex flex-col items-center gap-0.5">
-						{#if nick}
-							<span class="font-semibold">{nick}</span>
-							<span class="text-surface-200-800 text-xs">{shapeName}</span>
-						{:else}
-							<span class="font-semibold">{shapeName}</span>
-						{/if}
-						{#each dieErrors as err}
-							<span class="text-error-400">
-								{m.engraving_broken_for({ legend: err.legendName })}
-							</span>
-						{/each}
-						{#if landWarning}
-							<span class="max-w-60 text-amber-500">
-								{m.dice_land_warning({ kind: die.kind })}
-							</span>
-						{/if}
-					</div>
-				{/snippet}
-				<Tooltip content={dieTip} side="bottom">
-					{#snippet children(tipProps)}
-						<!-- svelte-ignore a11y_click_events_have_key_events, a11y_interactive_supports_focus -->
-						<div
-							{...tipProps}
-							role="button"
-							class={'transition-duration-100 hover:border-primary-500 group hover:shadow-primary-500 relative size-16 cursor-pointer rounded-md border transition-transform ease-in-out hover:scale-120 hover:shadow-md ' +
-								(die.id === dieId
-									? 'border-primary-500 shadow-primary-500 hover:border-primary-500 group hover:shadow-primary-500 shadow-md'
-									: dieErrors.length > 0
-										? 'border-error-500'
-										: landWarning
-											? 'border-amber-500'
-											: '')}
-							onclick={() => gotoDie(die.id)}
-						>
-							<!-- duplicate -->
-							<button
-								use:event={{
-									name: 'click',
-									handler: (e) => {
-										e.stopPropagation();
-										duplicateDie(die.id);
-									}
-								}}
-								class="absolute top-[-2px] left-[-8px] hidden size-5 items-center justify-center rounded-md bg-secondary-500 text-secondary-contrast-500 group-hover:flex"
-								aria-label={m.controls_duplicate_die()}
-								title={m.controls_duplicate_die()}
-							>
-								<Plus size={14} strokeWidth={3} />
-							</button>
-							<!-- kill button -->
-							<button
-								use:event={{
-									name: 'click',
-									handler: (e) => {
-										e.stopPropagation();
-										removeDie(die.id);
-									}
-								}}
-								class="absolute top-[-2px] right-[-8px] hidden size-5 items-center justify-center rounded-md bg-red-500 text-white group-hover:flex"
-								aria-label={m.controls_remove_die()}
-								title={m.controls_remove_die()}
-							>
-								<X size={14} strokeWidth={3} />
-							</button>
-							<!-- engraving-error badge: this die would export with one or more
-							     broken faces. details are in the tooltip. -->
-							{#if dieErrors.length > 0}
-								<div
-									class="text-error-500 absolute bottom-[-6px] left-[-6px] rounded-full bg-white"
-									aria-hidden="true"
-								>
-									<TriangleAlert size={16} />
-								</div>
+		<div class="flex h-full min-h-0 flex-col">
+			<div
+				class={'flex flex-row flex-wrap items-center justify-start gap-4 pb-4' +
+					(formatPaintMode ? ' opacity-50' : '')}
+				inert={formatPaintMode}
+			>
+				{#each setData?.dice as die}
+					{@const dieErrors = dieEngravingErrors[die.id] ?? []}
+					{@const landWarning = dieLandWarnings[die.id] ?? false}
+					{#snippet dieTip()}
+						{@const shapeName = dieDisplayName(die.kind, die.legend_ordering)}
+						{@const nick = die.nickname?.trim()}
+						<div class="flex flex-col items-center gap-0.5">
+							{#if nick}
+								<span class="font-semibold">{nick}</span>
+								<span class="text-surface-200-800 text-xs">{shapeName}</span>
+							{:else}
+								<span class="font-semibold">{shapeName}</span>
 							{/if}
-							<!-- land warning badge: this die can come to rest on an
-							     inconclusive face. details (and whether it's a defect or an
-							     expected trade-off) are in the tooltip. -->
+							{#each dieErrors as err}
+								<span class="text-error-400">
+									{m.engraving_broken_for({ legend: err.legendName })}
+								</span>
+							{/each}
 							{#if landWarning}
-								<div
-									class="absolute right-[-6px] bottom-[-6px] rounded-full bg-white text-amber-500"
-									aria-hidden="true"
-								>
-									<TriangleAlert size={16} />
-								</div>
+								<span class="max-w-60 text-amber-500">
+									{m.dice_land_warning({ kind: die.kind })}
+								</span>
 							{/if}
-							<DiePreview {die} legends={setData?.legends!} enabled={sceneLive} />
 						</div>
 					{/snippet}
-				</Tooltip>
-			{/each}
-			<Modal>
-				{#snippet title()}
-					{m.controls_add_new_die()}
-				{/snippet}
-				{#snippet trigger(props)}
-					<Tooltip content={m.controls_add_new_die()}>
+					<Tooltip content={dieTip} side="bottom">
 						{#snippet children(tipProps)}
-							{@const merged = mergeTriggerProps(props, tipProps)}
-							<button
-								{...merged}
-								class="hover:border-primary-500 hover:shadow-primary-500 flex size-16 cursor-pointer items-center justify-center overflow-hidden rounded-md border text-center hover:shadow-md"
-								aria-label={m.controls_add_new_die()}
+							<!-- svelte-ignore a11y_click_events_have_key_events, a11y_interactive_supports_focus -->
+							<div
+								{...tipProps}
+								role="button"
+								class={'transition-duration-100 hover:border-primary-500 group hover:shadow-primary-500 relative size-16 cursor-pointer rounded-md border transition-transform ease-in-out hover:scale-120 hover:shadow-md ' +
+									(die.id === dieId
+										? 'border-primary-500 shadow-primary-500 hover:border-primary-500 group hover:shadow-primary-500 shadow-md'
+										: dieErrors.length > 0
+											? 'border-error-500'
+											: landWarning
+												? 'border-amber-500'
+												: '')}
+								onclick={() => gotoDie(die.id)}
 							>
-								<Plus size={32} />
-							</button>
-						{/snippet}
-					</Tooltip>
-				{/snippet}
-				{#snippet inner(close)}
-					<div class="flex max-h-[70vh] flex-col gap-3 overflow-y-auto">
-						<div class="bg-surface-100-900 sticky top-0 z-10 flex gap-2 pb-1">
-							<button
-								class="flex items-center gap-1.5 rounded-md border px-3 py-1 text-sm hover:shadow-md {dieGroupBy ===
-								'shape'
-									? 'border-primary-500 text-primary-500'
-									: ''}"
-								onclick={() => (dieGroupBy = 'shape')}
-							>
-								<Shapes size={16} />
-								{m.controls_group_by_shape()}
-							</button>
-							<button
-								class="flex items-center gap-1.5 rounded-md border px-3 py-1 text-sm hover:shadow-md {dieGroupBy ===
-								'number'
-									? 'border-primary-500 text-primary-500'
-									: ''}"
-								onclick={() => (dieGroupBy = 'number')}
-							>
-								<Squircle size={16} />
-								{m.controls_group_by_number()}
-							</button>
-							<button
-								class="flex items-center gap-1.5 rounded-md border px-3 py-1 text-sm hover:shadow-md {dieGroupBy ===
-								'rarity'
-									? 'border-primary-500 text-primary-500'
-									: ''}"
-								onclick={() => (dieGroupBy = 'rarity')}
-							>
-								<WandSparkles size={16} />
-								{m.controls_group_by_rarity()}
-							</button>
-						</div>
-						{#each dieGroups as group (group.key)}
-							<div class="flex flex-col gap-2">
-								<h3 class="text-surface-600-400 text-sm font-semibold">{group.label}</h3>
-								<div class="grid grid-cols-2 gap-3 sm:grid-cols-4 md:grid-cols-6">
-									{#each group.dice as preview (preview.kind)}
-										<Tooltip content={m.dice_blurb({ kind: preview.kind })}>
-											{#snippet children(tipProps)}
-												<button
-													{...tipProps}
-													class="hover:border-primary-500 hover:shadow-primary-500 flex cursor-pointer flex-col items-center gap-1 rounded-md border p-2 text-center hover:shadow-md"
-													onclick={() => {
-														addDie(preview.kind);
-														close();
-													}}
-												>
-													{#if setData}
-														<DiePreview die={preview} legends={setData.legends} />
-													{/if}
-													<span class="text-sm">{m.dice_name({ kind: preview.kind })}</span>
-												</button>
-											{/snippet}
-										</Tooltip>
-									{/each}
-								</div>
+								<!-- duplicate -->
+								<button
+									use:event={{
+										name: 'click',
+										handler: (e) => {
+											e.stopPropagation();
+											duplicateDie(die.id);
+										}
+									}}
+									class="bg-secondary-500 text-secondary-contrast-500 absolute top-[-2px] left-[-8px] hidden size-5 items-center justify-center rounded-md group-hover:flex"
+									aria-label={m.controls_duplicate_die()}
+									title={m.controls_duplicate_die()}
+								>
+									<Plus size={14} strokeWidth={3} />
+								</button>
+								<!-- kill button -->
+								<button
+									use:event={{
+										name: 'click',
+										handler: (e) => {
+											e.stopPropagation();
+											removeDie(die.id);
+										}
+									}}
+									class="absolute top-[-2px] right-[-8px] hidden size-5 items-center justify-center rounded-md bg-red-500 text-white group-hover:flex"
+									aria-label={m.controls_remove_die()}
+									title={m.controls_remove_die()}
+								>
+									<X size={14} strokeWidth={3} />
+								</button>
+								<!-- engraving-error badge: this die would export with one or more
+							     broken faces. details are in the tooltip. -->
+								{#if dieErrors.length > 0}
+									<div
+										class="text-error-500 absolute bottom-[-6px] left-[-6px] rounded-full bg-white"
+										aria-hidden="true"
+									>
+										<TriangleAlert size={16} />
+									</div>
+								{/if}
+								<!-- land warning badge: this die can come to rest on an
+							     inconclusive face. details (and whether it's a defect or an
+							     expected trade-off) are in the tooltip. -->
+								{#if landWarning}
+									<div
+										class="absolute right-[-6px] bottom-[-6px] rounded-full bg-white text-amber-500"
+										aria-hidden="true"
+									>
+										<TriangleAlert size={16} />
+									</div>
+								{/if}
+								<DiePreview {die} legends={setData?.legends!} enabled={sceneLive} />
 							</div>
-						{/each}
-					</div>
-				{/snippet}
-			</Modal>
-		</div>
-		<EngineScene class="relative w-full min-h-0 grow" {sceneReady} onSelection={handleEngineSelection}>
-			<ul class="list-style-type-none absolute top-2 left-2 flex flex-col gap-2">
-				<li>
-					<Tooltip content={m.controls_reset_camera()} side="right">
-						{#snippet children(props)}
-							<Button.Root
-								{...props}
-								class="btn-icon preset-filled-primary-500"
-								aria-label={m.controls_reset_camera()}
-								onclick={() => {
-									lookAtFace(selectedFace);
-								}}><Focus /></Button.Root
-							>
 						{/snippet}
 					</Tooltip>
-				</li>
-				<li>
-					<Tooltip content={m.controls_toggle_legend_area()} side="right">
-						{#snippet children(props)}
-							<Button.Root
-								{...props}
-								class={'btn-icon ' +
-									(legendAreaVisible ? 'preset-filled-secondary-500' : 'preset-filled-primary-500')}
-								aria-label={m.controls_toggle_legend_area()}
-								onclick={() => {
-									legendAreaVisible = !legendAreaVisible;
-								}}><SquareDashed /></Button.Root
-							>
-						{/snippet}
-					</Tooltip>
-				</li>
-				{#if devMode}
+				{/each}
+				<Modal>
+					{#snippet title()}
+						{m.controls_add_new_die()}
+					{/snippet}
+					{#snippet trigger(props)}
+						<Tooltip content={m.controls_add_new_die()}>
+							{#snippet children(tipProps)}
+								{@const merged = mergeTriggerProps(props, tipProps)}
+								<button
+									{...merged}
+									class="hover:border-primary-500 hover:shadow-primary-500 flex size-16 cursor-pointer items-center justify-center overflow-hidden rounded-md border text-center hover:shadow-md"
+									aria-label={m.controls_add_new_die()}
+								>
+									<Plus size={32} />
+								</button>
+							{/snippet}
+						</Tooltip>
+					{/snippet}
+					{#snippet inner(close)}
+						<div class="flex max-h-[70vh] flex-col gap-3 overflow-y-auto">
+							<div class="bg-surface-100-900 sticky top-0 z-10 flex gap-2 pb-1">
+								<button
+									class="flex items-center gap-1.5 rounded-md border px-3 py-1 text-sm hover:shadow-md {dieGroupBy ===
+									'shape'
+										? 'border-primary-500 text-primary-500'
+										: ''}"
+									onclick={() => (dieGroupBy = 'shape')}
+								>
+									<Shapes size={16} />
+									{m.controls_group_by_shape()}
+								</button>
+								<button
+									class="flex items-center gap-1.5 rounded-md border px-3 py-1 text-sm hover:shadow-md {dieGroupBy ===
+									'number'
+										? 'border-primary-500 text-primary-500'
+										: ''}"
+									onclick={() => (dieGroupBy = 'number')}
+								>
+									<Squircle size={16} />
+									{m.controls_group_by_number()}
+								</button>
+								<button
+									class="flex items-center gap-1.5 rounded-md border px-3 py-1 text-sm hover:shadow-md {dieGroupBy ===
+									'rarity'
+										? 'border-primary-500 text-primary-500'
+										: ''}"
+									onclick={() => (dieGroupBy = 'rarity')}
+								>
+									<WandSparkles size={16} />
+									{m.controls_group_by_rarity()}
+								</button>
+							</div>
+							{#each dieGroups as group (group.key)}
+								<div class="flex flex-col gap-2">
+									<h3 class="text-surface-600-400 text-sm font-semibold">{group.label}</h3>
+									<div class="grid grid-cols-2 gap-3 sm:grid-cols-4 md:grid-cols-6">
+										{#each group.dice as preview (preview.kind)}
+											<Tooltip content={m.dice_blurb({ kind: preview.kind })}>
+												{#snippet children(tipProps)}
+													<button
+														{...tipProps}
+														class="hover:border-primary-500 hover:shadow-primary-500 flex cursor-pointer flex-col items-center gap-1 rounded-md border p-2 text-center hover:shadow-md"
+														onclick={() => {
+															addDie(preview.kind);
+															close();
+														}}
+													>
+														{#if setData}
+															<DiePreview die={preview} legends={setData.legends} />
+														{/if}
+														<span class="text-sm">{m.dice_name({ kind: preview.kind })}</span>
+													</button>
+												{/snippet}
+											</Tooltip>
+										{/each}
+									</div>
+								</div>
+							{/each}
+						</div>
+					{/snippet}
+				</Modal>
+			</div>
+			<EngineScene
+				class="relative min-h-0 w-full grow"
+				{sceneReady}
+				onSelection={handleEngineSelection}
+			>
+				<ul class="list-style-type-none absolute top-2 left-2 flex flex-col gap-2">
 					<li>
-						<Tooltip content={m.controls_toggle_wireframe()} side="right">
+						<Tooltip content={m.controls_reset_camera()} side="right">
 							{#snippet children(props)}
 								<Button.Root
 									{...props}
-									class={'btn-icon ' +
-										(wireframeOn ? 'preset-filled-secondary-500' : 'preset-filled-primary-500')}
-									aria-label={m.controls_toggle_wireframe()}
+									class="btn-icon preset-filled-primary-500"
+									aria-label={m.controls_reset_camera()}
 									onclick={() => {
-										wireframeOn = !wireframeOn;
-									}}><Frame /></Button.Root
+										lookAtFace(selectedFace);
+									}}><Focus /></Button.Root
 								>
 							{/snippet}
 						</Tooltip>
 					</li>
-				{/if}
-				<li>
-					<Tooltip content={m.controls_toggle_explode_mode()} side="right">
-						{#snippet children(props)}
-							<Button.Root
-								{...props}
-								class="btn-icon preset-filled-primary-500"
-								aria-label={m.controls_toggle_explode_mode()}
-								onclick={() => {
-									explodeMode = !explodeMode;
-									if (explodeMode && autoRotate) {
-										autoRotate = false;
-										setEngineAutoRotate(false);
-									}
-									setEngineExploded(explodeMode);
-									if (!explodeMode) {
-										lookAtFace(selectedFace);
-									}
-								}}
-								>{#if explodeMode}<Box />{:else}<LayoutGrid />{/if}</Button.Root
-							>
-						{/snippet}
-					</Tooltip>
-				</li>
-				<li>
-					<Tooltip content={m.controls_toggle_auto_rotate()} side="right">
-						{#snippet children(props)}
-							<Button.Root
-								{...props}
-								class={'btn-icon ' +
-									(autoRotate ? 'preset-filled-secondary-500' : 'preset-filled-primary-500')}
-								aria-label={m.controls_toggle_auto_rotate()}
-								aria-pressed={autoRotate}
-								disabled={explodeMode}
-								onclick={toggleAutoRotate}><Rotate3d /></Button.Root
-							>
-						{/snippet}
-					</Tooltip>
-				</li>
-				<li>
-					<Tooltip content={m.controls_toggle_fancy_render()} side="right">
-						{#snippet children(props)}
-							<Button.Root
-								{...props}
-								class={'btn-icon ' +
-									(fancy ? 'preset-filled-secondary-500' : 'preset-filled-primary-500')}
-								aria-label={m.controls_toggle_fancy_render()}
-								aria-pressed={fancy}
-								onclick={toggleFancy}><Sparkles /></Button.Root
-							>
-						{/snippet}
-					</Tooltip>
-				</li>
-			</ul>
-			{#if formatPaintMode}
-				<div
-					class="card preset-filled-primary-500 absolute top-2 left-1/2 flex max-w-[90%] -translate-x-1/2 items-center gap-3 p-2 shadow-md"
-				>
-					<span class="text-sm">{m.format_painter_toast()}</span>
-					<button
-						type="button"
-						class="btn btn-sm preset-filled flex items-center gap-1"
-						onclick={exitFormatPaint}
-					>
-							<X size={16} />
-						{m.format_painter_exit()}
-					</button>
-				</div>
-			{/if}
-			<div
-				class="absolute top-2 right-2 bottom-2 flex flex-col overflow-y-auto {formatPaintMode
-					? 'hidden'
-					: ''}"
-				inert={formatPaintMode}
-			>
-				{#if setData && currentFacade}
-					{@const die = setData.dice!.find((x) => x.id === dieId)}
-					{#if die}
-						<DiceParameters
-							{renderPass}
-							bind:dparams={die.parameters}
-							bind:sparams={die.string_parameters}
-							bind:fparams={die.face_parameters}
-							bind:ordering={die.legend_ordering}
-							bind:nickname={die.nickname}
-							kind={die.kind}
-							builder={currentFacade}
-							legends={setData.legends}
-							landWarning={dieLandWarnings[die.id] ?? false}
-							engravingErrors={dieEngravingErrors[die.id] ?? []}
-							bind:selectMode
-							bind:selectedFace
-							bind:selectedFaces
-							{focusFaceRequest}
-							onChangeSelectedFace={(f) => lookAtFace(f)}
-							onApplyToAll={applyCurrentToAllFaces}
-							onEnterFormatPaint={enterFormatPaint}
-							onSyncFaces={synchroniseSelectedFaces}
-							onEditLegends={editOrCloneLegends}
-							canUndo={history.canUndo}
-							canRedo={history.canRedo}
-							onUndo={doUndo}
-							onRedo={doRedo}
-						/>
+					<li>
+						<Tooltip content={m.controls_toggle_legend_area()} side="right">
+							{#snippet children(props)}
+								<Button.Root
+									{...props}
+									class={'btn-icon ' +
+										(legendAreaVisible
+											? 'preset-filled-secondary-500'
+											: 'preset-filled-primary-500')}
+									aria-label={m.controls_toggle_legend_area()}
+									onclick={() => {
+										legendAreaVisible = !legendAreaVisible;
+									}}><SquareDashed /></Button.Root
+								>
+							{/snippet}
+						</Tooltip>
+					</li>
+					{#if devMode}
+						<li>
+							<Tooltip content={m.controls_toggle_wireframe()} side="right">
+								{#snippet children(props)}
+									<Button.Root
+										{...props}
+										class={'btn-icon ' +
+											(wireframeOn ? 'preset-filled-secondary-500' : 'preset-filled-primary-500')}
+										aria-label={m.controls_toggle_wireframe()}
+										onclick={() => {
+											wireframeOn = !wireframeOn;
+										}}><Frame /></Button.Root
+									>
+								{/snippet}
+							</Tooltip>
+						</li>
 					{/if}
+					<li>
+						<Tooltip content={m.controls_toggle_explode_mode()} side="right">
+							{#snippet children(props)}
+								<Button.Root
+									{...props}
+									class="btn-icon preset-filled-primary-500"
+									aria-label={m.controls_toggle_explode_mode()}
+									onclick={() => {
+										explodeMode = !explodeMode;
+										if (explodeMode && autoRotate) {
+											autoRotate = false;
+											setEngineAutoRotate(false);
+										}
+										if (explodeMode && supportsPreviewOn) {
+											supportsPreviewOn = false;
+											void cancelSupportsInEngine();
+											void clearSupportsPreviewInEngine();
+											supportsStats = null;
+										}
+										setEngineExploded(explodeMode);
+										if (!explodeMode) {
+											lookAtFace(selectedFace);
+										}
+									}}
+									>{#if explodeMode}<Box />{:else}<LayoutGrid />{/if}</Button.Root
+								>
+							{/snippet}
+						</Tooltip>
+					</li>
+					{#if devMode}
+						<li>
+							<Tooltip content={m.controls_toggle_supports()} side="right">
+								{#snippet children(props)}
+									<Button.Root
+										{...props}
+										class={'btn-icon ' +
+											(supportsPreviewOn
+												? 'preset-filled-secondary-500'
+												: 'preset-filled-primary-500')}
+										aria-label={m.controls_toggle_supports()}
+										aria-pressed={supportsPreviewOn}
+										onclick={toggleSupportsPreview}><UtilityPole /></Button.Root
+									>
+								{/snippet}
+							</Tooltip>
+						</li>
+					{/if}
+					<li>
+						<Tooltip content={m.controls_toggle_auto_rotate()} side="right">
+							{#snippet children(props)}
+								<Button.Root
+									{...props}
+									class={'btn-icon ' +
+										(autoRotate ? 'preset-filled-secondary-500' : 'preset-filled-primary-500')}
+									aria-label={m.controls_toggle_auto_rotate()}
+									aria-pressed={autoRotate}
+									disabled={explodeMode}
+									onclick={toggleAutoRotate}><Rotate3d /></Button.Root
+								>
+							{/snippet}
+						</Tooltip>
+					</li>
+					<li>
+						<Tooltip content={m.controls_toggle_fancy_render()} side="right">
+							{#snippet children(props)}
+								<Button.Root
+									{...props}
+									class={'btn-icon ' +
+										(fancy ? 'preset-filled-secondary-500' : 'preset-filled-primary-500')}
+									aria-label={m.controls_toggle_fancy_render()}
+									aria-pressed={fancy}
+									onclick={toggleFancy}><Sparkles /></Button.Root
+								>
+							{/snippet}
+						</Tooltip>
+					</li>
+				</ul>
+				{#if devMode && supportsPreviewOn}
+					<div
+						class="card preset-filled-surface-100-900 border-surface-300-700 absolute bottom-2 left-2 z-10 flex w-72 flex-col gap-2 border p-3 shadow-md"
+					>
+						<div class="flex items-center justify-between gap-2">
+							<span class="text-sm font-semibold">{m.supports_panel_title()}</span>
+							<button
+								type="button"
+								class="btn-icon btn-sm preset-tonal"
+								aria-label={m.supports_cancel()}
+								disabled={!supportsBusy}
+								onclick={() => void cancelSupportsInEngine()}
+							>
+								<X size={14} />
+							</button>
+						</div>
+						<div class="flex gap-1">
+							<button
+								type="button"
+								class="btn btn-sm grow {supportsMode === 'placement'
+									? 'preset-filled-secondary-500'
+									: 'preset-tonal'}"
+								onclick={() => {
+									supportsMode = 'placement';
+									void rebuildSupportsPreview();
+								}}>{m.supports_view_placement()}</button
+							>
+							<button
+								type="button"
+								class="btn btn-sm grow {supportsMode === 'solid'
+									? 'preset-filled-secondary-500'
+									: 'preset-tonal'}"
+								onclick={() => {
+									supportsMode = 'solid';
+									void rebuildSupportsPreview();
+								}}>{m.supports_view_solid()}</button
+							>
+						</div>
+						{#snippet supportHelp(text: string)}
+							<!-- span (not button) so nested <label> still targets the range/checkbox -->
+							<Tooltip content={text} side="left">
+								{#snippet children(props)}
+									<span
+										{...props}
+										role="button"
+										tabindex={0}
+										class="text-surface-500 hover:text-primary-500 inline-flex shrink-0 items-center"
+										aria-label={text}
+									>
+										<Info class="size-3" />
+									</span>
+								{/snippet}
+							</Tooltip>
+						{/snippet}
+						<div class="border-surface-300-700 flex flex-col gap-1 border-t pt-2">
+							<label class="flex items-center justify-between gap-2 text-xs">
+								<span class="flex items-center gap-1">
+									<span>{m.supports_layer_edges()}</span>
+									{@render supportHelp(m.supports_layer_edges_help())}
+								</span>
+								<input
+									type="checkbox"
+									class="checkbox"
+									checked={supportLayers.edges}
+									onchange={(e) => updateSupportLayer('edges', e.currentTarget.checked)}
+								/>
+							</label>
+							<label class="flex items-center justify-between gap-2 text-xs">
+								<span class="flex items-center gap-1">
+									<span>{m.supports_layer_legends()}</span>
+									{@render supportHelp(m.supports_layer_legends_help())}
+								</span>
+								<input
+									type="checkbox"
+									class="checkbox"
+									checked={supportLayers.legends}
+									onchange={(e) => updateSupportLayer('legends', e.currentTarget.checked)}
+								/>
+							</label>
+							<label class="flex items-center justify-between gap-2 text-xs">
+								<span class="flex items-center gap-1">
+									<span>{m.supports_layer_tip_post()}</span>
+									{@render supportHelp(m.supports_layer_tip_post_help())}
+								</span>
+								<input
+									type="checkbox"
+									class="checkbox"
+									checked={supportLayers.tipPost}
+									onchange={(e) => updateSupportLayer('tipPost', e.currentTarget.checked)}
+								/>
+							</label>
+						</div>
+						<label class="flex flex-col gap-0.5 text-xs">
+							<span class="flex items-baseline justify-between gap-2">
+								<span class="flex items-center gap-1">
+									<span>{m.export_opt_supports_pillar_label()}</span>
+									{@render supportHelp(m.export_opt_supports_pillar_help())}
+								</span>
+								<span class="text-surface-600-400 tabular-nums"
+									>{formatSupportMm(supportSettings.pillarDiameterMm)} mm</span
+								>
+							</span>
+							<input
+								type="range"
+								min={SUPPORT_SETTING_LIMITS.pillarDiameterMm.min}
+								max={SUPPORT_SETTING_LIMITS.pillarDiameterMm.max}
+								step={SUPPORT_SETTING_LIMITS.pillarDiameterMm.step}
+								value={supportSettings.pillarDiameterMm}
+								oninput={(e) =>
+									updateSupportSetting('pillarDiameterMm', Number(e.currentTarget.value))}
+							/>
+						</label>
+						<label class="flex flex-col gap-0.5 text-xs">
+							<span class="flex items-baseline justify-between gap-2">
+								<span class="flex items-center gap-1">
+									<span>{m.export_opt_supports_cone_label()}</span>
+									{@render supportHelp(m.export_opt_supports_cone_help())}
+								</span>
+								<span class="text-surface-600-400 tabular-nums"
+									>{formatSupportMm(supportSettings.coneLengthMm)} mm</span
+								>
+							</span>
+							<input
+								type="range"
+								min={SUPPORT_SETTING_LIMITS.coneLengthMm.min}
+								max={SUPPORT_SETTING_LIMITS.coneLengthMm.max}
+								step={SUPPORT_SETTING_LIMITS.coneLengthMm.step}
+								value={supportSettings.coneLengthMm}
+								oninput={(e) => updateSupportSetting('coneLengthMm', Number(e.currentTarget.value))}
+							/>
+						</label>
+						<label class="flex flex-col gap-0.5 text-xs">
+							<span class="flex items-baseline justify-between gap-2">
+								<span class="flex items-center gap-1">
+									<span>{m.export_opt_supports_sphere_label()}</span>
+									{@render supportHelp(m.export_opt_supports_sphere_help())}
+								</span>
+								<span class="text-surface-600-400 tabular-nums"
+									>{formatSupportMm(supportSettings.sphereDiameterMm)} mm</span
+								>
+							</span>
+							<input
+								type="range"
+								min={SUPPORT_SETTING_LIMITS.sphereDiameterMm.min}
+								max={SUPPORT_SETTING_LIMITS.sphereDiameterMm.max}
+								step={SUPPORT_SETTING_LIMITS.sphereDiameterMm.step}
+								value={supportSettings.sphereDiameterMm}
+								oninput={(e) =>
+									updateSupportSetting('sphereDiameterMm', Number(e.currentTarget.value))}
+							/>
+						</label>
+						<label class="flex flex-col gap-0.5 text-xs">
+							<span class="flex items-baseline justify-between gap-2">
+								<span class="flex items-center gap-1">
+									<span>{m.export_opt_supports_raft_label()}</span>
+									{@render supportHelp(m.export_opt_supports_raft_help())}
+								</span>
+								<span class="text-surface-600-400 tabular-nums"
+									>{formatSupportMm(supportSettings.raftDepthMm)} mm</span
+								>
+							</span>
+							<input
+								type="range"
+								min={SUPPORT_SETTING_LIMITS.raftDepthMm.min}
+								max={SUPPORT_SETTING_LIMITS.raftDepthMm.max}
+								step={SUPPORT_SETTING_LIMITS.raftDepthMm.step}
+								value={supportSettings.raftDepthMm}
+								oninput={(e) => updateSupportSetting('raftDepthMm', Number(e.currentTarget.value))}
+							/>
+						</label>
+						<label class="flex flex-col gap-0.5 text-xs">
+							<span class="flex items-baseline justify-between gap-2">
+								<span class="flex items-center gap-1">
+									<span>{m.export_opt_supports_raft_size_label()}</span>
+									{@render supportHelp(m.export_opt_supports_raft_size_help())}
+								</span>
+								<span class="text-surface-600-400 tabular-nums"
+									>{formatSupportMm(supportSettings.raftSizeMm)} mm</span
+								>
+							</span>
+							<input
+								type="range"
+								min={SUPPORT_SETTING_LIMITS.raftSizeMm.min}
+								max={SUPPORT_SETTING_LIMITS.raftSizeMm.max}
+								step={SUPPORT_SETTING_LIMITS.raftSizeMm.step}
+								value={supportSettings.raftSizeMm}
+								oninput={(e) => updateSupportSetting('raftSizeMm', Number(e.currentTarget.value))}
+							/>
+						</label>
+						<label class="flex flex-col gap-0.5 text-xs">
+							<span class="flex items-baseline justify-between gap-2">
+								<span class="flex items-center gap-1">
+									<span>{m.export_opt_supports_inset_label()}</span>
+									{@render supportHelp(m.export_opt_supports_inset_help())}
+								</span>
+								<span class="text-surface-600-400 tabular-nums"
+									>{formatSupportMm(supportSettings.edgeInsetMm)} mm</span
+								>
+							</span>
+							<input
+								type="range"
+								min={SUPPORT_SETTING_LIMITS.edgeInsetMm.min}
+								max={SUPPORT_SETTING_LIMITS.edgeInsetMm.max}
+								step={SUPPORT_SETTING_LIMITS.edgeInsetMm.step}
+								value={supportSettings.edgeInsetMm}
+								oninput={(e) => updateSupportSetting('edgeInsetMm', Number(e.currentTarget.value))}
+							/>
+						</label>
+						<label class="flex flex-col gap-0.5 text-xs">
+							<span class="flex items-baseline justify-between gap-2">
+								<span class="flex items-center gap-1">
+									<span>{m.export_opt_supports_spacing_label()}</span>
+									{@render supportHelp(m.export_opt_supports_spacing_help())}
+								</span>
+								<span class="text-surface-600-400 tabular-nums"
+									>{formatSupportMm(supportSettings.edgeSpacingMm)} mm</span
+								>
+							</span>
+							<input
+								type="range"
+								min={SUPPORT_SETTING_LIMITS.edgeSpacingMm.min}
+								max={SUPPORT_SETTING_LIMITS.edgeSpacingMm.max}
+								step={SUPPORT_SETTING_LIMITS.edgeSpacingMm.step}
+								value={supportSettings.edgeSpacingMm}
+								oninput={(e) =>
+									updateSupportSetting('edgeSpacingMm', Number(e.currentTarget.value))}
+							/>
+						</label>
+						<label class="flex flex-col gap-0.5 text-xs">
+							<span class="flex items-baseline justify-between gap-2">
+								<span class="flex items-center gap-1">
+									<span>{m.export_opt_supports_legend_spacing_label()}</span>
+									{@render supportHelp(m.export_opt_supports_legend_spacing_help())}
+								</span>
+								<span class="text-surface-600-400 tabular-nums"
+									>{formatSupportMm(supportSettings.legendSpacingMm)} mm</span
+								>
+							</span>
+							<input
+								type="range"
+								min={SUPPORT_SETTING_LIMITS.legendSpacingMm.min}
+								max={SUPPORT_SETTING_LIMITS.legendSpacingMm.max}
+								step={SUPPORT_SETTING_LIMITS.legendSpacingMm.step}
+								value={supportSettings.legendSpacingMm}
+								oninput={(e) =>
+									updateSupportSetting('legendSpacingMm', Number(e.currentTarget.value))}
+							/>
+						</label>
+						<label class="flex flex-col gap-0.5 text-xs">
+							<span class="flex items-baseline justify-between gap-2">
+								<span class="flex items-center gap-1">
+									<span>{m.export_opt_supports_face_angle_label()}</span>
+									{@render supportHelp(m.export_opt_supports_face_angle_help())}
+								</span>
+								<span class="text-surface-600-400 tabular-nums"
+									>{formatSupportMm(supportSettings.faceMinAngleDeg)}°</span
+								>
+							</span>
+							<input
+								type="range"
+								min={SUPPORT_SETTING_LIMITS.faceMinAngleDeg.min}
+								max={SUPPORT_SETTING_LIMITS.faceMinAngleDeg.max}
+								step={SUPPORT_SETTING_LIMITS.faceMinAngleDeg.step}
+								value={supportSettings.faceMinAngleDeg}
+								oninput={(e) =>
+									updateSupportSetting('faceMinAngleDeg', Number(e.currentTarget.value))}
+							/>
+						</label>
+						<label class="flex flex-col gap-0.5 text-xs">
+							<span class="flex items-baseline justify-between gap-2">
+								<span class="flex items-center gap-1">
+									<span>{m.export_opt_supports_post_diameter_label()}</span>
+									{@render supportHelp(m.export_opt_supports_post_diameter_help())}
+								</span>
+								<span class="text-surface-600-400 tabular-nums"
+									>{formatSupportMm(supportSettings.postDiameterMm)} mm</span
+								>
+							</span>
+							<input
+								type="range"
+								min={SUPPORT_SETTING_LIMITS.postDiameterMm.min}
+								max={SUPPORT_SETTING_LIMITS.postDiameterMm.max}
+								step={SUPPORT_SETTING_LIMITS.postDiameterMm.step}
+								value={supportSettings.postDiameterMm}
+								oninput={(e) =>
+									updateSupportSetting('postDiameterMm', Number(e.currentTarget.value))}
+							/>
+						</label>
+						<label class="flex flex-col gap-0.5 text-xs">
+							<span class="flex items-baseline justify-between gap-2">
+								<span class="flex items-center gap-1">
+									<span>{m.export_opt_supports_post_fin_label()}</span>
+									{@render supportHelp(m.export_opt_supports_post_fin_help())}
+								</span>
+								<span class="text-surface-600-400 tabular-nums"
+									>{formatSupportMm(supportSettings.postFinThicknessMm)} mm</span
+								>
+							</span>
+							<input
+								type="range"
+								min={SUPPORT_SETTING_LIMITS.postFinThicknessMm.min}
+								max={SUPPORT_SETTING_LIMITS.postFinThicknessMm.max}
+								step={SUPPORT_SETTING_LIMITS.postFinThicknessMm.step}
+								value={supportSettings.postFinThicknessMm}
+								oninput={(e) =>
+									updateSupportSetting('postFinThicknessMm', Number(e.currentTarget.value))}
+							/>
+						</label>
+						{#if supportsBusy}
+							<div class="flex flex-col gap-1">
+								<span class="text-surface-600-400 text-xs"
+									>{supportsProgressLabel || m.export_building_option({ option: 'supports' })}</span
+								>
+								<Progress value={Math.round(supportsProgressFrac * 100)} max={100} />
+							</div>
+						{:else if supportsStats}
+							<div class="text-surface-600-400 flex flex-col gap-0.5 text-xs">
+								<span>{m.supports_edge_lines({ count: supportsStats.edges })}</span>
+								<span>{m.supports_legend_points({ count: supportsStats.legends })}</span>
+								<span>{m.supports_contacts({ count: supportsStats.contacts })}</span>
+								{#if supportsStats.tipFins > 0}
+									<span>{m.supports_tip_post({ fins: supportsStats.tipFins })}</span>
+								{/if}
+							</div>
+						{/if}
+					</div>
 				{/if}
-			</div>
-		</EngineScene>
-	</div>
+				{#if formatPaintMode}
+					<div
+						class="card preset-filled-primary-500 absolute top-2 left-1/2 flex max-w-[90%] -translate-x-1/2 items-center gap-3 p-2 shadow-md"
+					>
+						<span class="text-sm">{m.format_painter_toast()}</span>
+						<button
+							type="button"
+							class="btn btn-sm preset-filled flex items-center gap-1"
+							onclick={exitFormatPaint}
+						>
+							<X size={16} />
+							{m.format_painter_exit()}
+						</button>
+					</div>
+				{/if}
+				<div
+					class="absolute top-2 right-2 bottom-2 flex flex-col overflow-y-auto {formatPaintMode
+						? 'hidden'
+						: ''}"
+					inert={formatPaintMode}
+				>
+					{#if setData && currentFacade}
+						{@const die = setData.dice!.find((x) => x.id === dieId)}
+						{#if die}
+							<DiceParameters
+								{renderPass}
+								bind:dparams={die.parameters}
+								bind:sparams={die.string_parameters}
+								bind:fparams={die.face_parameters}
+								bind:ordering={die.legend_ordering}
+								bind:nickname={die.nickname}
+								kind={die.kind}
+								builder={currentFacade}
+								legends={setData.legends}
+								landWarning={dieLandWarnings[die.id] ?? false}
+								engravingErrors={dieEngravingErrors[die.id] ?? []}
+								bind:selectMode
+								bind:selectedFace
+								bind:selectedFaces
+								{focusFaceRequest}
+								onChangeSelectedFace={(f) => lookAtFace(f)}
+								onApplyToAll={applyCurrentToAllFaces}
+								onEnterFormatPaint={enterFormatPaint}
+								onSyncFaces={synchroniseSelectedFaces}
+								onEditLegends={editOrCloneLegends}
+								canUndo={history.canUndo}
+								canRedo={history.canRedo}
+								onUndo={doUndo}
+								onRedo={doRedo}
+							/>
+						{/if}
+					{/if}
+				</div>
+			</EngineScene>
+		</div>
 	{/if}
 </Layout>

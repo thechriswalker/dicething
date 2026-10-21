@@ -18,6 +18,7 @@
 import type { DiceParameter, DieFaceModel, DieModel } from '$lib/interfaces/dice';
 import { Transform, previewTilt } from '$lib/utils/3d';
 import { pickForNumber } from '$lib/utils/legends';
+import { computeEdgeDownPrintingTransform } from '$lib/utils/printing';
 import { centerShapes, getBoundingBox } from '$lib/utils/shapes';
 import { Shape, Vector2, Vector3 } from 'three';
 
@@ -289,8 +290,13 @@ function caltropModel(id: string, name: string, style: 'kite' | 'base' | 'custom
 			const H = params.caltrop_height ?? defaultCaltropHeight;
 			const built = style === 'custom' ? buildCustom(H) : buildSegmented(H, style);
 			// a tetrahedron viewed straight at one face is just a flat triangle, so
-			// tilt the preview to show the pointed 3D form.
-			return { ...built, previewTransform: previewTilt() };
+			// tilt the preview to show the pointed 3D form. Rest on an edge for
+			// printing so only two faces need supports (no tip-down apex post).
+			return {
+				...built,
+				previewTransform: previewTilt(),
+				printingTransform: computeEdgeDownPrintingTransform(built.faces)
+			};
 		},
 		// every caltrop face is a whole equilateral triangle, but the segmented
 		// styles model it as three separate faces, so the per-face shape is only a

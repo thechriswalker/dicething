@@ -72,7 +72,7 @@ export const myPreset: Preset = {
 				{
 					kind: 'd10_trapezohedron',
 					parameters: {
-						trapezohedron_radius: 14,
+						trapezohedron_radius: 12.52,
 						trapezohedron_height: 36
 					} as Record<string, number>,
 					face_parameters: [
@@ -91,7 +91,7 @@ export const myPreset: Preset = {
 				{
 					kind: 'd10_trapezohedron',
 					parameters: {
-						trapezohedron_radius: 14,
+						trapezohedron_radius: 12.52,
 						trapezohedron_height: 36
 					} as Record<string, number>,
 					face_parameters: [

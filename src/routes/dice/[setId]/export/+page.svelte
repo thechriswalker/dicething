@@ -14,8 +14,9 @@
 	import { debounce } from '$lib/utils/debounce';
 	import {
 		download,
+		exportDiceCacheSig,
 		exportDieGeometrySig,
-		exportOptionCacheSig,
+		exportGroupCacheSig,
 		exportStlGroupZip,
 		exportStlSingle,
 		exportStlZip,
@@ -28,7 +29,12 @@
 		type NamedMesh,
 		type OptionStates
 	} from '$lib/utils/export';
-	import { defaultValues, extraBuildOptions, isControlVisible } from '$lib/utils/build_options';
+	import {
+		defaultValues,
+		extraBuildOptions,
+		isControlVisible,
+		isMergeOption
+	} from '$lib/utils/build_options';
 	import Collapsible from '$lib/components/collapsible/Collapsible.svelte';
 	import Tooltip from '$lib/components/tooltip/Tooltip.svelte';
 	import { type EngravingError } from '$lib/utils/builder';
@@ -60,11 +66,27 @@
 	let format = $state<ExportFormat>('3mf');
 	let fileLayout = $state<'single' | 'group' | 'object'>('single');
 
+	function initialOptionValues(
+		optionId: string,
+		controls: (typeof extraBuildOptions)[0]['controls']
+	) {
+		const base = defaultValues(controls);
+		if (optionId === 'supports') {
+			// Size prefs only — layer toggles stay at control defaults (all on).
+			const s = getPreferences().supportSettings;
+			const sizes = Object.fromEntries(
+				Object.entries(s).filter(([k]) => k in base && typeof base[k] === 'number')
+			);
+			return { ...base, ...sizes };
+		}
+		return base;
+	}
+
 	let optionStates = $state<OptionStates>(
 		Object.fromEntries(
 			extraBuildOptions.map((o) => [
 				o.id,
-				{ enabled: !!o.defaultEnabled, values: defaultValues(o.controls) }
+				{ enabled: !!o.defaultEnabled, values: initialOptionValues(o.id, o.controls) }
 			])
 		)
 	);
@@ -263,7 +285,7 @@
 			out.push(...entry.groups.dice.meshes);
 		}
 		for (const option of extraBuildOptions) {
-			if (!options[option.id]?.enabled) {
+			if (isMergeOption(option) || !options[option.id]?.enabled) {
 				continue;
 			}
 			const g = entry.groups[option.id];
@@ -284,7 +306,7 @@
 			reports.push(entry.groups.dice.meshReport);
 		}
 		for (const option of extraBuildOptions) {
-			if (!options[option.id]?.enabled) {
+			if (isMergeOption(option) || !options[option.id]?.enabled) {
 				continue;
 			}
 			const g = entry.groups[option.id];
@@ -293,6 +315,22 @@
 			}
 		}
 		return reports.length > 0 ? mergeMeshReports(reports) : undefined;
+	}
+
+	/** Enable merge options that target `group` (e.g. supports → dice/blanks). */
+	function withMergeOptionsFor(
+		group: string,
+		options: OptionStates,
+		base: OptionStates
+	): OptionStates {
+		const out = { ...base };
+		for (const option of extraBuildOptions) {
+			if (!option.mergeInto?.includes(group)) continue;
+			const state = options[option.id];
+			if (!state?.enabled) continue;
+			out[option.id] = { enabled: true, values: state.values };
+		}
+		return out;
 	}
 
 	/** One worker job = one group for one die (dice / blanks / platforms). */
@@ -326,20 +364,22 @@
 	): Array<Pick<ExportBuildJob, 'group' | 'label' | 'includeDice' | 'optionStates'>> {
 		const jobs: Array<Pick<ExportBuildJob, 'group' | 'label' | 'includeDice' | 'optionStates'>> =
 			[];
-		if (wantDice && (!entry?.groups.dice || entry.groups.dice.sig !== dieSig)) {
+		const diceSig = exportDiceCacheSig(dieSig, options);
+		if (wantDice && (!entry?.groups.dice || entry.groups.dice.sig !== diceSig)) {
 			jobs.push({
 				group: 'dice',
 				label: m.export_building_dice(),
 				includeDice: true,
-				optionStates: emptyOptionStates(options)
+				optionStates: withMergeOptionsFor('dice', options, emptyOptionStates(options))
 			});
 		}
 		for (const option of extraBuildOptions) {
+			if (isMergeOption(option)) continue;
 			const state = options[option.id];
 			if (!state?.enabled) {
 				continue;
 			}
-			const sig = exportOptionCacheSig(dieSig, option.id, state.values);
+			const sig = exportGroupCacheSig(dieSig, option.id, state.values, options);
 			const cached = entry?.groups[option.id];
 			if (!cached || cached.sig !== sig) {
 				const optionStates = emptyOptionStates(options);
@@ -348,7 +388,7 @@
 					group: option.id,
 					label: m.export_building_option({ option: option.label() }),
 					includeDice: false,
-					optionStates
+					optionStates: withMergeOptionsFor(option.id, options, optionStates)
 				});
 			}
 		}
@@ -392,13 +432,14 @@
 			const meshes = byGroup.get('dice') ?? [];
 			disposeGroupCache(entry.groups.dice);
 			entry.groups.dice = {
-				sig: dieSig,
+				sig: exportDiceCacheSig(dieSig, requested.optionStates),
 				meshes,
 				meshReport: report,
 				volumeMm3: result.groupVolumesMm3.dice ?? 0
 			};
 		}
 		for (const option of extraBuildOptions) {
+			if (isMergeOption(option)) continue;
 			const state = requested.optionStates[option.id];
 			if (!state?.enabled) {
 				continue;
@@ -406,7 +447,7 @@
 			const meshes = byGroup.get(option.id) ?? [];
 			disposeGroupCache(entry.groups[option.id]);
 			entry.groups[option.id] = {
-				sig: exportOptionCacheSig(dieSig, option.id, state.values),
+				sig: exportGroupCacheSig(dieSig, option.id, state.values, requested.optionStates),
 				meshes,
 				meshReport: report,
 				volumeMm3: result.groupVolumesMm3[option.id] ?? 0
@@ -426,6 +467,11 @@
 			wireframeOn = false;
 		}
 		ctx?.setWireframe(wireframeOn);
+	});
+	$effect(() => {
+		if (!devMode && optionStates.supports?.enabled) {
+			optionStates.supports.enabled = false;
+		}
 	});
 
 	// TEMP tuning panel state. Defaults mirror createFancyRender(). Once good
@@ -538,7 +584,7 @@
 				diceMm3 += entry.groups.dice.volumeMm3;
 			}
 			for (const option of extraBuildOptions) {
-				if (!optionSnap[option.id]?.enabled) {
+				if (isMergeOption(option) || !optionSnap[option.id]?.enabled) {
 					continue;
 				}
 				const g = entry.groups[option.id];
@@ -614,9 +660,7 @@
 			const jobs = [...diceJobs, ...optionJobs];
 
 			// Show whatever is already cached immediately (hide blanks without waiting).
-			const visibleIds = buildingAllForErrors
-				? setData.dice.map((d) => d.id)
-				: selectedIds;
+			const visibleIds = buildingAllForErrors ? setData.dice.map((d) => d.id) : selectedIds;
 			applyPreviewFromCache(optionSnap, includeDice, visibleIds, generation);
 
 			if (jobs.length === 0) {
@@ -674,7 +718,16 @@
 					dieToJSON(job.die),
 					legendsJson,
 					job.includeDice,
-					JSON.stringify(job.optionStates)
+					JSON.stringify(job.optionStates),
+					(p) => {
+						if (generation !== checkGeneration) return;
+						buildProgress = {
+							step: i + 1,
+							totalSteps: jobs.length,
+							phase: 'prepare',
+							label: p.label ?? p.phase ?? job.label
+						};
+					}
 				);
 				if (generation !== checkGeneration) {
 					return;
@@ -698,9 +751,7 @@
 					errs[d.id] = exportMeshCache.get(d.id)?.engravingErrors ?? [];
 				}
 				dieErrors = errs;
-				selectedIds = setData.dice
-					.filter((d) => (errs[d.id]?.length ?? 0) === 0)
-					.map((d) => d.id);
+				selectedIds = setData.dice.filter((d) => (errs[d.id]?.length ?? 0) === 0).map((d) => d.id);
 				errorsInitialized = true;
 				applyPreviewFromCache(optionSnap, includeDice, selectedIds, generation);
 			}
@@ -779,8 +830,12 @@
 		optionStates[optionId].values[controlId] = value;
 	}
 
-	let anyOptionEnabled = $derived(extraBuildOptions.some((o) => optionStates[o.id]?.enabled));
-	let nothingToExport = $derived(selectedIds.length === 0 || (!includeDice && !anyOptionEnabled));
+	let anyStandaloneOptionEnabled = $derived(
+		extraBuildOptions.some((o) => !isMergeOption(o) && optionStates[o.id]?.enabled)
+	);
+	let nothingToExport = $derived(
+		selectedIds.length === 0 || (!includeDice && !anyStandaloneOptionEnabled)
+	);
 
 	// 1 ml = 1 cm³ = 1000 mm³ and the three.js unit is a mm.
 	const volumeFormat = new Intl.NumberFormat(undefined, {
@@ -805,6 +860,7 @@
 			rows.push({ id: 'dice', label: m.export_include_dice(), volume: diceVolumeMl });
 		}
 		for (const option of extraBuildOptions) {
+			if (isMergeOption(option)) continue;
 			const v = artifactVolumesMl[option.id];
 			if (v && v > 0) {
 				rows.push({ id: option.id, label: option.label(), volume: v });
@@ -906,7 +962,8 @@
 						{#snippet children(props)}
 							<Button.Root
 								{...props}
-								class={'btn-icon ' + (fancy ? 'preset-filled-secondary-500' : 'preset-filled-primary-500')}
+								class={'btn-icon ' +
+									(fancy ? 'preset-filled-secondary-500' : 'preset-filled-primary-500')}
 								aria-label={m.export_toggle_fancy_render()}
 								aria-pressed={fancy}
 								onclick={toggleFancy}><Sparkles /></Button.Root
@@ -1206,68 +1263,70 @@
 						<p class="text-surface-600-400 text-xs">{m.export_include_dice_hint()}</p>
 					</div>
 					{#each extraBuildOptions as option}
-						<div class="border-surface-300-700 rounded-md border p-2">
-							<label class="flex items-center justify-between gap-2">
-								<span>{option.label()}</span>
-								<input
-									type="checkbox"
-									class="checkbox"
-									checked={optionStates[option.id].enabled}
-									onchange={(e) => (optionStates[option.id].enabled = e.currentTarget.checked)}
-								/>
-							</label>
-							{#if option.description}
-								<p class="text-surface-600-400 text-xs">{option.description()}</p>
-							{/if}
-							{#if optionStates[option.id].enabled}
-								<div class="mt-2 flex flex-col gap-2">
-									{#each option.controls as control}
-										{#if isControlVisible(control, optionStates[option.id].values)}
-											{#if control.kind === 'number'}
-												<div class="flex flex-col">
-													<span class="flex justify-between text-sm">
-														<span>{control.label()}</span>
-														<span>
-															{optionStates[option.id].values[control.id]}{control.unit
-																? ' ' + control.unit()
-																: ''}
+						{#if option.id !== 'supports' || devMode}
+							<div class="border-surface-300-700 rounded-md border p-2">
+								<label class="flex items-center justify-between gap-2">
+									<span>{option.label()}</span>
+									<input
+										type="checkbox"
+										class="checkbox"
+										checked={optionStates[option.id].enabled}
+										onchange={(e) => (optionStates[option.id].enabled = e.currentTarget.checked)}
+									/>
+								</label>
+								{#if option.description}
+									<p class="text-surface-600-400 text-xs">{option.description()}</p>
+								{/if}
+								{#if optionStates[option.id].enabled}
+									<div class="mt-2 flex flex-col gap-2">
+										{#each option.controls as control}
+											{#if isControlVisible(control, optionStates[option.id].values)}
+												{#if control.kind === 'number'}
+													<div class="flex flex-col">
+														<span class="flex justify-between text-sm">
+															<span>{control.label()}</span>
+															<span>
+																{optionStates[option.id].values[control.id]}{control.unit
+																	? ' ' + control.unit()
+																	: ''}
+															</span>
 														</span>
-													</span>
-													<Slider
-														class="py-1"
-														value={Number(optionStates[option.id].values[control.id])}
-														min={control.min}
-														max={control.max}
-														step={control.step}
-														onChange={(v) => setOptionValue(option.id, control.id, v)}
-													/>
-													{#if control.help}
-														<p class="text-surface-600-400 text-xs">{control.help()}</p>
-													{/if}
-												</div>
-											{/if}
-											{#if control.kind === 'bool'}
-												<div class="flex flex-col">
-													<label class="flex items-center justify-between gap-2 text-sm">
-														<span>{control.label()}</span>
-														<input
-															type="checkbox"
-															class="checkbox"
-															checked={Boolean(optionStates[option.id].values[control.id])}
-															onchange={(e) =>
-																setOptionValue(option.id, control.id, e.currentTarget.checked)}
+														<Slider
+															class="py-1"
+															value={Number(optionStates[option.id].values[control.id])}
+															min={control.min}
+															max={control.max}
+															step={control.step}
+															onChange={(v) => setOptionValue(option.id, control.id, v)}
 														/>
-													</label>
-													{#if control.help}
-														<p class="text-surface-600-400 text-xs">{control.help()}</p>
-													{/if}
-												</div>
+														{#if control.help}
+															<p class="text-surface-600-400 text-xs">{control.help()}</p>
+														{/if}
+													</div>
+												{/if}
+												{#if control.kind === 'bool'}
+													<div class="flex flex-col">
+														<label class="flex items-center justify-between gap-2 text-sm">
+															<span>{control.label()}</span>
+															<input
+																type="checkbox"
+																class="checkbox"
+																checked={Boolean(optionStates[option.id].values[control.id])}
+																onchange={(e) =>
+																	setOptionValue(option.id, control.id, e.currentTarget.checked)}
+															/>
+														</label>
+														{#if control.help}
+															<p class="text-surface-600-400 text-xs">{control.help()}</p>
+														{/if}
+													</div>
+												{/if}
 											{/if}
-										{/if}
-									{/each}
-								</div>
-							{/if}
-						</div>
+										{/each}
+									</div>
+								{/if}
+							</div>
+						{/if}
 					{/each}
 				</div>
 			</Collapsible>

@@ -1,5 +1,10 @@
 import { browser } from '$app/environment';
 import { defaultFont } from '$lib/fonts';
+import {
+	DEFAULT_SUPPORT_SETTINGS,
+	mergeSupportSettings,
+	type SupportSettings
+} from '$lib/utils/supports/types';
 
 // Global, app-wide user preferences. Persisted as a single JSON object under the
 // `dt:prefs` localStorage key. Mirrors the reactive + cross-tab-sync pattern used
@@ -20,13 +25,16 @@ export type Preferences = {
 	// developer/debug mode: enables wireframe + FPS stats on scenes, the raw /
 	// JSON parameter editors, and unfinished features like the box builder.
 	developerMode: boolean;
+	/** Defaults for automatic SLA supports (editor preview + export option). */
+	supportSettings: SupportSettings;
 };
 
 const defaults: Preferences = {
 	defaultEngravingDepth: 0.8,
 	defaultLegendSet: defaultFont.id,
 	defaultEngravingTolerance: 0.5,
-	developerMode: false
+	developerMode: false,
+	supportSettings: { ...DEFAULT_SUPPORT_SETTINGS }
 };
 
 // reactive singleton holding the current preferences.
@@ -43,7 +51,9 @@ function load(): Preferences {
 		}
 		const parsed = JSON.parse(raw) as Partial<Preferences>;
 		// merge over defaults so new keys (added in later versions) fall back cleanly.
-		return { ...defaults, ...parsed };
+		const merged = { ...defaults, ...parsed };
+		merged.supportSettings = mergeSupportSettings(parsed.supportSettings);
+		return merged;
 	} catch {
 		return { ...defaults };
 	}

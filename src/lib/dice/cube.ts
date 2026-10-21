@@ -1,6 +1,8 @@
 import { polyhedron, type PolyhedronFace, type Shaper } from '$lib/utils/polyhedra';
 import { previewTilt } from '$lib/utils/3d';
+import { computeEdgeDownPrintingTransform } from '$lib/utils/printing';
 import { Shape, Vector2, Vector3 } from 'three';
+import type { DieModel } from '$lib/interfaces/dice';
 
 const xAxis = new Vector3(1, 0, 0);
 const yAxis = new Vector3(0, 1, 0);
@@ -29,7 +31,19 @@ const cube_shape: Shaper = (d) => {
 
 // looking dead-on at the "6" face just shows a flat square, so tilt the preview
 // camera up and to the side to reveal the top and one adjacent face (a classic
-// 3/4 view that reads as a cube).
-export const CubeD6 = polyhedron('d6_cube', 'D6 Cube', cube_faces, cube_shape, {
+// 3/4 view that reads as a cube). Rest on an edge for printing so only two faces
+// need supports (no tip-down apex post).
+const cubeBase = polyhedron('d6_cube', 'D6 Cube', cube_faces, cube_shape, {
 	previewTransform: previewTilt()
 });
+
+export const CubeD6: DieModel = {
+	...cubeBase,
+	build(params) {
+		const built = cubeBase.build(params);
+		return {
+			...built,
+			printingTransform: computeEdgeDownPrintingTransform(built.faces)
+		};
+	}
+};

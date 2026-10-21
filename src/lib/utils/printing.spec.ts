@@ -4,15 +4,17 @@ import { CaltropCustomD4 } from '../dice/caltrop';
 import { CoinD2 } from '../dice/coin';
 import { CubeD6 } from '../dice/cube';
 import { IcosahedronD20 } from '../dice/icosahedron';
+import { ShardD4 } from '../dice/shards';
+import { Legend } from './legends';
 import type { DieFaceModel } from '$lib/interfaces/dice';
 import { Transform } from './3d';
 import {
 	PRINT_CLEARANCE_MM,
+	computeEdgeDownPrintingTransform,
 	computeOutlineVertexDownPrintingTransform,
 	computePointDownPrintingTransform
 } from './printing';
 import { Shape } from 'three';
-import { Legend } from './legends';
 
 function minYAfterPrint(faces: ReturnType<typeof CubeD6.build>['faces']): number {
 	const t = computePointDownPrintingTransform(faces);
@@ -59,6 +61,87 @@ describe('computePointDownPrintingTransform', () => {
 		expect(tip.y).toBeCloseTo(PRINT_CLEARANCE_MM, 2);
 		const down = tip.clone().sub(centroid).normalize();
 		expect(down.y).toBeLessThan(-0.99);
+	});
+
+	it('points the d4 shard cap down, not the sharper numbered tip', () => {
+		const { faces } = ShardD4.build({});
+		const t = computePointDownPrintingTransform(faces);
+		// Cap apex: the only vertex whose faces are all blank.
+		const verts = new Map<string, { p: Vector3; blank: boolean }>();
+		faces.forEach((face, fi) => {
+			if (face.hidden) return;
+			for (const p of face.shape.getPoints(4)) {
+				const v = face.transform.applyToVector3(new Vector3(p.x, p.y, 0));
+				const key = `${v.x.toFixed(2)}:${v.y.toFixed(2)}:${v.z.toFixed(2)}`;
+				const rec = verts.get(key) ?? { p: v.clone(), blank: true };
+				if (face.defaultLegend !== Legend.BLANK) rec.blank = false;
+				verts.set(key, rec);
+				void fi;
+			}
+		});
+		const caps = [...verts.values()].filter((v) => v.blank);
+		expect(caps.length).toBeGreaterThan(0);
+		let lowestCap = Infinity;
+		let lowestNumbered = Infinity;
+		for (const v of verts.values()) {
+			const q = v.p.clone();
+			t.applyToVector3(q);
+			if (v.blank) lowestCap = Math.min(lowestCap, q.y);
+			else lowestNumbered = Math.min(lowestNumbered, q.y);
+		}
+		expect(lowestCap).toBeCloseTo(PRINT_CLEARANCE_MM, 1);
+		// The numbered equator sits above the blank cap. The cap itself is only a
+		// few millimetres tall, so the gap is small, but the numbered tip is not
+		// the point on the plate.
+		expect(lowestNumbered).toBeGreaterThan(lowestCap + 2);
+	});
+});
+
+describe('computeEdgeDownPrintingTransform', () => {
+	function printVerts(faces: ReturnType<typeof CubeD6.build>['faces'], t: Transform) {
+		const verts: Array<Vector3> = [];
+		const seen = new Set<string>();
+		for (const face of faces) {
+			for (const p of face.shape.getPoints(4)) {
+				const v = face.transform.applyToVector3(new Vector3(p.x, p.y, 0));
+				t.applyToVector3(v);
+				const key = `${v.x.toFixed(3)}:${v.y.toFixed(3)}:${v.z.toFixed(3)}`;
+				if (seen.has(key)) continue;
+				seen.add(key);
+				verts.push(v);
+			}
+		}
+		return verts;
+	}
+
+	it('rests a cube on an edge (two vertices at the plate)', () => {
+		const { faces, printingTransform } = CubeD6.build({ polyhedron_size: 16 });
+		expect(printingTransform).toBeDefined();
+		const verts = printVerts(faces, printingTransform!);
+		verts.sort((a, b) => a.y - b.y);
+		expect(verts[0].y).toBeCloseTo(PRINT_CLEARANCE_MM, 2);
+		expect(verts[1].y).toBeCloseTo(PRINT_CLEARANCE_MM, 2);
+		expect(verts[2].y - verts[0].y).toBeGreaterThan(1);
+		// Resting edge is horizontal.
+		expect(Math.abs(verts[0].y - verts[1].y)).toBeLessThan(0.05);
+	});
+
+	it('rests a tetrahedron on an edge (two vertices at the plate)', () => {
+		const { faces, printingTransform } = CaltropCustomD4.build({});
+		expect(printingTransform).toBeDefined();
+		const verts = printVerts(faces, printingTransform!);
+		verts.sort((a, b) => a.y - b.y);
+		expect(verts[0].y).toBeCloseTo(PRINT_CLEARANCE_MM, 2);
+		expect(verts[1].y).toBeCloseTo(PRINT_CLEARANCE_MM, 2);
+		expect(verts[2].y - verts[0].y).toBeGreaterThan(1);
+	});
+
+	it('lifts edge-down dice to the clearance height', () => {
+		const { faces } = CubeD6.build({ polyhedron_size: 16 });
+		const t = computeEdgeDownPrintingTransform(faces);
+		const verts = printVerts(faces, t);
+		const minY = Math.min(...verts.map((v) => v.y));
+		expect(minY).toBeCloseTo(PRINT_CLEARANCE_MM, 2);
 	});
 });
 

@@ -1,4 +1,4 @@
-import { Box3, Mesh, Vector2, Vector3 } from 'three';
+import { Box3, Mesh, MeshNormalMaterial, Vector2, Vector3 } from 'three';
 import { zipSync, type Zippable } from 'fflate';
 import dice from '$lib/dice';
 import type { DieFaceModel } from '$lib/interfaces/dice';
@@ -7,11 +7,19 @@ import { Builder } from './builder';
 import { applyOrderingToFaces } from '$lib/utils/legend_orderings';
 import { migrateLegacyDice } from '$lib/utils/die_migrate';
 import { Legend, loadMutableLegends, type LegendSet, type SerialisedLegendSet } from './legends';
-import { extraBuildOptions, type OptionValues } from './build_options';
+import { extraBuildOptions, isMergeOption, type OptionValues } from './build_options';
 import { blanks, isBuiltin, loadBuiltinById } from '$lib/fonts';
 import { uuid } from './uuid';
 import type { Manifold } from './manifold';
-import { geometryToIndexedMesh, manifoldToIndexedMesh, type IndexedMesh } from './manifold';
+import {
+	cloneManifold,
+	deleteAll,
+	geometryToIndexedMesh,
+	manifold,
+	manifoldToGeometry,
+	manifoldToIndexedMesh,
+	type IndexedMesh
+} from './manifold';
 import {
 	checkIndexedMesh,
 	checkMesh,
@@ -19,6 +27,8 @@ import {
 	type MeshCheckReport
 } from './mesh_check';
 import { toNonIndexed } from './3d';
+
+const _exportMergeMaterial = new MeshNormalMaterial();
 import {
 	buildThreeMf,
 	buildThreeMfGrouped,
@@ -80,6 +90,10 @@ export type BuildExportMeshesArgs = {
 	includeDice?: boolean;
 	// per build-option state keyed by option id.
 	optionStates?: OptionStates;
+	/** Progress from long-running build options (e.g. supports). */
+	onProgress?: (phase: string, fraction?: number, label?: string) => void;
+	/** Cooperative cancel for long-running build options. */
+	isCancelled?: () => boolean;
 };
 
 // Build the merged, print-ready mesh for every selected die plus any artifacts
@@ -126,12 +140,63 @@ export function exportOptionCacheSig(
 	return JSON.stringify({ dieSig, optionId, values });
 }
 
+/** Cache key for the numbered-die group, folding in any enabled merge options. */
+export function exportDiceCacheSig(dieSig: string, optionStates: OptionStates): string {
+	const merge = mergeValuesForTarget('dice', optionStates);
+	if (!merge) return dieSig;
+	return JSON.stringify({ dieSig, merge });
+}
+
+/**
+ * Cache key for a standalone build-option group, folding in merge options that
+ * target it (e.g. supports → blanks).
+ */
+export function exportGroupCacheSig(
+	dieSig: string,
+	optionId: string,
+	values: OptionValues,
+	optionStates: OptionStates
+): string {
+	const base = exportOptionCacheSig(dieSig, optionId, values);
+	const merge = mergeValuesForTarget(optionId, optionStates);
+	if (!merge) return base;
+	return JSON.stringify({ base, merge });
+}
+
+function mergeValuesForTarget(
+	target: string,
+	optionStates: OptionStates
+): Record<string, OptionValues> | undefined {
+	const out: Record<string, OptionValues> = {};
+	for (const option of extraBuildOptions) {
+		if (!option.mergeInto?.includes(target)) continue;
+		const state = optionStates[option.id];
+		if (!state?.enabled) continue;
+		out[option.id] = state.values;
+	}
+	return Object.keys(out).length > 0 ? out : undefined;
+}
+
+/** Union `extra` into `base`, deleting both inputs. Returns the combined solid. */
+function unionManifoldsOwned(base: Manifold, extra: Manifold): Manifold {
+	const u = manifold().Manifold.union([base, extra]);
+	deleteAll(base, extra);
+	return u;
+}
+
+function meshFromManifold(man: Manifold): Mesh {
+	return new Mesh(manifoldToGeometry(man), _exportMergeMaterial);
+}
+
 // Build export meshes for one die. Geometries are at the die origin (not laid out).
 export function buildExportMeshesForDie(
 	set: DiceSet,
 	die: Dice,
 	idx: number,
-	args: Pick<BuildExportMeshesArgs, 'includeDice' | 'optionStates'> & {
+	args: Pick<
+		BuildExportMeshesArgs,
+		'includeDice' | 'optionStates' | 'onProgress' | 'isCancelled'
+	> & {
 		builders?: Map<string, Builder>;
 	} = {}
 ): Array<NamedMesh> {
@@ -147,6 +212,56 @@ export function buildExportMeshesForDie(
 		args.builders?.set(die.id, builder);
 	}
 
+	// Merge options (e.g. supports) produce solids that are unioned into dice /
+	// blanks rather than exported as their own files. Build each once.
+	const mergeSolids = new Map<string, Manifold>();
+	for (const option of extraBuildOptions) {
+		if (!isMergeOption(option)) continue;
+		const state = optionStates[option.id];
+		if (!state?.enabled) continue;
+		builder.build(
+			die.parameters,
+			die.face_parameters,
+			{ explode: false, ordering: die.legend_ordering },
+			die.string_parameters ?? {}
+		);
+		const artifacts = option.generate({
+			die,
+			model,
+			builder,
+			legends: set.legends,
+			values: state.values,
+			onProgress: args.onProgress,
+			isCancelled: args.isCancelled
+		});
+		const parts = artifacts.map((a) => a.manifold).filter((m): m is Manifold => !!m);
+		for (const a of artifacts) {
+			if (!a.manifold) a.mesh.geometry.dispose();
+		}
+		if (parts.length === 0) continue;
+		let solid = parts[0];
+		for (let i = 1; i < parts.length; i++) {
+			solid = unionManifoldsOwned(solid, parts[i]);
+		}
+		mergeSolids.set(option.id, solid);
+	}
+
+	const targetHasMerge = (target: string) =>
+		extraBuildOptions.some(
+			(o) => o.mergeInto?.includes(target) && mergeSolids.has(o.id)
+		);
+
+	const mergeIntoTarget = (target: string, host: Manifold): Manifold => {
+		let result = host;
+		for (const option of extraBuildOptions) {
+			if (!option.mergeInto?.includes(target)) continue;
+			const solid = mergeSolids.get(option.id);
+			if (!solid) continue;
+			result = unionManifoldsOwned(result, cloneManifold(solid));
+		}
+		return result;
+	};
+
 	if (includeDice) {
 		const mainMesh = builder.export(
 			die.parameters,
@@ -155,16 +270,29 @@ export function buildExportMeshesForDie(
 			die.legend_ordering
 		);
 		const mainManifold = builder.takeExportManifold();
-		out.push({
-			name: baseName,
-			mesh: mainMesh,
-			dieId: die.id,
-			group: 'dice',
-			manifold: mainManifold
-		});
+		if (mainManifold && targetHasMerge('dice')) {
+			const merged = mergeIntoTarget('dice', mainManifold);
+			mainMesh.geometry.dispose();
+			out.push({
+				name: baseName,
+				mesh: meshFromManifold(merged),
+				dieId: die.id,
+				group: 'dice',
+				manifold: merged
+			});
+		} else {
+			out.push({
+				name: baseName,
+				mesh: mainMesh,
+				dieId: die.id,
+				group: 'dice',
+				manifold: mainManifold
+			});
+		}
 	}
 
 	for (const option of extraBuildOptions) {
+		if (isMergeOption(option)) continue;
 		const state = optionStates[option.id];
 		if (!state?.enabled) {
 			continue;
@@ -180,17 +308,35 @@ export function buildExportMeshesForDie(
 			model,
 			builder,
 			legends: set.legends,
-			values: state.values
+			values: state.values,
+			onProgress: args.onProgress,
+			isCancelled: args.isCancelled
 		});
 		for (const artifact of artifacts) {
-			out.push({
-				name: `${baseName}_${artifact.suffix}`,
-				mesh: artifact.mesh,
-				dieId: die.id,
-				group: option.id,
-				manifold: artifact.manifold
-			});
+			if (artifact.manifold && targetHasMerge(option.id)) {
+				const merged = mergeIntoTarget(option.id, artifact.manifold);
+				artifact.mesh.geometry.dispose();
+				out.push({
+					name: `${baseName}_${artifact.suffix}`,
+					mesh: meshFromManifold(merged),
+					dieId: die.id,
+					group: option.id,
+					manifold: merged
+				});
+			} else {
+				out.push({
+					name: `${baseName}_${artifact.suffix}`,
+					mesh: artifact.mesh,
+					dieId: die.id,
+					group: option.id,
+					manifold: artifact.manifold
+				});
+			}
 		}
+	}
+
+	for (const solid of mergeSolids.values()) {
+		solid.delete();
 	}
 
 	return out;

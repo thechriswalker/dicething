@@ -266,8 +266,10 @@ function build(defaultParameters: Record<string, number>): DieModel['build'] {
 
 		stackedExplode(faces);
 
+		// Cross-section is an irregular hexagon: each large face is parallel to the
+		// opposite bevel, so planar face-to-face is d + r (not 2d).
 		return {
-			faceToFaceDistance: d * 2,
+			faceToFaceDistance: d + r,
 			printingTransform,
 			faces
 		};

@@ -35,7 +35,7 @@ export const classic: Preset = {
 				},
 				{
 					kind: 'd10_trapezohedron',
-					parameters: { trapezohedron_radius: 11, trapezohedron_height: 22 } as Record<
+					parameters: { trapezohedron_radius: 9.84, trapezohedron_height: 22 } as Record<
 						string,
 						number
 					>,
@@ -43,7 +43,7 @@ export const classic: Preset = {
 				},
 				{
 					kind: 'd10_trapezohedron',
-					parameters: { trapezohedron_radius: 11, trapezohedron_height: 22 } as Record<
+					parameters: { trapezohedron_radius: 9.84, trapezohedron_height: 22 } as Record<
 						string,
 						number
 					>,

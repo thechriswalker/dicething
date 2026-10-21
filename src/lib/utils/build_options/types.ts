@@ -42,6 +42,10 @@ export type ExtraBuildContext = {
 	builder: Builder; // already built for this die; exposes getFaces(), getFace2FaceDistance()
 	legends: LegendSet;
 	values: OptionValues; // values for THIS option's controls (see `controls`)
+	/** Optional progress callback (worker / long-running options like supports). */
+	onProgress?: (phase: string, fraction?: number, label?: string) => void;
+	/** Optional cooperative cancel check. */
+	isCancelled?: () => boolean;
 };
 
 // One artifact produced for a single die. `suffix` is appended to the die's
@@ -58,10 +62,21 @@ export type ExtraBuildOption = {
 	description?: () => string;
 	defaultEnabled?: boolean;
 	controls: Array<OptionControl>;
+	/**
+	 * When set, this option does not export its own files. Its solids are
+	 * boolean-unioned into the listed groups instead (`'dice'` = numbered die,
+	 * otherwise another option id such as `'blanks'`).
+	 */
+	mergeInto?: ReadonlyArray<string>;
 	// produce zero or more extra meshes for one die. an empty array means this
 	// option contributes nothing for the given die.
 	generate(ctx: ExtraBuildContext): Array<BuildArtifact>;
 };
+
+/** True when the option only modifies other groups (no standalone export files). */
+export function isMergeOption(option: ExtraBuildOption): boolean {
+	return (option.mergeInto?.length ?? 0) > 0;
+}
 
 // Helper: resolve a control's value from a values bag, falling back to default.
 export function controlValue(controls: Array<OptionControl>, values: OptionValues, id: string) {

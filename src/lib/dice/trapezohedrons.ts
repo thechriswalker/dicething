@@ -29,8 +29,22 @@ import { Plane, Ray, Vector3, type Camera } from 'three';
 // I definitely want to parameterise this, as the number placement is deterministic,
 // and the shapes are all defined by the number of sides on the die.
 
+// `trapezohedron_radius` is the cylindrical radius of each kite's outer vertices
+// (distance from the spin axis to the bottom tip of a kite, and to the two side
+// vertices - they share one radius). The dual-pyramid construction below uses a
+// larger *generating* equatorial radius; for the twisted (kite) case that scales
+// as r_gen = r * (1 + cos α) / (2 cos α) with α = π / (sides/2). Untwisted
+// (triangular) builds land their equator vertices on the parameter directly.
+
 const defaultTrapezohderonRadius = 16;
 const defaultTrapezohderonHeight = 28;
+
+/** Generating-equator / axial-vertex radius ratio for a twisted n/2-gonal half. */
+function twistedGeneratingRadius(axialRadius: number, halfSides: number): number {
+	const alpha = Math.PI / halfSides;
+	const c = Math.cos(alpha);
+	return (axialRadius * (1 + c)) / (2 * c);
+}
 
 const trapezohedronParameters: Array<DiceParameter> = [
 	{
@@ -83,7 +97,10 @@ function trapezohedron(
 		},
 		build(params) {
 			const h = (params.trapezohedron_height ?? defaultTrapezohderonHeight) / 2;
-			const r = params.trapezohedron_radius ?? defaultTrapezohderonRadius;
+			const axialR = params.trapezohedron_radius ?? defaultTrapezohderonRadius;
+			// twisted intersection pulls the kite vertices inward of the generating
+			// equator; scale so the user-facing radius matches the axial distance.
+			const r = isTwisted ? twistedGeneratingRadius(axialR, halfSides) : axialR;
 
 			// the top and bottom vertices are easy
 			const top = new Vector3(0, h, 0);
@@ -158,8 +175,11 @@ function trapezohedron(
 			const explodes = gridExplode(faces.map((f) => f.shape));
 			faces.forEach((f, i) => (f.explodeTransform = explodes[i]));
 
+			// opposite faces are parallel; face-to-face is twice the plane distance
+			// from the origin. `|offset|` (centroid length) is wrong for kite faces
+			// whose centroid does not lie on the normal through the centre.
 			return {
-				faceToFaceDistance: info.offset.length() * 2,
+				faceToFaceDistance: Math.abs(info.normal.dot(info.offset)) * 2,
 				faces,
 				previewTransform
 			};

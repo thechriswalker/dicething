@@ -27,6 +27,26 @@ import { checkMesh, mergeMeshReports } from './mesh_check';
 import { engravingErrorsForBuilder } from './builder';
 import type { LegendSet } from './legends';
 import type { DiceSet } from '$lib/interfaces/storage.svelte';
+import { Group } from 'three';
+import {
+	assembleBlankExportShellGeometry,
+	getOrBuildBlankManifold,
+	transformToMat4
+} from './die_manifold';
+import {
+	buildSupportsManifold,
+	computeSupportRegions,
+	DEFAULT_SUPPORT_LAYER_VISIBILITY,
+	filterSupportRegions,
+	mergeSupportSettings,
+	orientFaceLegendShapes,
+	sampleSupportContacts,
+	SupportCancelledError,
+	type SupportCancelToken,
+	type SupportLayerVisibility,
+	type SupportRegions
+} from './supports';
+import { buildPlacementOverlay, disposeOverlayGroup } from './supports/placement';
 
 const builders = new Map<string, Builder>();
 let viewport: EngineViewport | undefined;
@@ -46,6 +66,16 @@ let currentSet: DiceSet | undefined;
 // Used to avoid running expensive geometry builds for stale queued requests.
 const latestBuildGenerationByDieId = new Map<string, number>();
 
+// Supports preview state (print-pose overlay on the active die).
+let supportsPreviewEnabled = false;
+let supportsOverlay: Group | undefined;
+let latestSupportsGeneration = 0;
+let supportsCancel: SupportCancelToken = { cancelled: false };
+let cachedSupportRegions: SupportRegions | undefined;
+/** Region cache key: die id + settings that affect placement (not pillar/cone sizes). */
+let cachedSupportsRegionKey = '';
+let latestExportGeneration = 0;
+
 function post(
 	msg: EngineResponse | { type: 'selection'; state: EngineSelectionState },
 	transfer?: Transferable[]
@@ -63,10 +93,21 @@ function ensureBuilder(die: Dice, legends: LegendSet): Builder {
 }
 
 function setActiveDieId(dieId: string) {
+	if (dieId !== activeDieId) {
+		// Drop stale supports immediately so the previous die's overlay does not
+		// linger while the next die's regions rebuild.
+		clearSupportsOverlay();
+		cachedSupportRegions = undefined;
+		cachedSupportsRegionKey = '';
+		supportsCancel.cancelled = true;
+	}
 	activeDieId = dieId;
 	const builder = builders.get(dieId);
 	if (builder && viewport) {
 		mountActiveDie(builder, dieId);
+		// Keep print-pose in sync with the supports flag (pose can otherwise
+		// linger after a cancelled rebuild and leave the die off-camera).
+		setDicePrintPose(supportsPreviewEnabled);
 	}
 }
 
@@ -131,12 +172,221 @@ function runBuild(
 		{ explode, ordering: die.legend_ordering },
 		die.string_parameters ?? {}
 	);
+	// Die geometry changed — region cache is stale.
+	cachedSupportRegions = undefined;
+	cachedSupportsRegionKey = '';
 	const metadata = metadataFromBuilder(builder, die.id, generation);
 	post({ reqId, type: 'buildDone', metadata });
 	if (mountViewport || die.id === activeDieId) {
 		activeDieId = die.id;
 		mountActiveDie(builder, die.id);
+		// Always sync pose: if supports were cancelled mid-build the die can be
+		// left in print orientation while the camera still aims at model space.
+		applySupportsPreviewVisibility();
 	}
+}
+
+function postProgress(reqId: number, phase: string, fraction?: number, label?: string) {
+	post({ reqId, type: 'progress', progress: { phase, label, fraction } });
+}
+
+function clearSupportsOverlay() {
+	if (supportsOverlay && viewport) {
+		viewport.scene.remove(supportsOverlay);
+		disposeOverlayGroup(supportsOverlay);
+		supportsOverlay = undefined;
+	}
+}
+
+function setDicePrintPose(on: boolean) {
+	if (!activeBuilder) {
+		return;
+	}
+	const g = activeBuilder.diceGroup;
+	if (on) {
+		g.matrixAutoUpdate = false;
+		g.matrix.fromArray(transformToMat4(activeBuilder.getPrintingTransform()));
+		g.updateMatrixWorld(true);
+	} else {
+		g.matrix.identity();
+		g.matrixAutoUpdate = true;
+		g.updateMatrixWorld(true);
+	}
+}
+
+function applySupportsPreviewVisibility() {
+	if (!viewport) {
+		return;
+	}
+	setDicePrintPose(supportsPreviewEnabled);
+	if (!supportsPreviewEnabled) {
+		clearSupportsOverlay();
+	} else if (supportsOverlay && supportsOverlay.parent !== viewport.scene) {
+		viewport.scene.add(supportsOverlay);
+	}
+	viewport.composer.render();
+}
+
+/** Let the worker animation loop paint between heavy support steps. */
+function yieldToRenderer(): Promise<void> {
+	return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+async function runBuildSupports(
+	reqId: number,
+	settingsJson: string,
+	mode: 'placement' | 'solid',
+	generation: number,
+	layersJson?: string
+) {
+	if (!activeBuilder || !currentSet) {
+		throw new Error('no active die');
+	}
+	// Remove the previous overlay up front so a slow rebuild never leaves the
+	// wrong die's supports on screen.
+	clearSupportsOverlay();
+	await yieldToRenderer();
+	if (generation !== latestSupportsGeneration) {
+		post({
+			reqId,
+			type: 'supportsResult',
+			result: {
+				generation,
+				mode,
+				edgeLineCount: 0,
+				legendPointCount: 0,
+				contactCount: 0,
+				tipPostFinCount: 0
+			}
+		});
+		return;
+	}
+
+	supportsCancel = { cancelled: false };
+	const settings = mergeSupportSettings(JSON.parse(settingsJson));
+	const builder = activeBuilder;
+	const faces = builder.getFaces();
+	const printT = builder.getPrintingTransform();
+	const die = currentSet.dice.find((d) => d.id === activeDieId);
+	if (!die) {
+		throw new Error('active die missing from set');
+	}
+
+	const faceShapes = orientFaceLegendShapes(
+		faces,
+		die.face_parameters,
+		currentSet.legends,
+		(l) => builder.getDefaultScaleForLegend(l)
+	);
+
+	// Placement regions depend on inset + tip nudge, not pillar/cone/raft sizes.
+	const regionKey = JSON.stringify({
+		dieId: activeDieId,
+		edgeInsetMm: settings.edgeInsetMm,
+		sphereDiameterMm: settings.sphereDiameterMm,
+		edgeSpacingMm: settings.edgeSpacingMm,
+		legendSpacingMm: settings.legendSpacingMm,
+		faceMinAngleDeg: settings.faceMinAngleDeg,
+		// Bump when edge-selection policy changes so stale region caches die.
+		edgePolicy: 'host-face-v1',
+		legendPolicy: 'contour-spaced-v1'
+	});
+	let regions = cachedSupportRegions;
+	if (!regions || cachedSupportsRegionKey !== regionKey) {
+		regions = computeSupportRegions(faces, printT, faceShapes, settings, {
+			cancel: supportsCancel,
+			onProgress: (phase, frac, label) => {
+				if (generation !== latestSupportsGeneration) {
+					supportsCancel.cancelled = true;
+				}
+				postProgress(reqId, phase, frac, label);
+			}
+		});
+		if (generation !== latestSupportsGeneration || supportsCancel.cancelled) {
+			throw new SupportCancelledError();
+		}
+		cachedSupportRegions = regions;
+		cachedSupportsRegionKey = regionKey;
+	}
+
+	await yieldToRenderer();
+	if (generation !== latestSupportsGeneration || supportsCancel.cancelled) {
+		throw new SupportCancelledError();
+	}
+
+	let layers: SupportLayerVisibility = DEFAULT_SUPPORT_LAYER_VISIBILITY;
+	if (layersJson) {
+		try {
+			layers = { ...DEFAULT_SUPPORT_LAYER_VISIBILITY, ...JSON.parse(layersJson) };
+		} catch {
+			/* keep defaults */
+		}
+	}
+	// Filter after cache so toggling layers does not recompute regions.
+	const visible = filterSupportRegions(regions, layers);
+
+	supportsPreviewEnabled = true;
+	setDicePrintPose(true);
+
+	let contactCount = 0;
+	if (mode === 'placement') {
+		const overlay = buildPlacementOverlay(visible, settings);
+		supportsOverlay = overlay;
+		viewport?.scene.add(overlay);
+		contactCount = sampleSupportContacts(visible, settings).length;
+	} else {
+		const params = builder.getLastDieParams();
+		const stringParams = builder.getLastStringParams();
+		const shell = assembleBlankExportShellGeometry([...faces]);
+		const blank = getOrBuildBlankManifold(builder.model.id, [...faces], params, stringParams, {
+			source: 'export',
+			exportGeometry: shell
+		});
+		shell.dispose();
+		const diePrint = blank.manifold.transform(transformToMat4(printT));
+		try {
+			const built = buildSupportsManifold(visible, settings, diePrint, {
+				cancel: supportsCancel,
+				onProgress: (phase, frac, label) => {
+					if (generation !== latestSupportsGeneration) {
+						supportsCancel.cancelled = true;
+					}
+					postProgress(reqId, phase, frac, label);
+				}
+			});
+			if (generation !== latestSupportsGeneration || supportsCancel.cancelled) {
+				built?.manifold.delete();
+				built?.mesh.geometry.dispose();
+				throw new SupportCancelledError();
+			}
+			if (built) {
+				contactCount = built.contactCount;
+				const overlay = new Group();
+				overlay.name = 'supports-solid';
+				overlay.add(built.mesh);
+				supportsOverlay = overlay;
+				viewport?.scene.add(overlay);
+				// Manifold kept only for volume; preview uses the mesh. Free WASM now.
+				built.manifold.delete();
+			}
+		} finally {
+			diePrint.delete();
+		}
+	}
+
+	viewport?.composer.render();
+	post({
+		reqId,
+		type: 'supportsResult',
+		result: {
+			generation,
+			mode,
+			edgeLineCount: visible.edgeLines.length,
+			legendPointCount: visible.legendPoints.length,
+			contactCount,
+			tipPostFinCount: visible.tipPost?.edgeDirs.length ?? 0
+		}
+	});
 }
 
 async function hydrateSet(setJson: string, legendsJson: string): Promise<DiceSet> {
@@ -291,10 +541,13 @@ async function handleRequest(msg: EngineRequest) {
 				const set: DiceSet = { ...currentSet, legends };
 				const idx = set.dice.findIndex((d) => d.id === die.id);
 				const optionStates = JSON.parse(msg.optionStatesJson);
+				const exportGen = latestExportGeneration;
 				const named = buildExportMeshesForDie(set, die, idx >= 0 ? idx : 0, {
 					includeDice: msg.includeDice,
 					optionStates,
-					builders
+					builders,
+					onProgress: (phase, frac, label) => postProgress(reqId, phase, frac, label),
+					isCancelled: () => exportGen !== latestExportGeneration
 				});
 				const engravingErrors = engravingErrorsForBuilder(
 					builders.get(die.id) ?? ensureBuilder(die, legends),
@@ -351,6 +604,61 @@ async function handleRequest(msg: EngineRequest) {
 				post({ reqId, type: 'meshCheckResult', report });
 				break;
 			}
+			case 'buildSupports': {
+				try {
+					await runBuildSupports(
+						reqId,
+						msg.settingsJson,
+						msg.mode,
+						msg.generation,
+						msg.layersJson
+					);
+				} catch (e) {
+					if (e instanceof SupportCancelledError) {
+						post({
+							reqId,
+							type: 'supportsResult',
+							result: {
+								generation: msg.generation,
+								mode: msg.mode,
+								edgeLineCount: 0,
+								legendPointCount: 0,
+								contactCount: 0,
+								tipPostFinCount: 0
+							}
+						});
+					} else {
+						throw e;
+					}
+				}
+				break;
+			}
+			case 'cancelSupports': {
+				latestSupportsGeneration = Math.max(latestSupportsGeneration, msg.generation);
+				supportsCancel.cancelled = true;
+				post({ reqId, type: 'ok' });
+				break;
+			}
+			case 'setSupportsPreview': {
+				supportsPreviewEnabled = msg.enabled;
+				if (!msg.enabled) {
+					clearSupportsOverlay();
+					cachedSupportRegions = undefined;
+					cachedSupportsRegionKey = '';
+				}
+				applySupportsPreviewVisibility();
+				post({ reqId, type: 'ok' });
+				break;
+			}
+			case 'clearSupportsPreview': {
+				supportsPreviewEnabled = false;
+				clearSupportsOverlay();
+				cachedSupportRegions = undefined;
+				cachedSupportsRegionKey = '';
+				applySupportsPreviewVisibility();
+				post({ reqId, type: 'ok' });
+				break;
+			}
 			default:
 				post({ reqId, type: 'error', error: `unknown kind ${(msg as EngineRequest).kind}` });
 		}
@@ -392,9 +700,13 @@ function requestPriority(msg: EngineRequest): number {
 		case 'setFancy':
 		case 'setWireframe':
 		case 'setLegendAreaVisible':
+		case 'setSupportsPreview':
+		case 'clearSupportsPreview':
+		case 'cancelSupports':
 			return 15;
 		case 'exportDie':
 		case 'meshCheck':
+		case 'buildSupports':
 			return 16;
 		default:
 			return 20;
@@ -432,6 +744,17 @@ self.onmessage = (event: MessageEvent<EngineRequest>) => {
 	const msg = event.data;
 	if (msg.kind === 'buildDie' || msg.kind === 'patchDie') {
 		latestBuildGenerationByDieId.set(msg.dieId, msg.generation);
+	}
+	if (msg.kind === 'buildSupports') {
+		latestSupportsGeneration = msg.generation;
+		supportsCancel.cancelled = false;
+	}
+	if (msg.kind === 'cancelSupports') {
+		latestSupportsGeneration = Math.max(latestSupportsGeneration, msg.generation);
+		supportsCancel.cancelled = true;
+	}
+	if (msg.kind === 'exportDie') {
+		latestExportGeneration += 1;
 	}
 	pending.push({ msg, seq: enqueueSeq++ });
 	engineTrace('worker:queued', {

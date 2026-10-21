@@ -118,7 +118,11 @@ export type EngineRequestKind =
 	| 'setOutline'
 	| 'setBackground'
 	| 'exportDie'
-	| 'meshCheck';
+	| 'meshCheck'
+	| 'buildSupports'
+	| 'cancelSupports'
+	| 'setSupportsPreview'
+	| 'clearSupportsPreview';
 
 export type EngineRequest = {
 	reqId: number;
@@ -175,6 +179,20 @@ export type EngineRequest = {
 			optionStatesJson: string;
 	  }
 	| { kind: 'meshCheck'; positions: Float32Array; collectBad?: boolean }
+	| {
+			kind: 'buildSupports';
+			settingsJson: string;
+			mode: 'placement' | 'solid';
+			generation: number;
+			/** Preview-only layer mask (dev toggles). Omitted ⇒ all layers on. */
+			layersJson?: string;
+	  }
+	| { kind: 'cancelSupports'; generation: number }
+	| {
+			kind: 'setSupportsPreview';
+			enabled: boolean;
+	  }
+	| { kind: 'clearSupportsPreview' }
 );
 
 // --- Responses (worker → main) --------------------------------------------------
@@ -183,6 +201,16 @@ export type EngineProgress = {
 	phase: string;
 	label?: string;
 	fraction?: number;
+};
+
+export type SupportsBuildResult = {
+	generation: number;
+	mode: 'placement' | 'solid';
+	edgeLineCount: number;
+	legendPointCount: number;
+	contactCount: number;
+	/** Number of tip-post fins (0 if no tip post). */
+	tipPostFinCount: number;
 };
 
 export type EngineResponse =
@@ -202,6 +230,7 @@ export type EngineResponse =
 			groupVolumesMm3: Record<string, number>;
 	  }
 	| { reqId: number; type: 'meshCheckResult'; report: MeshCheckReport }
+	| { reqId: number; type: 'supportsResult'; result: SupportsBuildResult }
 	| { reqId: number; type: 'ok' }
 	| { reqId: number; type: 'error'; error: string };
 

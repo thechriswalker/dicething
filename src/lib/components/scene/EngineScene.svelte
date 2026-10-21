@@ -57,9 +57,35 @@
 
 	onMount(() => {
 		const dpr = window.devicePixelRatio || 1;
+		// Flex % height is often still 0 in onMount. A 0×0 / 1×1 drawing buffer
+		// leaves a blank OffscreenCanvas until something forces a resize (DevTools
+		// open is a common trigger). Match scene.ts: start tiny, then poll + RO.
 		const w = Math.max(1, outerEl.clientWidth);
 		const h = Math.max(1, outerEl.clientHeight);
 		let disposed = false;
+		let sizeTries = 0;
+		let resizeObserver: ResizeObserver | undefined;
+		let sizeRaf = 0;
+
+		const pushSize = (): boolean => {
+			const rw = outerEl.clientWidth;
+			const rh = outerEl.clientHeight;
+			if (rw < 1 || rh < 1) {
+				return false;
+			}
+			void resizeEngineViewport(rw, rh, window.devicePixelRatio || 1);
+			return true;
+		};
+
+		const trySize = () => {
+			if (disposed) {
+				return;
+			}
+			if (pushSize() || ++sizeTries > 120) {
+				return;
+			}
+			sizeRaf = requestAnimationFrame(trySize);
+		};
 
 		const viewportSpan = engineTraceSpan('initViewport');
 		void attachEngineViewport(canvasEl, w, h, dpr, bgColor)
@@ -72,15 +98,12 @@
 				// are intrinsic sizing (and can't be cleared after transferControlToOffscreen),
 				// so without min-h-0 on this element a grow flex child refuses to shrink and
 				// this observer never sees a smaller size.
-				const resizeObserver = new ResizeObserver((entries) => {
-					const entry = entries[0];
-					const rw = entry?.contentRect.width ?? outerEl.clientWidth;
-					const rh = entry?.contentRect.height ?? outerEl.clientHeight;
-					if (rw >= 1 && rh >= 1) {
-						void resizeEngineViewport(rw, rh, window.devicePixelRatio || 1);
-					}
+				resizeObserver = new ResizeObserver(() => {
+					pushSize();
 				});
 				resizeObserver.observe(outerEl);
+				// Keep trying briefly after mount until layout gives us real pixels.
+				sizeRaf = requestAnimationFrame(trySize);
 
 				const unsubSelection = onEngineSelection((state) => {
 					onSelection?.({
@@ -101,7 +124,8 @@
 					},
 					dispose() {
 						unsubSelection();
-						resizeObserver.disconnect();
+						resizeObserver?.disconnect();
+						cancelAnimationFrame(sizeRaf);
 						void detachEngineViewport();
 					}
 				};
@@ -114,6 +138,7 @@
 
 		return () => {
 			disposed = true;
+			cancelAnimationFrame(sizeRaf);
 			handle?.dispose();
 		};
 	});
