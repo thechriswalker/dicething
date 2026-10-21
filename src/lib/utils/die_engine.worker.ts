@@ -158,6 +158,21 @@ function applyOutline() {
 	);
 }
 
+// `currentSet` is the snapshot from loadSet. Builds carry the latest die
+// (including ones added or duplicated since load); supports read face params
+// from this list, so a die that was never loaded would otherwise be missing.
+function upsertSetDie(die: Dice) {
+	if (!currentSet) {
+		return;
+	}
+	const idx = currentSet.dice.findIndex((d) => d.id === die.id);
+	if (idx >= 0) {
+		currentSet.dice[idx] = die;
+	} else {
+		currentSet.dice.push(die);
+	}
+}
+
 function runBuild(
 	builder: Builder,
 	die: Dice,
@@ -166,6 +181,7 @@ function runBuild(
 	reqId: number,
 	mountViewport = false
 ) {
+	upsertSetDie(die);
 	builder.build(
 		die.parameters,
 		die.face_parameters,

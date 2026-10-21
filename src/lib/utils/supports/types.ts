@@ -46,13 +46,13 @@ export const SUPPORT_SETTING_LIMITS = {
 export const DEFAULT_SUPPORT_SETTINGS: SupportSettings = {
 	pillarDiameterMm: 0.45,
 	coneLengthMm: 3,
-	sphereDiameterMm: 0.2,
+	sphereDiameterMm: 0.3,
 	raftDepthMm: 0.2,
-	raftSizeMm: 1,
+	raftSizeMm: 2.25,
 	edgeInsetMm: 0.6,
 	edgeSpacingMm: 1,
 	legendSpacingMm: 1,
-	faceMinAngleDeg: 10,
+	faceMinAngleDeg: 15,
 	maxHeadLeanDeg: 45,
 	postDiameterMm: 1.5,
 	postFinThicknessMm: 0.15
