@@ -125,7 +125,18 @@ export type SupportContact = {
 	source: 'edge' | 'legend';
 };
 
-export type SupportProgressFn = (phase: string, fraction?: number, label?: string) => void;
+/** Discrete X-of-Y counts for a support build. `total` is known once contacts are sampled. */
+export type SupportProgressCounts = {
+	step: number;
+	total: number;
+};
+
+export type SupportProgressFn = (
+	phase: string,
+	fraction?: number,
+	label?: string,
+	counts?: SupportProgressCounts
+) => void;
 
 export type SupportCancelToken = {
 	cancelled: boolean;

@@ -201,6 +201,10 @@ export type EngineProgress = {
 	phase: string;
 	label?: string;
 	fraction?: number;
+	/** Supports finished so far. Set once placement has sampled the contacts. */
+	step?: number;
+	/** Supports that will be built. Known before the solid loop starts. */
+	total?: number;
 };
 
 export type SupportsBuildResult = {

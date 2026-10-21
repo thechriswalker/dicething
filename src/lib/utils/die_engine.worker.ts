@@ -34,8 +34,9 @@ import {
 	transformToMat4
 } from './die_manifold';
 import {
-	buildSupportsManifold,
 	computeSupportRegions,
+	iterateSupportSolids,
+	meshFromSupportSolid,
 	DEFAULT_SUPPORT_LAYER_VISIBILITY,
 	filterSupportRegions,
 	mergeSupportSettings,
@@ -202,8 +203,18 @@ function runBuild(
 	}
 }
 
-function postProgress(reqId: number, phase: string, fraction?: number, label?: string) {
-	post({ reqId, type: 'progress', progress: { phase, label, fraction } });
+function postProgress(
+	reqId: number,
+	phase: string,
+	fraction?: number,
+	label?: string,
+	counts?: { step: number; total: number }
+) {
+	post({
+		reqId,
+		type: 'progress',
+		progress: { phase, label, fraction, step: counts?.step, total: counts?.total }
+	});
 }
 
 function clearSupportsOverlay() {
@@ -214,19 +225,37 @@ function clearSupportsOverlay() {
 	}
 }
 
+// Die whose print view has already been framed. Rebuilding supports for the
+// same die must not snap the camera back; switching dice does.
+let printFramedDieId: string | null = null;
+
 function setDicePrintPose(on: boolean) {
 	if (!activeBuilder) {
 		return;
 	}
 	const g = activeBuilder.diceGroup;
 	if (on) {
+		const printT = activeBuilder.getPrintingTransform();
 		g.matrixAutoUpdate = false;
-		g.matrix.fromArray(transformToMat4(activeBuilder.getPrintingTransform()));
+		g.matrix.fromArray(transformToMat4(printT));
 		g.updateMatrixWorld(true);
+		// Rafts lie on the world xz plane. Frame that plane level in the viewport
+		// when support mode starts or the die changes; a later rebuild only
+		// follows a change in lift.
+		if (printFramedDieId !== activeDieId) {
+			viewport?.frameLevelPrintView(printT.translation);
+			printFramedDieId = activeDieId;
+		} else {
+			viewport?.setViewCenter(printT.translation);
+		}
 	} else {
 		g.matrix.identity();
 		g.matrixAutoUpdate = true;
 		g.updateMatrixWorld(true);
+		if (printFramedDieId !== null) {
+			viewport?.restoreFramedView();
+			printFramedDieId = null;
+		}
 	}
 }
 
@@ -299,11 +328,8 @@ async function runBuildSupports(
 		throw new Error('active die missing from set');
 	}
 
-	const faceShapes = orientFaceLegendShapes(
-		faces,
-		die.face_parameters,
-		currentSet.legends,
-		(l) => builder.getDefaultScaleForLegend(l)
+	const faceShapes = orientFaceLegendShapes(faces, die.face_parameters, currentSet.legends, (l) =>
+		builder.getDefaultScaleForLegend(l)
 	);
 
 	// Placement regions depend on inset + tip nudge, not pillar/cone/raft sizes.
@@ -362,6 +388,18 @@ async function runBuildSupports(
 		viewport?.scene.add(overlay);
 		contactCount = sampleSupportContacts(visible, settings).length;
 	} else {
+		// Placement already produced the regions. Sampling contacts is cheap, so
+		// the UI can show "0 of Y" before the blank manifold and pillar solids,
+		// which are what keep this worker (and the canvas) busy.
+		const supportTotal =
+			sampleSupportContacts(visible, settings).length + (visible.tipPost ? 1 : 0);
+		if (supportTotal > 0) {
+			postProgress(reqId, 'supports-solid', 0, undefined, { step: 0, total: supportTotal });
+			await yieldToRenderer();
+			if (generation !== latestSupportsGeneration || supportsCancel.cancelled) {
+				throw new SupportCancelledError();
+			}
+		}
 		const params = builder.getLastDieParams();
 		const stringParams = builder.getLastStringParams();
 		const shell = assembleBlankExportShellGeometry([...faces]);
@@ -371,37 +409,42 @@ async function runBuildSupports(
 		});
 		shell.dispose();
 		const diePrint = blank.manifold.transform(transformToMat4(printT));
+		// Preview draws each support on its own. Export is the path that unions
+		// them into one solid.
+		const overlay = new Group();
+		overlay.name = 'supports-solid';
+		supportsOverlay = overlay;
+		viewport?.scene.add(overlay);
 		try {
-			const built = buildSupportsManifold(visible, settings, diePrint, {
-				cancel: supportsCancel,
-				onProgress: (phase, frac, label) => {
-					if (generation !== latestSupportsGeneration) {
-						supportsCancel.cancelled = true;
-					}
-					postProgress(reqId, phase, frac, label);
+			for (const solid of iterateSupportSolids(visible, settings, diePrint, supportsCancel)) {
+				if (generation !== latestSupportsGeneration) {
+					solid.delete();
+					throw new SupportCancelledError();
 				}
-			});
-			if (generation !== latestSupportsGeneration || supportsCancel.cancelled) {
-				built?.manifold.delete();
-				built?.mesh.geometry.dispose();
-				throw new SupportCancelledError();
-			}
-			if (built) {
-				contactCount = built.contactCount;
-				const overlay = new Group();
-				overlay.name = 'supports-solid';
-				overlay.add(built.mesh);
-				supportsOverlay = overlay;
-				viewport?.scene.add(overlay);
-				// Manifold kept only for volume; preview uses the mesh. Free WASM now.
-				built.manifold.delete();
+				overlay.add(meshFromSupportSolid(solid));
+				contactCount += 1;
+				postProgress(reqId, 'supports-solid', contactCount / supportTotal, undefined, {
+					step: contactCount,
+					total: supportTotal
+				});
+				// The offscreen canvas commits when this task yields, so render
+				// then return to the event loop before the next support.
+				viewport?.composer.render();
+				await yieldToRenderer();
+				if (generation !== latestSupportsGeneration || supportsCancel.cancelled) {
+					throw new SupportCancelledError();
+				}
 			}
 		} finally {
 			diePrint.delete();
 		}
 	}
 
-	viewport?.composer.render();
+	// Solid mode already rendered after each support. Placement, and a solid
+	// build that produced nothing, still need one frame for the print pose.
+	if (mode !== 'solid' || contactCount === 0) {
+		viewport?.composer.render();
+	}
 	post({
 		reqId,
 		type: 'supportsResult',
@@ -636,13 +679,7 @@ async function handleRequest(msg: EngineRequest) {
 			}
 			case 'buildSupports': {
 				try {
-					await runBuildSupports(
-						reqId,
-						msg.settingsJson,
-						msg.mode,
-						msg.generation,
-						msg.layersJson
-					);
+					await runBuildSupports(reqId, msg.settingsJson, msg.mode, msg.generation, msg.layersJson);
 				} catch (e) {
 					if (e instanceof SupportCancelledError) {
 						post({

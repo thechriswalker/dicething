@@ -712,7 +712,10 @@ export class Builder {
 		}
 		this.forceRerenderBlank = false;
 		this.forceRerenderFaces = false;
-		if (engineTraceEnabled()) {
+		// Flat previews (progress die, thumbnails) share this Builder but are not
+		// part of the engine timeline. Logging them makes a supports build look
+		// like it also built a d20.
+		if (engineTraceEnabled() && !this.flatLegendPreview) {
 			engineTrace('builder.build', {
 				id: this.model.id,
 				ms: Math.round(now() - tBuild),

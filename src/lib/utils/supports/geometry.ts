@@ -6,13 +6,7 @@
 // the die.
 
 import { Mesh, MeshNormalMaterial, Vector3 } from 'three';
-import {
-	cloneManifold,
-	deleteAll,
-	manifold,
-	manifoldToGeometry,
-	type Manifold
-} from '../manifold';
+import { cloneManifold, deleteAll, manifold, manifoldToGeometry, type Manifold } from '../manifold';
 import {
 	assertNotCancelled,
 	SUPPORT_SETTING_LIMITS,
@@ -70,10 +64,7 @@ export function sampleSupportContacts(
 	const contacts: Array<SupportContact> = [];
 
 	const tooCloseSameSide = (p: Vector3, normal: Vector3) =>
-		contacts.some(
-			(c) =>
-				c.point.distanceToSquared(p) < minDistSq && c.normal.dot(normal) > 0.5
-		);
+		contacts.some((c) => c.point.distanceToSquared(p) < minDistSq && c.normal.dot(normal) > 0.5);
 
 	// Legend contacts first so face-row lines can leave gaps around them.
 	for (const lp of regions.legendPoints) {
@@ -206,10 +197,7 @@ export function placeSupportFoot(
 	const maxLean = (settings.maxHeadLeanDeg * Math.PI) / 180;
 	const minOffset = Math.tan(minLean) * headHeight;
 	const maxOffset = Math.tan(maxLean) * headHeight;
-	const clearOffset = Math.min(
-		20,
-		Math.tan((CLEARANCE_LEAN_DEG * Math.PI) / 180) * headHeight
-	);
+	const clearOffset = Math.min(20, Math.tan((CLEARANCE_LEAN_DEG * Math.PI) / 180) * headHeight);
 
 	const misses = (dir: Vector3, dist: number): boolean => {
 		if (!diePrint || pillarTopY <= pillarBotY + 1e-6) return true;
@@ -332,10 +320,7 @@ function coneHitsDie(
  * angled plane through the junction still cuts the whole cylinder cross-section
  * (fills the "broken back" notch under a leaning cone).
  */
-export function pillarMiterOverhangMm(
-	coneDirUnit: Vector3,
-	pillarR: number
-): number {
+export function pillarMiterOverhangMm(coneDirUnit: Vector3, pillarR: number): number {
 	const horiz = Math.hypot(coneDirUnit.x, coneDirUnit.z);
 	const up = Math.max(1e-6, Math.abs(coneDirUnit.y));
 	return pillarR * (horiz / up) + 0.12;
@@ -430,6 +415,70 @@ export function buildSingleSupportManifold(
 	return u;
 }
 
+/**
+ * How many pillars to boolean together before reporting progress. Large enough
+ * that the batch stays inside Manifold's n-way union; small enough that a few
+ * hundred pillars produce a visible series of ticks.
+ */
+const UNION_BATCH = 24;
+
+function countUnionSteps(n: number, batch: number): number {
+	let steps = 0;
+	let count = n;
+	while (count > 1) {
+		let next = 0;
+		for (let i = 0; i < count; i += batch) {
+			if (Math.min(batch, count - i) > 1) {
+				steps += 1;
+			}
+			next += 1;
+		}
+		count = next;
+	}
+	return steps;
+}
+
+/** Union pillar solids, reporting each batch. A single part is returned as-is. */
+function unionSupportParts(
+	parts: Array<Manifold>,
+	cancel: SupportCancelToken | undefined,
+	onProgress: SupportProgressFn | undefined
+): Manifold {
+	if (parts.length <= 1) {
+		return parts[0];
+	}
+	const wasm = manifold();
+	const total = countUnionSteps(parts.length, UNION_BATCH);
+	let step = 0;
+	const report = () => {
+		onProgress?.('supports-union', step / Math.max(1, total), `${step}/${total}`, {
+			step,
+			total
+		});
+	};
+	// step 0 lets the progress die start a fresh roll for this phase.
+	report();
+	let level = parts;
+	while (level.length > 1) {
+		const next: Array<Manifold> = [];
+		for (let i = 0; i < level.length; i += UNION_BATCH) {
+			assertNotCancelled(cancel);
+			const group = level.slice(i, i + UNION_BATCH);
+			if (group.length === 1) {
+				next.push(group[0]);
+				continue;
+			}
+			const u = wasm.Manifold.union(group);
+			deleteAll(...group);
+			next.push(u);
+			step += 1;
+			report();
+		}
+		level = next;
+	}
+	return level[0];
+}
+
 /** Rotate a +Z cylinder (base at origin) so it runs from `origin` along `dir`. */
 function orientCylinderZTo(cyl: Manifold, origin: Vector3, dir: Vector3): Manifold {
 	const d = dir.clone().normalize();
@@ -471,19 +520,19 @@ export type BuildSupportsResult = {
 };
 
 /**
- * Build the unioned support solid for a die. `diePrint` should be the die (or
- * blank) already transformed into print space; it is borrowed (not deleted).
+ * One support solid at a time, pillars first then the tip post. Each yielded
+ * manifold is owned by the caller. Preview draws these individually; export
+ * collects them and unions.
  */
-export function buildSupportsManifold(
+export function* iterateSupportSolids(
 	regions: SupportRegions,
 	settings: SupportSettings,
 	diePrint: Manifold | undefined,
-	opts: { cancel?: SupportCancelToken; onProgress?: SupportProgressFn } = {}
-): BuildSupportsResult | undefined {
-	const { cancel, onProgress } = opts;
+	cancel?: SupportCancelToken
+): Generator<Manifold> {
 	const contacts = sampleSupportContacts(regions, settings);
 	if (contacts.length === 0 && !regions.tipPost) {
-		return undefined;
+		return;
 	}
 
 	let cx = 0;
@@ -500,47 +549,74 @@ export function buildSupportsManifold(
 		cz = regions.tipPost.apex.z;
 	}
 
-	const wasm = manifold();
-	const parts: Manifold[] = [];
-	const nPillars = contacts.length;
-	const tipExtra = regions.tipPost ? 1 : 0;
-	const totalSteps = nPillars + tipExtra;
-
-	for (let i = 0; i < nPillars; i++) {
+	for (const c of contacts) {
 		assertNotCancelled(cancel);
-		onProgress?.(
-			'supports-solid',
-			i / Math.max(1, totalSteps),
-			`${i + 1}/${nPillars}`
-		);
-		const c = contacts[i];
 		const foot = placeSupportFoot(c.point, c.normal, settings, diePrint, { x: cx, z: cz });
-		parts.push(buildSingleSupportManifold(foot, settings));
+		yield buildSingleSupportManifold(foot, settings);
 	}
-
 	if (regions.tipPost) {
 		assertNotCancelled(cancel);
-		onProgress?.('supports-solid', nPillars / Math.max(1, totalSteps), 'tip post');
-		parts.push(buildTipPostManifold(regions.tipPost, settings));
+		yield buildTipPostManifold(regions.tipPost, settings);
+	}
+}
+
+/** Triangle mesh for one support solid. Deletes `solid`. */
+export function meshFromSupportSolid(solid: Manifold): Mesh {
+	const mesh = new Mesh(manifoldToGeometry(solid), _material);
+	solid.delete();
+	return mesh;
+}
+
+/**
+ * Build the unioned support solid for a die. `diePrint` should be the die (or
+ * blank) already transformed into print space; it is borrowed (not deleted).
+ * Export wants one manifold; the editor preview uses `iterateSupportSolids`
+ * and draws each support on its own.
+ */
+export function buildSupportsManifold(
+	regions: SupportRegions,
+	settings: SupportSettings,
+	diePrint: Manifold | undefined,
+	opts: { cancel?: SupportCancelToken; onProgress?: SupportProgressFn } = {}
+): BuildSupportsResult | undefined {
+	const { cancel, onProgress } = opts;
+	const contacts = sampleSupportContacts(regions, settings);
+	const totalSteps = contacts.length + (regions.tipPost ? 1 : 0);
+	if (totalSteps === 0) {
+		return undefined;
 	}
 
-	onProgress?.('supports-solid', 0.95, 'union');
-	assertNotCancelled(cancel);
+	const reportBuilt = (step: number) => {
+		onProgress?.('supports-solid', step / Math.max(1, totalSteps), `${step}/${totalSteps}`, {
+			step,
+			total: totalSteps
+		});
+	};
 
-	let result: Manifold;
-	if (parts.length === 1) {
-		result = parts[0];
-	} else {
-		result = wasm.Manifold.union(parts);
+	const parts: Manifold[] = [];
+	reportBuilt(0);
+	try {
+		for (const solid of iterateSupportSolids(regions, settings, diePrint, cancel)) {
+			parts.push(solid);
+			reportBuilt(parts.length);
+		}
+	} catch (e) {
 		deleteAll(...parts);
+		throw e;
 	}
 
-	onProgress?.('supports-solid', 1);
+	assertNotCancelled(cancel);
+	// One n-way union of every pillar is the long pause after the per-support
+	// loop. Batch it so the UI can tick; each batch still uses Manifold's own
+	// union, which only does real booleans where the pieces overlap.
+	const result = unionSupportParts(parts, cancel, onProgress);
+
+	onProgress?.('supports-mesh');
 	const geo = manifoldToGeometry(result);
 	return {
 		manifold: result,
 		mesh: new Mesh(geo, _material),
-		contactCount: contacts.length + tipExtra
+		contactCount: totalSteps
 	};
 }
 

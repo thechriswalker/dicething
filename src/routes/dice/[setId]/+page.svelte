@@ -13,6 +13,8 @@
 	import LegendsModal from '$lib/components/legends_modal/LegendsModal.svelte';
 	import ShareModal from '$lib/components/share/ShareModal.svelte';
 	import EngineScene, { type EngineSceneHandle } from '$lib/components/scene/EngineScene.svelte';
+	import BoxProgressDie from '$lib/box/BoxProgressDie.svelte';
+	import type { BuildProgress } from '$lib/box/box_builder';
 	import Tooltip from '$lib/components/tooltip/Tooltip.svelte';
 	import dice from '$lib/dice';
 	import { isBuiltin, type Builtin } from '$lib/fonts';
@@ -898,8 +900,8 @@
 		return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(2).replace(/0$/, '');
 	}
 	let supportsBusy = $state(false);
-	let supportsProgressLabel = $state('');
-	let supportsProgressFrac = $state(0);
+	// Set once placement has sampled contacts, then advanced per finished solid.
+	let supportBuildProgress = $state<BuildProgress | null>(null);
 	let supportsStats = $state<{
 		edges: number;
 		legends: number;
@@ -913,18 +915,21 @@
 			return;
 		}
 		supportsBusy = true;
-		supportsProgressLabel = '';
-		supportsProgressFrac = 0;
+		supportBuildProgress = null;
 		try {
 			const result = await buildSupportsInEngine(
 				supportSettings,
 				supportsMode,
 				(p) => {
-					if (!supportsPreviewOn) {
+					if (!supportsPreviewOn || p.step == null || p.total == null || p.total < 1) {
 						return;
 					}
-					supportsProgressLabel = p.label ?? p.phase;
-					supportsProgressFrac = p.fraction ?? 0;
+					supportBuildProgress = {
+						step: p.step,
+						totalSteps: p.total,
+						phase: 'prepare',
+						label: m.supports_building_count({ done: p.step, total: p.total })
+					};
 				},
 				supportLayers
 			);
@@ -941,6 +946,7 @@
 			console.warn('supports preview failed', e);
 		} finally {
 			supportsBusy = false;
+			supportBuildProgress = null;
 		}
 	}
 
@@ -992,13 +998,20 @@
 	}
 
 	$effect(() => {
-		// Rebuild when the active die finishes a build while supports preview is on.
-		// Stats clear immediately; the worker drops the old overlay on die switch
-		// and at the start of each rebuild so stale supports never linger.
-		renderPass;
+		// Drop the previous die's counts as soon as the selection changes. The
+		// worker already removes its overlay; supports are rebuilt once the new
+		// geometry has finished (renderPass), not on this change as well.
 		dieId;
-		if (supportsPreviewOn) {
+		if (untrack(() => supportsPreviewOn)) {
 			supportsStats = null;
+		}
+	});
+	$effect(() => {
+		// One rebuild when the die in view finishes building. supportsPreviewOn
+		// is read untracked so turning the preview on does not schedule a second
+		// build beside the toggle's own call.
+		renderPass;
+		if (untrack(() => supportsPreviewOn)) {
 			scheduleSupportsRebuild(0);
 		}
 	});
@@ -2117,15 +2130,7 @@
 										updateSupportSetting('postFinThicknessMm', Number(e.currentTarget.value))}
 								/>
 							</label>
-							{#if supportsBusy}
-								<div class="flex flex-col gap-1">
-									<span class="text-surface-600-400 text-xs"
-										>{supportsProgressLabel ||
-											m.export_building_option({ option: 'supports' })}</span
-									>
-									<Progress value={Math.round(supportsProgressFrac * 100)} max={100} />
-								</div>
-							{:else if supportsStats}
+							{#if supportsStats}
 								<div class="text-surface-600-400 flex flex-col gap-0.5 text-xs">
 									<span>{m.supports_edge_lines({ count: supportsStats.edges })}</span>
 									<span>{m.supports_legend_points({ count: supportsStats.legends })}</span>
@@ -2136,6 +2141,15 @@
 								</div>
 							{/if}
 						</div>
+					</div>
+				{/if}
+				{#if supportBuildProgress}
+					<div
+						class="pointer-events-none absolute top-0 right-0 bottom-0 left-80 z-10 flex items-center justify-center"
+						role="status"
+						aria-live="polite"
+					>
+						<BoxProgressDie progress={supportBuildProgress} showDevTools={false} />
 					</div>
 				{/if}
 				{#if formatPaintMode}

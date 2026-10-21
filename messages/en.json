@@ -390,6 +390,7 @@
 	"supports_edge_lines": "{count} edge lines",
 	"supports_legend_points": "{count} legend points",
 	"supports_contacts": "{count} contacts",
+	"supports_building_count": "{done} of {total} supports built",
 	"supports_tip_post": "Tip post ({fins} fins)",
 	"supports_layer_edges": "Edges",
 	"supports_layer_edges_help": "Pillars along sharp creases where two outward-sloping faces meet.",

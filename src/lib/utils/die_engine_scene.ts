@@ -31,10 +31,7 @@ import { TrackballControls } from 'three/examples/jsm/controls/TrackballControls
 import type { DieFaceModel } from '$lib/interfaces/dice';
 import type { EngineOutlineState, EnginePointerEvent } from './die_engine_protocol';
 import { EnginePicker } from './die_engine_picking';
-import {
-	applyCameraAutoRotate,
-	AUTO_ROTATE_RAD_PER_SEC
-} from './camera_auto_rotate';
+import { applyCameraAutoRotate, AUTO_ROTATE_RAD_PER_SEC } from './camera_auto_rotate';
 import {
 	installWorkerWindowPolyfill,
 	syntheticPointerEvent,
@@ -50,7 +47,6 @@ const EXPLODE_CAMERA_DIST_DELAY = 0.4;
 
 const easeInOut = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
 
-const _origin = new Vector3(0, 0, 0);
 const _defaultUp = new Vector3(0, 1, 0);
 const _tweenTarget = new Vector3();
 const _offset = new Vector3();
@@ -151,6 +147,11 @@ export class EngineViewport {
 	private fancy: ReturnType<typeof createWorkerFancyRender> | undefined;
 	private controlSurface: WorkerControlSurface;
 	private camTween: CameraTween | null = null;
+	// Orbit centre. Print pose lifts the die off the origin; this follows that
+	// lift so the die stays in frame instead of sitting high above the target.
+	private viewCenter = new Vector3();
+	// Camera pose from before support mode, restored when that mode turns off.
+	private printViewSaved: { position: Vector3; up: Vector3; target: Vector3 } | null = null;
 	private exploded = false;
 	private autoRotate = false;
 	private lastSpinNow = 0;
@@ -165,7 +166,10 @@ export class EngineViewport {
 		this.renderer.setSize(width, height, false);
 		this.camera = new PerspectiveCamera(70, width / height, 1, 500);
 		this.camera.position.copy(defaultCameraPosition);
-		this.controls = new TrackballControls(this.camera, this.controlSurface as unknown as HTMLElement);
+		this.controls = new TrackballControls(
+			this.camera,
+			this.controlSurface as unknown as HTMLElement
+		);
 		this.controls.panSpeed = 2;
 		this.controls.rotateSpeed = 10;
 		this.scene.add(new AmbientLight(0x444444, 3));
@@ -320,8 +324,73 @@ export class EngineViewport {
 		this.controls.noRotate = explode;
 		if (explode) {
 			this.setAutoRotate(false);
-			this.animateQuatDistanceTo(explodeCameraPosition, _defaultUp, _origin);
+			this.animateQuatDistanceTo(
+				explodeCameraPosition.clone().add(this.viewCenter),
+				_defaultUp,
+				this.viewCenter.clone()
+			);
 		}
+	}
+
+	/**
+	 * Look at `center` with world +Y up, from the usual front angle, keeping the
+	 * current zoom. Support rafts lie on the xz plane, so this puts that plane
+	 * flat across the viewport for every die.
+	 */
+	frameLevelPrintView(center: Vector3) {
+		if (!this.printViewSaved) {
+			this.printViewSaved = {
+				position: this.camera.position.clone(),
+				up: this.camera.up.clone(),
+				target: this.controls.target.clone()
+			};
+		}
+		this.camTween = null;
+		const dist = this.camera.position.distanceTo(this.controls.target);
+		const eye = defaultCameraPosition.clone().normalize();
+		eye.multiplyScalar(dist > 1e-6 ? dist : defaultCameraPosition.length());
+		this.viewCenter.copy(center);
+		this.controls.target.copy(center);
+		this.camera.up.set(0, 1, 0);
+		this.camera.position.copy(center).add(eye);
+		this.camera.lookAt(center);
+		this.syncTrackballEye();
+	}
+
+	/** Put the camera back where it was before `frameLevelPrintView`. */
+	restoreFramedView() {
+		const saved = this.printViewSaved;
+		this.printViewSaved = null;
+		this.camTween = null;
+		this.viewCenter.set(0, 0, 0);
+		if (!saved) {
+			return;
+		}
+		this.camera.position.copy(saved.position);
+		this.camera.up.copy(saved.up);
+		this.controls.target.copy(saved.target);
+		this.camera.lookAt(saved.target);
+		this.syncTrackballEye();
+	}
+
+	/**
+	 * Move the orbit centre, carrying the camera and any in-flight tween by the
+	 * same delta so the viewing direction stays put.
+	 */
+	setViewCenter(next: Vector3) {
+		const delta = next.clone().sub(this.viewCenter);
+		if (delta.lengthSq() < 1e-8) {
+			return;
+		}
+		this.camera.position.add(delta);
+		this.controls.target.add(delta);
+		if (this.camTween) {
+			this.camTween.startTarget.add(delta);
+			this.camTween.endTarget.add(delta);
+		}
+		this.viewCenter.copy(next);
+		this.camera.lookAt(this.controls.target);
+		this.syncTrackballEye();
 	}
 
 	setAutoRotate(enabled: boolean) {
@@ -370,8 +439,15 @@ export class EngineViewport {
 		const { pos, up } = faceCameraPose(face);
 		const dist = this.camera.position.distanceTo(this.controls.target);
 		const endDist = dist > 1e-6 ? dist : defaultCameraPosition.length();
-		const endPos = pos.clone().normalize().multiplyScalar(endDist);
-		this.animateQuatDistanceTo(endPos, up, _origin, face.transform.rotation.clone(), this.camera.zoom, 0);
+		const endPos = pos.clone().normalize().multiplyScalar(endDist).add(this.viewCenter);
+		this.animateQuatDistanceTo(
+			endPos,
+			up,
+			this.viewCenter.clone(),
+			face.transform.rotation.clone(),
+			this.camera.zoom,
+			0
+		);
 	}
 
 	private animateQuatDistanceTo(
@@ -383,11 +459,7 @@ export class EngineViewport {
 		distDelay = EXPLODE_CAMERA_DIST_DELAY
 	) {
 		const startTarget = this.controls.target;
-		const startQuat = extractFaceViewQuat(
-			this.camera.position,
-			this.camera.up,
-			startTarget
-		);
+		const startQuat = extractFaceViewQuat(this.camera.position, this.camera.up, startTarget);
 		let eq = (endQuat ?? extractFaceViewQuat(endPos, endUp, endTarget)).clone();
 		if (startQuat.dot(eq) < 0) {
 			eq = new Quaternion(-eq.x, -eq.y, -eq.z, -eq.w);
@@ -424,7 +496,11 @@ export class EngineViewport {
 				? easeInOut(Math.min(1, Math.max(0, (t - tw.distDelay) / (1 - tw.distDelay))))
 				: e;
 		const dist = tw.startDist + (tw.endDist - tw.startDist) * distT;
-		_offset.copy(defaultCameraPosition).applyQuaternion(_slerpQuat).normalize().multiplyScalar(dist);
+		_offset
+			.copy(defaultCameraPosition)
+			.applyQuaternion(_slerpQuat)
+			.normalize()
+			.multiplyScalar(dist);
 		this.camera.position.copy(_offset).add(_tweenTarget);
 		this.camera.up.copy(_defaultUp).applyQuaternion(_slerpQuat).normalize();
 		this.controls.target.copy(_tweenTarget);
@@ -451,12 +527,7 @@ export class EngineViewport {
 		if (ev.type === 'pointerdown') {
 			this.camTween = null;
 		}
-		const type =
-			ev.type === 'wheel'
-				? 'wheel'
-				: ev.type === 'pointerleave'
-					? 'pointerup'
-					: ev.type;
+		const type = ev.type === 'wheel' ? 'wheel' : ev.type === 'pointerleave' ? 'pointerup' : ev.type;
 		if (type === 'wheel' && ev.deltaY !== undefined) {
 			this.controlSurface.dispatchEvent(syntheticWheelEvent(ev.deltaY));
 		} else if (type !== 'wheel') {
@@ -468,15 +539,22 @@ export class EngineViewport {
 	resetCamera() {
 		this.camTween = null;
 		this.controls.reset();
-		this.camera.position.copy(this.exploded ? explodeCameraPosition : defaultCameraPosition);
+		this.camera.position
+			.copy(this.exploded ? explodeCameraPosition : defaultCameraPosition)
+			.add(this.viewCenter);
 		this.camera.up.set(0, 1, 0);
-		this.controls.target.set(0, 0, 0);
-		this.camera.lookAt(0, 0, 0);
+		this.controls.target.copy(this.viewCenter);
+		this.camera.lookAt(this.viewCenter);
+		this.syncTrackballEye();
 	}
 
 	lookAtFace(faceIndex: number, getFace: (face: number) => DieFaceModel | undefined) {
 		if (this.exploded) {
-			this.animateQuatDistanceTo(explodeCameraPosition, _defaultUp, _origin);
+			this.animateQuatDistanceTo(
+				explodeCameraPosition.clone().add(this.viewCenter),
+				_defaultUp,
+				this.viewCenter.clone()
+			);
 			return;
 		}
 		const face = getFace(faceIndex);
@@ -485,7 +563,12 @@ export class EngineViewport {
 		}
 		if (this.isExplodeCameraPose()) {
 			const { pos, up } = faceCameraPose(face);
-			this.animateQuatDistanceTo(pos, up, _origin, face.transform.rotation.clone());
+			this.animateQuatDistanceTo(
+				pos.clone().add(this.viewCenter),
+				up,
+				this.viewCenter.clone(),
+				face.transform.rotation.clone()
+			);
 			return;
 		}
 		this.animateFaceView(face);

@@ -53,6 +53,8 @@ export {
 	borrowDiePrintClone,
 	buildSingleSupportManifold,
 	buildSupportsManifold,
+	iterateSupportSolids,
+	meshFromSupportSolid,
 	placeSupportFoot,
 	sampleSupportContacts,
 	type BuildSupportsResult
