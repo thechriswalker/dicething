@@ -1745,6 +1745,21 @@ export function setLegendSupportDetector(detector: LegendSupportDetector): void 
 	detectLegendSupports = detector;
 }
 
+/** Face offsets are Vector2s, but a set hydrated from plain JSON leaves `{x, y}`. */
+function asVector2(offset: unknown): Vector2 | undefined {
+	if (!offset || typeof offset !== 'object') {
+		return undefined;
+	}
+	const plain = offset as { x?: unknown; y?: unknown };
+	if (typeof plain.x !== 'number' || typeof plain.y !== 'number') {
+		return undefined;
+	}
+	if (offset instanceof Vector2) {
+		return offset;
+	}
+	return new Vector2(plain.x, plain.y);
+}
+
 /**
  * Orient each face's legend shapes into face-local 2D (scale → rotate → translate),
  * matching the engraving pipeline order.
@@ -1769,8 +1784,9 @@ export function orientFaceLegendShapes(
 		if (fp.rotation) {
 			symbols = rotateShapes(fp.rotation, ...symbols);
 		}
-		if (fp.offset && fp.offset.lengthSq() !== 0) {
-			symbols = translateShapes(fp.offset, ...symbols);
+		const offset = asVector2(fp.offset);
+		if (offset && offset.lengthSq() !== 0) {
+			symbols = translateShapes(offset, ...symbols);
 		}
 		return symbols;
 	});

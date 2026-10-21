@@ -42,6 +42,7 @@ const truncatedPrismParameters: Array<DiceParameter> = [
 export const TruncatedPrismD3: DieModel = {
 	id: 'd3_truncated_prism',
 	name: 'D3 Truncated Prism',
+	checksLandWarning: true,
 	parameters: truncatedPrismParameters,
 	blankParameters: truncatedPrismBlankParams(
 		Object.fromEntries(truncatedPrismParameters.map((p) => [p.id, p.defaultValue]))

@@ -85,6 +85,10 @@ export type DieModel = {
 	// either way, the offset should be at least your engraving depth + wiggle room.
 	// Resizing via these params (rather than a morphological sphere offset) keeps
 	// sharp edges on both bigger and smaller blanks.
+	// True when `build` can mark faces `noRest`. The editor only runs the
+	// land-warning geometry check for these models; every other kind is a
+	// guaranteed negative and must not be built just to confirm that.
+	checksLandWarning?: boolean;
 	blankParameters(params: Record<string, number>, offset: number): Record<string, number>;
 	// the 2D outline (centered at the origin) to use as the base of a printing
 	// "platform" for this die. when omitted, the export flow falls back to the

@@ -62,7 +62,14 @@ function oddPrism(
 ): DieModel {
 	const parameters = customParameters(customParams);
 	const defaultParameters = Object.fromEntries(parameters.map((p) => [p.id, p.defaultValue]));
-	return { id, name, blankParameters: oddPrismBlankParams(sides, defaultParameters), parameters, build: build(sides, defaultParameters) };
+	return {
+		id,
+		name,
+		blankParameters: oddPrismBlankParams(sides, defaultParameters),
+		parameters,
+		build: build(sides, defaultParameters),
+		checksLandWarning: true
+	};
 }
 
 

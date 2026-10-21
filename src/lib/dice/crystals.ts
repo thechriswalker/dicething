@@ -99,6 +99,7 @@ function crystal(
 		// default head-on view.
 		build: build(sides, defaultParameters, tens, sides === 4 ? previewTilt() : undefined),
 		blankParameters: crystalBlankParams(sides, defaultParameters),
+		checksLandWarning: true,
 		boxTransform: new Transform().rotateByAxisAngle(xAxis, boxTiltAngle),
 	};
 }

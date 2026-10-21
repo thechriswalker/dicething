@@ -386,7 +386,7 @@
 	"supports_view_placement": "Placement",
 	"supports_view_solid": "Built supports",
 	"supports_progress": "{label}",
-	"supports_cancel": "Cancel",
+	"supports_close": "Close",
 	"supports_edge_lines": "{count} edge lines",
 	"supports_legend_points": "{count} legend points",
 	"supports_contacts": "{count} contacts",

@@ -227,9 +227,20 @@ function applySupportsPreviewVisibility() {
 	viewport.composer.render();
 }
 
-/** Let the worker animation loop paint between heavy support steps. */
+/**
+ * Let already-queued worker messages (pointer moves) run before the next heavy
+ * step. The timer callback only posts a follow-up message and returns: if the
+ * heavy work continued as a microtask of that timer, Chrome reports the whole
+ * chunk as a setTimeout handler.
+ */
 function yieldToRenderer(): Promise<void> {
-	return new Promise((resolve) => setTimeout(resolve, 0));
+	return new Promise((resolve) => {
+		setTimeout(() => {
+			const channel = new MessageChannel();
+			channel.port1.onmessage = () => resolve();
+			channel.port2.postMessage(null);
+		}, 0);
+	});
 }
 
 async function runBuildSupports(
@@ -398,10 +409,13 @@ async function hydrateSet(setJson: string, legendsJson: string): Promise<DiceSet
 		legends?: string;
 	};
 	const legends = await resolveWorkerLegends(legendsJson, stored.legends ?? legendsJson);
-	const diceArr =
-		typeof stored.dice === 'string'
-			? (JSON.parse(stored.dice, dieJsonReviver) as Dice[])
-			: stored.dice;
+	// Dice arrive either as a JSON string or as an already-parsed array. The
+	// editor and export pages stringify the set with the default replacer, so
+	// face offsets are plain `{x, y}` until this reviver restores Vector2s.
+	const diceArr = JSON.parse(
+		typeof stored.dice === 'string' ? stored.dice : JSON.stringify(stored.dice),
+		dieJsonReviver
+	) as Dice[];
 	return {
 		id: stored.id,
 		name: stored.name,
@@ -731,6 +745,14 @@ async function drain() {
 			sortPending();
 			const { msg } = pending.shift()!;
 			await handleRequest(msg);
+			// A background build runs to completion before the worker can see
+			// pointer messages posted during it. Yield when more low-priority
+			// work is already queued so those messages enter `pending` and sort
+			// ahead of the next build. The visible die (mount) is included so
+			// orbiting works before the rest of the set is engraved.
+			if (requestPriority(msg) >= 5 && pending.length > 0) {
+				await yieldToRenderer();
+			}
 		}
 	} finally {
 		drainRunning = false;

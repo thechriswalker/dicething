@@ -28,6 +28,7 @@ import {
 	insetSupportFacesAtEdge,
 	isBaseRestingEdge,
 	outwardFacesAtEdge,
+	orientFaceLegendShapes,
 	pointInLegendEngraving,
 	printPointToFaceLocal,
 	supportEdgeSegment,
@@ -715,5 +716,23 @@ describe('legend support detector (contour spacing)', () => {
 		});
 		expect(dense.length).toBeGreaterThanOrEqual(8);
 		expect(dense.length).toBeGreaterThan(sparse.length);
+	});
+
+	it('translates legend shapes when the face offset is a plain {x, y}', () => {
+		const face: DieFaceModel = {
+			isNumberFace: true,
+			shape: new Shape([new Vector2(-1, -1), new Vector2(1, -1), new Vector2(0, 1)]),
+			defaultLegend: Legend.ONE,
+			transform: new Transform()
+		};
+		const glyph = new Shape([new Vector2(0, 0), new Vector2(1, 0), new Vector2(0, 1)]);
+		const symbols = orientFaceLegendShapes(
+			[face],
+			[{ offset: { x: 2, y: -3 } as unknown as Vector2 }],
+			{ get: () => [glyph] } as unknown as import('../legends').LegendSet,
+			() => 1
+		);
+		const pts = symbols[0][0].getPoints();
+		expect(pts.some((p) => Math.abs(p.x - 2) < 1e-6 && Math.abs(p.y + 3) < 1e-6)).toBe(true);
 	});
 });

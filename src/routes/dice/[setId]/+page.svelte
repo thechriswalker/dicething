@@ -68,6 +68,7 @@
 	import SetConfigModal from '$lib/components/set_config/SetConfigModal.svelte';
 	import { computeLandWarning } from '$lib/utils/stability';
 	import { legendsJsonForEngine } from '$lib/utils/preview_legends';
+	import { requestEngravingBoundsCheck } from '$lib/utils/engraving_check_client';
 	import { engineTrace, engineTraceSpan, resetEngineTraceOrigin } from '$lib/utils/engine_trace';
 	import { debounce } from '$lib/utils/debounce';
 	import { createHistory } from '$lib/utils/history.svelte';
@@ -552,6 +553,9 @@
 		}
 		const facade = new DieEditorFacade(meta);
 		dieFacades.set(d.id, facade);
+		// A viewport build is the authority for this die: it includes manifold
+		// failures as well as bounds. Don't let an in-flight bounds check overwrite it.
+		dieBoundsStamp.set(d.id, engravingCheckGen);
 		dieEngravingErrors = { ...dieEngravingErrors, [d.id]: meta.engravingErrors };
 		if (d.id === dieId) {
 			currentFacade = facade;
@@ -594,10 +598,12 @@
 	}
 
 	// per-die engraving errors: faces whose legend won't engrave and would
-	// therefore export blank/broken. recomputed off the render path (debounced)
-	// so dragging a slider doesn't rebuild every die every frame. keyed by die id
-	// and surfaced in the preview-row tooltip + a warning badge.
+	// therefore export blank/broken. the die on screen gets these from its
+	// viewport build; every other die is checked on a separate worker (fit only,
+	// no Manifold) so the badges show up without blocking the canvas.
 	let dieEngravingErrors = $state<Record<string, Array<EngravingError>>>({});
+	// engravingCheckGen at which a viewport build last wrote this die's errors.
+	const dieBoundsStamp = new Map<string, number>();
 	// per-die "may land on an inconclusive face" warning (see stability.ts).
 	// depends only on the die geometry, but is recomputed in the same debounced
 	// pass as the engraving errors and surfaced in the same tooltip/badge.
@@ -605,24 +611,56 @@
 	// per-die signature of the inputs the engraving check depends on, so we can
 	// skip dice that didn't change. a legend-set swap invalidates every die.
 	const lastEngravingSig = new Map<string, string>();
+	// bumped so a newer edit abandons an in-flight land-warning / bounds pass.
+	let engravingCheckGen = 0;
 	const recomputeEngravingErrors = () => {
 		if (!setData) {
 			return;
 		}
+		const gen = ++engravingCheckGen;
+		const snapshot = setData.dice.slice();
+		const legendsJson = legendsJsonForEngine(setData.legends);
+		requestEngravingBoundsCheck(diceToJSON(snapshot), legendsJson, gen, (dieId, errors) => {
+			if (gen !== engravingCheckGen) {
+				return;
+			}
+			if ((dieBoundsStamp.get(dieId) ?? -1) >= gen) {
+				return;
+			}
+			dieEngravingErrors = { ...dieEngravingErrors, [dieId]: errors };
+		});
 		const nextLand: Record<string, boolean> = {};
-		for (const d of setData.dice) {
-			nextLand[d.id] = computeLandWarning(dice[d.kind], d.parameters, d.string_parameters ?? {});
-			const facade = dieFacades.get(d.id);
-			if (facade) {
-				dieEngravingErrors = {
-					...dieEngravingErrors,
-					[d.id]: facade.getEngravingErrors()
-				};
+		const needsBuild: Array<Dice> = [];
+		for (const d of snapshot) {
+			const model = dice[d.kind];
+			if (!model?.checksLandWarning) {
+				nextLand[d.id] = false;
 			} else {
-				void engineBuildDie(d, explodeMode);
+				needsBuild.push(d);
 			}
 		}
-		dieLandWarnings = nextLand;
+		// One geometry build per timer. The debounced caller must return without
+		// building: a single handler that built the whole set was a 60s+ task.
+		const runBuilds = (i: number) => {
+			if (gen !== engravingCheckGen || !setData) {
+				return;
+			}
+			if (i >= needsBuild.length) {
+				dieLandWarnings = nextLand;
+				return;
+			}
+			const d = needsBuild[i];
+			const model = dice[d.kind];
+			nextLand[d.id] = model
+				? computeLandWarning(model, d.parameters, d.string_parameters ?? {})
+				: false;
+			setTimeout(() => runBuilds(i + 1), 0);
+		};
+		if (needsBuild.length === 0) {
+			dieLandWarnings = nextLand;
+			return;
+		}
+		setTimeout(() => runBuilds(0), 0);
 	};
 	onDestroy(() => {
 		lastEngravingSig.clear();
@@ -770,11 +808,6 @@
 		if (!setData) {
 			return;
 		}
-		for (const d of setData.dice) {
-			if (!dieFacades.has(d.id)) {
-				void engineBuildDie(d, explodeMode);
-			}
-		}
 		for (const id of [...dieFacades.keys()]) {
 			if (!setData.dice.find((d) => d.id === id)) {
 				dieFacades.delete(id);
@@ -887,11 +920,17 @@
 				supportSettings,
 				supportsMode,
 				(p) => {
+					if (!supportsPreviewOn) {
+						return;
+					}
 					supportsProgressLabel = p.label ?? p.phase;
 					supportsProgressFrac = p.fraction ?? 0;
 				},
 				supportLayers
 			);
+			if (!supportsPreviewOn) {
+				return;
+			}
 			supportsStats = {
 				edges: result.edgeLineCount,
 				legends: result.legendPointCount,
@@ -919,21 +958,26 @@
 		void rebuildSupportsPreview();
 	});
 
+	function closeSupportsPreview() {
+		supportsPreviewOn = false;
+		void cancelSupportsInEngine();
+		void clearSupportsPreviewInEngine();
+		supportsStats = null;
+		supportsBusy = false;
+	}
+
 	function toggleSupportsPreview() {
-		supportsPreviewOn = !supportsPreviewOn;
 		if (supportsPreviewOn) {
-			if (explodeMode) {
-				explodeMode = false;
-				setEngineExploded(false);
-			}
-			void setSupportsPreviewInEngine(true);
-			void rebuildSupportsPreview();
-		} else {
-			void cancelSupportsInEngine();
-			void clearSupportsPreviewInEngine();
-			supportsStats = null;
-			supportsBusy = false;
+			closeSupportsPreview();
+			return;
 		}
+		supportsPreviewOn = true;
+		if (explodeMode) {
+			explodeMode = false;
+			setEngineExploded(false);
+		}
+		void setSupportsPreviewInEngine(true);
+		void rebuildSupportsPreview();
 	}
 
 	function updateSupportSetting<K extends keyof SupportSettings>(
@@ -970,11 +1014,7 @@
 	});
 	$effect(() => {
 		if (!devMode && supportsPreviewOn) {
-			supportsPreviewOn = false;
-			void cancelSupportsInEngine();
-			void clearSupportsPreviewInEngine();
-			supportsStats = null;
-			supportsBusy = false;
+			closeSupportsPreview();
 		}
 	});
 
@@ -1643,7 +1683,7 @@
 				{sceneReady}
 				onSelection={handleEngineSelection}
 			>
-				<ul class="list-style-type-none absolute top-2 left-2 flex flex-col gap-2">
+				<ul class="list-style-type-none absolute top-2 left-2 z-20 flex flex-col gap-2">
 					<li>
 						<Tooltip content={m.controls_reset_camera()} side="right">
 							{#snippet children(props)}
@@ -1706,10 +1746,7 @@
 											setEngineAutoRotate(false);
 										}
 										if (explodeMode && supportsPreviewOn) {
-											supportsPreviewOn = false;
-											void cancelSupportsInEngine();
-											void clearSupportsPreviewInEngine();
-											supportsStats = null;
+											closeSupportsPreview();
 										}
 										setEngineExploded(explodeMode);
 										if (!explodeMode) {
@@ -1771,329 +1808,334 @@
 				</ul>
 				{#if devMode && supportsPreviewOn}
 					<div
-						class="card preset-filled-surface-100-900 border-surface-300-700 absolute bottom-2 left-2 z-10 flex w-72 flex-col gap-2 border p-3 shadow-md"
+						class="card preset-filled-surface-100-900 border-surface-300-700 absolute top-2 left-2 z-30 flex max-h-[calc(100%-1rem)] w-72 flex-col overflow-hidden border shadow-md"
 					>
-						<div class="flex items-center justify-between gap-2">
+						<div class="flex shrink-0 items-center justify-between gap-2 px-3 pt-3">
 							<span class="text-sm font-semibold">{m.supports_panel_title()}</span>
 							<button
 								type="button"
 								class="btn-icon btn-sm preset-tonal"
-								aria-label={m.supports_cancel()}
-								disabled={!supportsBusy}
-								onclick={() => void cancelSupportsInEngine()}
+								aria-label={m.supports_close()}
+								onclick={closeSupportsPreview}
 							>
 								<X size={14} />
 							</button>
 						</div>
-						<div class="flex gap-1">
-							<button
-								type="button"
-								class="btn btn-sm grow {supportsMode === 'placement'
-									? 'preset-filled-secondary-500'
-									: 'preset-tonal'}"
-								onclick={() => {
-									supportsMode = 'placement';
-									void rebuildSupportsPreview();
-								}}>{m.supports_view_placement()}</button
-							>
-							<button
-								type="button"
-								class="btn btn-sm grow {supportsMode === 'solid'
-									? 'preset-filled-secondary-500'
-									: 'preset-tonal'}"
-								onclick={() => {
-									supportsMode = 'solid';
-									void rebuildSupportsPreview();
-								}}>{m.supports_view_solid()}</button
-							>
-						</div>
-						{#snippet supportHelp(text: string)}
-							<!-- span (not button) so nested <label> still targets the range/checkbox -->
-							<Tooltip content={text} side="left">
-								{#snippet children(props)}
-									<span
-										{...props}
-										role="button"
-										tabindex={0}
-										class="text-surface-500 hover:text-primary-500 inline-flex shrink-0 items-center"
-										aria-label={text}
-									>
-										<Info class="size-3" />
+						<div class="flex min-h-0 flex-col gap-2 overflow-y-auto px-3 pt-2 pb-3">
+							<div class="flex gap-1">
+								<button
+									type="button"
+									class="btn btn-sm grow {supportsMode === 'placement'
+										? 'preset-filled-secondary-500'
+										: 'preset-tonal'}"
+									onclick={() => {
+										supportsMode = 'placement';
+										void rebuildSupportsPreview();
+									}}>{m.supports_view_placement()}</button
+								>
+								<button
+									type="button"
+									class="btn btn-sm grow {supportsMode === 'solid'
+										? 'preset-filled-secondary-500'
+										: 'preset-tonal'}"
+									onclick={() => {
+										supportsMode = 'solid';
+										void rebuildSupportsPreview();
+									}}>{m.supports_view_solid()}</button
+								>
+							</div>
+							{#snippet supportHelp(text: string)}
+								<!-- span (not button) so nested <label> still targets the range/checkbox -->
+								<Tooltip content={text} side="left">
+									{#snippet children(props)}
+										<span
+											{...props}
+											role="button"
+											tabindex={0}
+											class="text-surface-500 hover:text-primary-500 inline-flex shrink-0 items-center"
+											aria-label={text}
+										>
+											<Info class="size-3" />
+										</span>
+									{/snippet}
+								</Tooltip>
+							{/snippet}
+							<div class="border-surface-300-700 flex flex-col gap-1 border-t pt-2">
+								<label class="flex items-center justify-between gap-2 text-xs">
+									<span class="flex items-center gap-1">
+										<span>{m.supports_layer_edges()}</span>
+										{@render supportHelp(m.supports_layer_edges_help())}
 									</span>
-								{/snippet}
-							</Tooltip>
-						{/snippet}
-						<div class="border-surface-300-700 flex flex-col gap-1 border-t pt-2">
-							<label class="flex items-center justify-between gap-2 text-xs">
-								<span class="flex items-center gap-1">
-									<span>{m.supports_layer_edges()}</span>
-									{@render supportHelp(m.supports_layer_edges_help())}
+									<input
+										type="checkbox"
+										class="checkbox"
+										checked={supportLayers.edges}
+										onchange={(e) => updateSupportLayer('edges', e.currentTarget.checked)}
+									/>
+								</label>
+								<label class="flex items-center justify-between gap-2 text-xs">
+									<span class="flex items-center gap-1">
+										<span>{m.supports_layer_legends()}</span>
+										{@render supportHelp(m.supports_layer_legends_help())}
+									</span>
+									<input
+										type="checkbox"
+										class="checkbox"
+										checked={supportLayers.legends}
+										onchange={(e) => updateSupportLayer('legends', e.currentTarget.checked)}
+									/>
+								</label>
+								<label class="flex items-center justify-between gap-2 text-xs">
+									<span class="flex items-center gap-1">
+										<span>{m.supports_layer_tip_post()}</span>
+										{@render supportHelp(m.supports_layer_tip_post_help())}
+									</span>
+									<input
+										type="checkbox"
+										class="checkbox"
+										checked={supportLayers.tipPost}
+										onchange={(e) => updateSupportLayer('tipPost', e.currentTarget.checked)}
+									/>
+								</label>
+							</div>
+							<label class="flex flex-col gap-0.5 text-xs">
+								<span class="flex items-baseline justify-between gap-2">
+									<span class="flex items-center gap-1">
+										<span>{m.export_opt_supports_pillar_label()}</span>
+										{@render supportHelp(m.export_opt_supports_pillar_help())}
+									</span>
+									<span class="text-surface-600-400 tabular-nums"
+										>{formatSupportMm(supportSettings.pillarDiameterMm)} mm</span
+									>
 								</span>
 								<input
-									type="checkbox"
-									class="checkbox"
-									checked={supportLayers.edges}
-									onchange={(e) => updateSupportLayer('edges', e.currentTarget.checked)}
+									type="range"
+									min={SUPPORT_SETTING_LIMITS.pillarDiameterMm.min}
+									max={SUPPORT_SETTING_LIMITS.pillarDiameterMm.max}
+									step={SUPPORT_SETTING_LIMITS.pillarDiameterMm.step}
+									value={supportSettings.pillarDiameterMm}
+									oninput={(e) =>
+										updateSupportSetting('pillarDiameterMm', Number(e.currentTarget.value))}
 								/>
 							</label>
-							<label class="flex items-center justify-between gap-2 text-xs">
-								<span class="flex items-center gap-1">
-									<span>{m.supports_layer_legends()}</span>
-									{@render supportHelp(m.supports_layer_legends_help())}
+							<label class="flex flex-col gap-0.5 text-xs">
+								<span class="flex items-baseline justify-between gap-2">
+									<span class="flex items-center gap-1">
+										<span>{m.export_opt_supports_cone_label()}</span>
+										{@render supportHelp(m.export_opt_supports_cone_help())}
+									</span>
+									<span class="text-surface-600-400 tabular-nums"
+										>{formatSupportMm(supportSettings.coneLengthMm)} mm</span
+									>
 								</span>
 								<input
-									type="checkbox"
-									class="checkbox"
-									checked={supportLayers.legends}
-									onchange={(e) => updateSupportLayer('legends', e.currentTarget.checked)}
+									type="range"
+									min={SUPPORT_SETTING_LIMITS.coneLengthMm.min}
+									max={SUPPORT_SETTING_LIMITS.coneLengthMm.max}
+									step={SUPPORT_SETTING_LIMITS.coneLengthMm.step}
+									value={supportSettings.coneLengthMm}
+									oninput={(e) =>
+										updateSupportSetting('coneLengthMm', Number(e.currentTarget.value))}
 								/>
 							</label>
-							<label class="flex items-center justify-between gap-2 text-xs">
-								<span class="flex items-center gap-1">
-									<span>{m.supports_layer_tip_post()}</span>
-									{@render supportHelp(m.supports_layer_tip_post_help())}
+							<label class="flex flex-col gap-0.5 text-xs">
+								<span class="flex items-baseline justify-between gap-2">
+									<span class="flex items-center gap-1">
+										<span>{m.export_opt_supports_sphere_label()}</span>
+										{@render supportHelp(m.export_opt_supports_sphere_help())}
+									</span>
+									<span class="text-surface-600-400 tabular-nums"
+										>{formatSupportMm(supportSettings.sphereDiameterMm)} mm</span
+									>
 								</span>
 								<input
-									type="checkbox"
-									class="checkbox"
-									checked={supportLayers.tipPost}
-									onchange={(e) => updateSupportLayer('tipPost', e.currentTarget.checked)}
+									type="range"
+									min={SUPPORT_SETTING_LIMITS.sphereDiameterMm.min}
+									max={SUPPORT_SETTING_LIMITS.sphereDiameterMm.max}
+									step={SUPPORT_SETTING_LIMITS.sphereDiameterMm.step}
+									value={supportSettings.sphereDiameterMm}
+									oninput={(e) =>
+										updateSupportSetting('sphereDiameterMm', Number(e.currentTarget.value))}
 								/>
 							</label>
+							<label class="flex flex-col gap-0.5 text-xs">
+								<span class="flex items-baseline justify-between gap-2">
+									<span class="flex items-center gap-1">
+										<span>{m.export_opt_supports_raft_label()}</span>
+										{@render supportHelp(m.export_opt_supports_raft_help())}
+									</span>
+									<span class="text-surface-600-400 tabular-nums"
+										>{formatSupportMm(supportSettings.raftDepthMm)} mm</span
+									>
+								</span>
+								<input
+									type="range"
+									min={SUPPORT_SETTING_LIMITS.raftDepthMm.min}
+									max={SUPPORT_SETTING_LIMITS.raftDepthMm.max}
+									step={SUPPORT_SETTING_LIMITS.raftDepthMm.step}
+									value={supportSettings.raftDepthMm}
+									oninput={(e) =>
+										updateSupportSetting('raftDepthMm', Number(e.currentTarget.value))}
+								/>
+							</label>
+							<label class="flex flex-col gap-0.5 text-xs">
+								<span class="flex items-baseline justify-between gap-2">
+									<span class="flex items-center gap-1">
+										<span>{m.export_opt_supports_raft_size_label()}</span>
+										{@render supportHelp(m.export_opt_supports_raft_size_help())}
+									</span>
+									<span class="text-surface-600-400 tabular-nums"
+										>{formatSupportMm(supportSettings.raftSizeMm)} mm</span
+									>
+								</span>
+								<input
+									type="range"
+									min={SUPPORT_SETTING_LIMITS.raftSizeMm.min}
+									max={SUPPORT_SETTING_LIMITS.raftSizeMm.max}
+									step={SUPPORT_SETTING_LIMITS.raftSizeMm.step}
+									value={supportSettings.raftSizeMm}
+									oninput={(e) => updateSupportSetting('raftSizeMm', Number(e.currentTarget.value))}
+								/>
+							</label>
+							<label class="flex flex-col gap-0.5 text-xs">
+								<span class="flex items-baseline justify-between gap-2">
+									<span class="flex items-center gap-1">
+										<span>{m.export_opt_supports_inset_label()}</span>
+										{@render supportHelp(m.export_opt_supports_inset_help())}
+									</span>
+									<span class="text-surface-600-400 tabular-nums"
+										>{formatSupportMm(supportSettings.edgeInsetMm)} mm</span
+									>
+								</span>
+								<input
+									type="range"
+									min={SUPPORT_SETTING_LIMITS.edgeInsetMm.min}
+									max={SUPPORT_SETTING_LIMITS.edgeInsetMm.max}
+									step={SUPPORT_SETTING_LIMITS.edgeInsetMm.step}
+									value={supportSettings.edgeInsetMm}
+									oninput={(e) =>
+										updateSupportSetting('edgeInsetMm', Number(e.currentTarget.value))}
+								/>
+							</label>
+							<label class="flex flex-col gap-0.5 text-xs">
+								<span class="flex items-baseline justify-between gap-2">
+									<span class="flex items-center gap-1">
+										<span>{m.export_opt_supports_spacing_label()}</span>
+										{@render supportHelp(m.export_opt_supports_spacing_help())}
+									</span>
+									<span class="text-surface-600-400 tabular-nums"
+										>{formatSupportMm(supportSettings.edgeSpacingMm)} mm</span
+									>
+								</span>
+								<input
+									type="range"
+									min={SUPPORT_SETTING_LIMITS.edgeSpacingMm.min}
+									max={SUPPORT_SETTING_LIMITS.edgeSpacingMm.max}
+									step={SUPPORT_SETTING_LIMITS.edgeSpacingMm.step}
+									value={supportSettings.edgeSpacingMm}
+									oninput={(e) =>
+										updateSupportSetting('edgeSpacingMm', Number(e.currentTarget.value))}
+								/>
+							</label>
+							<label class="flex flex-col gap-0.5 text-xs">
+								<span class="flex items-baseline justify-between gap-2">
+									<span class="flex items-center gap-1">
+										<span>{m.export_opt_supports_legend_spacing_label()}</span>
+										{@render supportHelp(m.export_opt_supports_legend_spacing_help())}
+									</span>
+									<span class="text-surface-600-400 tabular-nums"
+										>{formatSupportMm(supportSettings.legendSpacingMm)} mm</span
+									>
+								</span>
+								<input
+									type="range"
+									min={SUPPORT_SETTING_LIMITS.legendSpacingMm.min}
+									max={SUPPORT_SETTING_LIMITS.legendSpacingMm.max}
+									step={SUPPORT_SETTING_LIMITS.legendSpacingMm.step}
+									value={supportSettings.legendSpacingMm}
+									oninput={(e) =>
+										updateSupportSetting('legendSpacingMm', Number(e.currentTarget.value))}
+								/>
+							</label>
+							<label class="flex flex-col gap-0.5 text-xs">
+								<span class="flex items-baseline justify-between gap-2">
+									<span class="flex items-center gap-1">
+										<span>{m.export_opt_supports_face_angle_label()}</span>
+										{@render supportHelp(m.export_opt_supports_face_angle_help())}
+									</span>
+									<span class="text-surface-600-400 tabular-nums"
+										>{formatSupportMm(supportSettings.faceMinAngleDeg)}°</span
+									>
+								</span>
+								<input
+									type="range"
+									min={SUPPORT_SETTING_LIMITS.faceMinAngleDeg.min}
+									max={SUPPORT_SETTING_LIMITS.faceMinAngleDeg.max}
+									step={SUPPORT_SETTING_LIMITS.faceMinAngleDeg.step}
+									value={supportSettings.faceMinAngleDeg}
+									oninput={(e) =>
+										updateSupportSetting('faceMinAngleDeg', Number(e.currentTarget.value))}
+								/>
+							</label>
+							<label class="flex flex-col gap-0.5 text-xs">
+								<span class="flex items-baseline justify-between gap-2">
+									<span class="flex items-center gap-1">
+										<span>{m.export_opt_supports_post_diameter_label()}</span>
+										{@render supportHelp(m.export_opt_supports_post_diameter_help())}
+									</span>
+									<span class="text-surface-600-400 tabular-nums"
+										>{formatSupportMm(supportSettings.postDiameterMm)} mm</span
+									>
+								</span>
+								<input
+									type="range"
+									min={SUPPORT_SETTING_LIMITS.postDiameterMm.min}
+									max={SUPPORT_SETTING_LIMITS.postDiameterMm.max}
+									step={SUPPORT_SETTING_LIMITS.postDiameterMm.step}
+									value={supportSettings.postDiameterMm}
+									oninput={(e) =>
+										updateSupportSetting('postDiameterMm', Number(e.currentTarget.value))}
+								/>
+							</label>
+							<label class="flex flex-col gap-0.5 text-xs">
+								<span class="flex items-baseline justify-between gap-2">
+									<span class="flex items-center gap-1">
+										<span>{m.export_opt_supports_post_fin_label()}</span>
+										{@render supportHelp(m.export_opt_supports_post_fin_help())}
+									</span>
+									<span class="text-surface-600-400 tabular-nums"
+										>{formatSupportMm(supportSettings.postFinThicknessMm)} mm</span
+									>
+								</span>
+								<input
+									type="range"
+									min={SUPPORT_SETTING_LIMITS.postFinThicknessMm.min}
+									max={SUPPORT_SETTING_LIMITS.postFinThicknessMm.max}
+									step={SUPPORT_SETTING_LIMITS.postFinThicknessMm.step}
+									value={supportSettings.postFinThicknessMm}
+									oninput={(e) =>
+										updateSupportSetting('postFinThicknessMm', Number(e.currentTarget.value))}
+								/>
+							</label>
+							{#if supportsBusy}
+								<div class="flex flex-col gap-1">
+									<span class="text-surface-600-400 text-xs"
+										>{supportsProgressLabel ||
+											m.export_building_option({ option: 'supports' })}</span
+									>
+									<Progress value={Math.round(supportsProgressFrac * 100)} max={100} />
+								</div>
+							{:else if supportsStats}
+								<div class="text-surface-600-400 flex flex-col gap-0.5 text-xs">
+									<span>{m.supports_edge_lines({ count: supportsStats.edges })}</span>
+									<span>{m.supports_legend_points({ count: supportsStats.legends })}</span>
+									<span>{m.supports_contacts({ count: supportsStats.contacts })}</span>
+									{#if supportsStats.tipFins > 0}
+										<span>{m.supports_tip_post({ fins: supportsStats.tipFins })}</span>
+									{/if}
+								</div>
+							{/if}
 						</div>
-						<label class="flex flex-col gap-0.5 text-xs">
-							<span class="flex items-baseline justify-between gap-2">
-								<span class="flex items-center gap-1">
-									<span>{m.export_opt_supports_pillar_label()}</span>
-									{@render supportHelp(m.export_opt_supports_pillar_help())}
-								</span>
-								<span class="text-surface-600-400 tabular-nums"
-									>{formatSupportMm(supportSettings.pillarDiameterMm)} mm</span
-								>
-							</span>
-							<input
-								type="range"
-								min={SUPPORT_SETTING_LIMITS.pillarDiameterMm.min}
-								max={SUPPORT_SETTING_LIMITS.pillarDiameterMm.max}
-								step={SUPPORT_SETTING_LIMITS.pillarDiameterMm.step}
-								value={supportSettings.pillarDiameterMm}
-								oninput={(e) =>
-									updateSupportSetting('pillarDiameterMm', Number(e.currentTarget.value))}
-							/>
-						</label>
-						<label class="flex flex-col gap-0.5 text-xs">
-							<span class="flex items-baseline justify-between gap-2">
-								<span class="flex items-center gap-1">
-									<span>{m.export_opt_supports_cone_label()}</span>
-									{@render supportHelp(m.export_opt_supports_cone_help())}
-								</span>
-								<span class="text-surface-600-400 tabular-nums"
-									>{formatSupportMm(supportSettings.coneLengthMm)} mm</span
-								>
-							</span>
-							<input
-								type="range"
-								min={SUPPORT_SETTING_LIMITS.coneLengthMm.min}
-								max={SUPPORT_SETTING_LIMITS.coneLengthMm.max}
-								step={SUPPORT_SETTING_LIMITS.coneLengthMm.step}
-								value={supportSettings.coneLengthMm}
-								oninput={(e) => updateSupportSetting('coneLengthMm', Number(e.currentTarget.value))}
-							/>
-						</label>
-						<label class="flex flex-col gap-0.5 text-xs">
-							<span class="flex items-baseline justify-between gap-2">
-								<span class="flex items-center gap-1">
-									<span>{m.export_opt_supports_sphere_label()}</span>
-									{@render supportHelp(m.export_opt_supports_sphere_help())}
-								</span>
-								<span class="text-surface-600-400 tabular-nums"
-									>{formatSupportMm(supportSettings.sphereDiameterMm)} mm</span
-								>
-							</span>
-							<input
-								type="range"
-								min={SUPPORT_SETTING_LIMITS.sphereDiameterMm.min}
-								max={SUPPORT_SETTING_LIMITS.sphereDiameterMm.max}
-								step={SUPPORT_SETTING_LIMITS.sphereDiameterMm.step}
-								value={supportSettings.sphereDiameterMm}
-								oninput={(e) =>
-									updateSupportSetting('sphereDiameterMm', Number(e.currentTarget.value))}
-							/>
-						</label>
-						<label class="flex flex-col gap-0.5 text-xs">
-							<span class="flex items-baseline justify-between gap-2">
-								<span class="flex items-center gap-1">
-									<span>{m.export_opt_supports_raft_label()}</span>
-									{@render supportHelp(m.export_opt_supports_raft_help())}
-								</span>
-								<span class="text-surface-600-400 tabular-nums"
-									>{formatSupportMm(supportSettings.raftDepthMm)} mm</span
-								>
-							</span>
-							<input
-								type="range"
-								min={SUPPORT_SETTING_LIMITS.raftDepthMm.min}
-								max={SUPPORT_SETTING_LIMITS.raftDepthMm.max}
-								step={SUPPORT_SETTING_LIMITS.raftDepthMm.step}
-								value={supportSettings.raftDepthMm}
-								oninput={(e) => updateSupportSetting('raftDepthMm', Number(e.currentTarget.value))}
-							/>
-						</label>
-						<label class="flex flex-col gap-0.5 text-xs">
-							<span class="flex items-baseline justify-between gap-2">
-								<span class="flex items-center gap-1">
-									<span>{m.export_opt_supports_raft_size_label()}</span>
-									{@render supportHelp(m.export_opt_supports_raft_size_help())}
-								</span>
-								<span class="text-surface-600-400 tabular-nums"
-									>{formatSupportMm(supportSettings.raftSizeMm)} mm</span
-								>
-							</span>
-							<input
-								type="range"
-								min={SUPPORT_SETTING_LIMITS.raftSizeMm.min}
-								max={SUPPORT_SETTING_LIMITS.raftSizeMm.max}
-								step={SUPPORT_SETTING_LIMITS.raftSizeMm.step}
-								value={supportSettings.raftSizeMm}
-								oninput={(e) => updateSupportSetting('raftSizeMm', Number(e.currentTarget.value))}
-							/>
-						</label>
-						<label class="flex flex-col gap-0.5 text-xs">
-							<span class="flex items-baseline justify-between gap-2">
-								<span class="flex items-center gap-1">
-									<span>{m.export_opt_supports_inset_label()}</span>
-									{@render supportHelp(m.export_opt_supports_inset_help())}
-								</span>
-								<span class="text-surface-600-400 tabular-nums"
-									>{formatSupportMm(supportSettings.edgeInsetMm)} mm</span
-								>
-							</span>
-							<input
-								type="range"
-								min={SUPPORT_SETTING_LIMITS.edgeInsetMm.min}
-								max={SUPPORT_SETTING_LIMITS.edgeInsetMm.max}
-								step={SUPPORT_SETTING_LIMITS.edgeInsetMm.step}
-								value={supportSettings.edgeInsetMm}
-								oninput={(e) => updateSupportSetting('edgeInsetMm', Number(e.currentTarget.value))}
-							/>
-						</label>
-						<label class="flex flex-col gap-0.5 text-xs">
-							<span class="flex items-baseline justify-between gap-2">
-								<span class="flex items-center gap-1">
-									<span>{m.export_opt_supports_spacing_label()}</span>
-									{@render supportHelp(m.export_opt_supports_spacing_help())}
-								</span>
-								<span class="text-surface-600-400 tabular-nums"
-									>{formatSupportMm(supportSettings.edgeSpacingMm)} mm</span
-								>
-							</span>
-							<input
-								type="range"
-								min={SUPPORT_SETTING_LIMITS.edgeSpacingMm.min}
-								max={SUPPORT_SETTING_LIMITS.edgeSpacingMm.max}
-								step={SUPPORT_SETTING_LIMITS.edgeSpacingMm.step}
-								value={supportSettings.edgeSpacingMm}
-								oninput={(e) =>
-									updateSupportSetting('edgeSpacingMm', Number(e.currentTarget.value))}
-							/>
-						</label>
-						<label class="flex flex-col gap-0.5 text-xs">
-							<span class="flex items-baseline justify-between gap-2">
-								<span class="flex items-center gap-1">
-									<span>{m.export_opt_supports_legend_spacing_label()}</span>
-									{@render supportHelp(m.export_opt_supports_legend_spacing_help())}
-								</span>
-								<span class="text-surface-600-400 tabular-nums"
-									>{formatSupportMm(supportSettings.legendSpacingMm)} mm</span
-								>
-							</span>
-							<input
-								type="range"
-								min={SUPPORT_SETTING_LIMITS.legendSpacingMm.min}
-								max={SUPPORT_SETTING_LIMITS.legendSpacingMm.max}
-								step={SUPPORT_SETTING_LIMITS.legendSpacingMm.step}
-								value={supportSettings.legendSpacingMm}
-								oninput={(e) =>
-									updateSupportSetting('legendSpacingMm', Number(e.currentTarget.value))}
-							/>
-						</label>
-						<label class="flex flex-col gap-0.5 text-xs">
-							<span class="flex items-baseline justify-between gap-2">
-								<span class="flex items-center gap-1">
-									<span>{m.export_opt_supports_face_angle_label()}</span>
-									{@render supportHelp(m.export_opt_supports_face_angle_help())}
-								</span>
-								<span class="text-surface-600-400 tabular-nums"
-									>{formatSupportMm(supportSettings.faceMinAngleDeg)}°</span
-								>
-							</span>
-							<input
-								type="range"
-								min={SUPPORT_SETTING_LIMITS.faceMinAngleDeg.min}
-								max={SUPPORT_SETTING_LIMITS.faceMinAngleDeg.max}
-								step={SUPPORT_SETTING_LIMITS.faceMinAngleDeg.step}
-								value={supportSettings.faceMinAngleDeg}
-								oninput={(e) =>
-									updateSupportSetting('faceMinAngleDeg', Number(e.currentTarget.value))}
-							/>
-						</label>
-						<label class="flex flex-col gap-0.5 text-xs">
-							<span class="flex items-baseline justify-between gap-2">
-								<span class="flex items-center gap-1">
-									<span>{m.export_opt_supports_post_diameter_label()}</span>
-									{@render supportHelp(m.export_opt_supports_post_diameter_help())}
-								</span>
-								<span class="text-surface-600-400 tabular-nums"
-									>{formatSupportMm(supportSettings.postDiameterMm)} mm</span
-								>
-							</span>
-							<input
-								type="range"
-								min={SUPPORT_SETTING_LIMITS.postDiameterMm.min}
-								max={SUPPORT_SETTING_LIMITS.postDiameterMm.max}
-								step={SUPPORT_SETTING_LIMITS.postDiameterMm.step}
-								value={supportSettings.postDiameterMm}
-								oninput={(e) =>
-									updateSupportSetting('postDiameterMm', Number(e.currentTarget.value))}
-							/>
-						</label>
-						<label class="flex flex-col gap-0.5 text-xs">
-							<span class="flex items-baseline justify-between gap-2">
-								<span class="flex items-center gap-1">
-									<span>{m.export_opt_supports_post_fin_label()}</span>
-									{@render supportHelp(m.export_opt_supports_post_fin_help())}
-								</span>
-								<span class="text-surface-600-400 tabular-nums"
-									>{formatSupportMm(supportSettings.postFinThicknessMm)} mm</span
-								>
-							</span>
-							<input
-								type="range"
-								min={SUPPORT_SETTING_LIMITS.postFinThicknessMm.min}
-								max={SUPPORT_SETTING_LIMITS.postFinThicknessMm.max}
-								step={SUPPORT_SETTING_LIMITS.postFinThicknessMm.step}
-								value={supportSettings.postFinThicknessMm}
-								oninput={(e) =>
-									updateSupportSetting('postFinThicknessMm', Number(e.currentTarget.value))}
-							/>
-						</label>
-						{#if supportsBusy}
-							<div class="flex flex-col gap-1">
-								<span class="text-surface-600-400 text-xs"
-									>{supportsProgressLabel || m.export_building_option({ option: 'supports' })}</span
-								>
-								<Progress value={Math.round(supportsProgressFrac * 100)} max={100} />
-							</div>
-						{:else if supportsStats}
-							<div class="text-surface-600-400 flex flex-col gap-0.5 text-xs">
-								<span>{m.supports_edge_lines({ count: supportsStats.edges })}</span>
-								<span>{m.supports_legend_points({ count: supportsStats.legends })}</span>
-								<span>{m.supports_contacts({ count: supportsStats.contacts })}</span>
-								{#if supportsStats.tipFins > 0}
-									<span>{m.supports_tip_post({ fins: supportsStats.tipFins })}</span>
-								{/if}
-							</div>
-						{/if}
 					</div>
 				{/if}
 				{#if formatPaintMode}

@@ -129,6 +129,11 @@ export function computeLandWarning(
 	params: Record<string, number>,
 	stringParams: Record<string, string> = {}
 ): boolean {
+	// Models that never set `noRest` cannot warn. Building them here is wasted
+	// main-thread work — the editor used to do it for every die inside one timer.
+	if (!model.checksLandWarning) {
+		return false;
+	}
 	try {
 		return dieHasLandWarning(model.build(params, stringParams).faces);
 	} catch (e) {

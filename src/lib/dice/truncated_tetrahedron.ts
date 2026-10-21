@@ -74,6 +74,7 @@ const defaultParameters: Array<DiceParameter> = [
 export const TruncatedTetrahedronD4: DieModel = {
 	id: 'd4_truncated_tetrahedron',
 	name: 'D4 Truncated',
+	checksLandWarning: true,
 	parameters: defaultParameters,
 	blankParameters: truncatedTetrahedronBlankParams(Object.fromEntries(defaultParameters.map(p => [p.id, p.defaultValue]))),
 	build(params) {

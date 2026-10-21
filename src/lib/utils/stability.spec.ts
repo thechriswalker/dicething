@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { dieCenterOfMass, dieHasLandWarning, restableNoRestFaces } from './stability';
+import { computeLandWarning, dieCenterOfMass, dieHasLandWarning, restableNoRestFaces } from './stability';
 import { CrystalD6 } from '../dice/crystals';
 import { OddPrismD5 } from '../dice/odd_prism';
+import { TruncatedPrismD3 } from '../dice/truncated_prism';
 import { TruncatedTetrahedronD4 } from '../dice/truncated_tetrahedron';
 import { TruncatedOctahedronD8 } from '../dice/truncated_octahedron';
 import { CubeD6 } from '../dice/cube';
@@ -16,6 +17,20 @@ describe('dieCenterOfMass', () => {
 });
 
 describe('dieHasLandWarning', () => {
+	it('skips the geometry build for models that cannot rest wrong', () => {
+		expect(CubeD6.checksLandWarning).toBeUndefined();
+		expect(computeLandWarning(CubeD6, {})).toBe(false);
+		for (const model of [
+			CrystalD6,
+			OddPrismD5,
+			TruncatedPrismD3,
+			TruncatedTetrahedronD4,
+			TruncatedOctahedronD8
+		]) {
+			expect(model.checksLandWarning, model.id).toBe(true);
+		}
+	});
+
 	it('never warns for a die with no no-rest faces (cube)', () => {
 		const faces = CubeD6.build({}).faces;
 		expect(faces.some((f) => f.noRest)).toBe(false);
