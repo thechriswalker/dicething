@@ -36,6 +36,9 @@ export const spindownOrders: Record<string, Array<Legend>> = {
 	d12_rhombic: [1, 7, 10, 22, 11, 21, 2, 3, 5, 4, 12, 8],
 	d20_icosahedron: [1, 19, 4, 17, 9, 15, 2, 13, 21, 12, 7, 11, 8, 16, 10, 14, 3, 18, 5, 20],
 
+	d8_trapezohedron: [1, 6, 2, 7, 4, 5, 3, 8],
+	d10_trapezohedron: [1, 0, 5, 9, 2, 6, 4, 8, 3, 7],
+
 	// barrels: remap so azimuth slots show 1..N (standard uses opposite-sum slot values)
 	d4_barrel: [1, 2, 4, 3],
 	d6_barrel: [1, 2, 3, 6, 5, 4],

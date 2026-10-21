@@ -34,8 +34,10 @@ describe('legend orderings registry', () => {
 	it('offers Percentile on 10-sided kinds (including legacy d00)', () => {
 		expect(getOrderings('d10_trapezohedron').map((o) => o.id)).toEqual([
 			'standard',
-			'percentile'
+			'percentile',
+			'spindown'
 		]);
+		expect(getOrderings('d8_trapezohedron').map((o) => o.id)).toEqual(['standard', 'spindown']);
 		expect(getOrderings('d00_trapezohedron').map((o) => o.id)).toEqual([
 			'standard',
 			'percentile'
@@ -47,7 +49,8 @@ describe('legend orderings registry', () => {
 		]);
 		expect(getOrderings('d10_trapezohedron').map((o) => o.labelKey)).toEqual([
 			'standard_d10',
-			'standard_percentile'
+			'standard_percentile',
+			'spindown'
 		]);
 	});
 
@@ -174,10 +177,20 @@ describe('applyOrderingToFaces', () => {
 	});
 
 	it('Spindown on a die without authored data is a no-op (ordering not offered)', () => {
-		const baseline = buildFaces('d8_trapezohedron').map((f) => f.defaultLegend);
-		const faces = buildFaces('d8_trapezohedron');
-		applyOrderingToFaces('d8_trapezohedron', 'spindown', faces, {});
+		const baseline = buildFaces('d4_caltrop').map((f) => f.defaultLegend);
+		const faces = buildFaces('d4_caltrop');
+		applyOrderingToFaces('d4_caltrop', 'spindown', faces, {});
 		expect(faces.map((f) => f.defaultLegend)).toEqual(baseline);
+	});
+
+	it('Spindown applies the authored trapezohedron arrangements', () => {
+		for (const kind of ['d8_trapezohedron', 'd10_trapezohedron'] as const) {
+			const faces = buildFaces(kind);
+			applyOrderingToFaces(kind, 'spindown', faces, {});
+			expect(faces.filter((f) => f.isNumberFace).map((f) => f.defaultLegend)).toEqual(
+				spindownOrders[kind]
+			);
+		}
 	});
 
 	it('Percentile remaps a d10 to tens legends', () => {

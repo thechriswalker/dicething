@@ -58,8 +58,10 @@ when I get a chance...
 - Export sets or individual dice as STLs
 - Blank generation alongside each die
 - Platform generation alongside each die
+- Auto print-support generation
+- Generate boxes for dice.
 
-I have some other features in mind that I might add (Z-Stretch compensation, Auto-Supporting, Bumpers), but those will be later.
+I have some other features in mind that I might add (Z-Stretch compensation, ~Auto-Supporting~, Bumpers), but those will be later.
 
 ## Getting Started
 
@@ -131,6 +133,7 @@ So if you need those features, DiceThing probably isn't for you. However it can 
     - [x] Basic import
     - [x] Complex per-path settings import.
   - [x] Mix and match symbols into a custom set
+  - [x] multiple "ordering" presets for normal, spindown, go-first dice.
 - [x] Engraving
   - [x] auto-fit legends by default
   - [x] customisable scale/rotation/translation
@@ -146,6 +149,7 @@ So if you need those features, DiceThing probably isn't for you. However it can 
     - [x] Dice
     - [x] Auto-Blank generation with configurable inset
     - [x] Auto-Platform generation (parameterised)
+    - [x] Auto-Print-Support generation (parameterised)
     - [x] Export as one file or zip with file-per-group, or file-per-object
 - [x] Dice Box Creation
   - [x] Import a set and have a box built for that set
@@ -155,9 +159,9 @@ So if you need those features, DiceThing probably isn't for you. However it can 
 
 On the roadmap:
 
-- Bevelled engraving (bevel the inner base of legend engraving)
-- Print Orientations - correct orientation for easier printing.
-- Alternate Legend ordering configurations (i.e. standard / spindown / etc...)
+- Bevelled engraving (bevel the inner base of legend engraving) - _this is tough!_
+- ~Print Orientations - correct orientation for easier printing.~ this is added.
+- ~Alternate Legend ordering configurations (i.e. standard / spindown / etc...)~ this is added.
 
 ### Fonts and Font Handling
 
@@ -169,7 +173,7 @@ There are significant code paths to help reduce this issue, but please let me kn
 
 ### AI Usage
 
-Some of the code here was produced by LLMs. I actually built the majority before I started using them, which turned out to be a blessing because I learnt so much and feel that the code, build flow and interface design is all exatly how I want it. However, the project stagnated a bit and use LLMs has let me iterate much more quickly and focus on some of the more tricky features (like the SVG imports and font-fixing) that I was stuggling to find the time to work on myself. I doubt I would have go this to such a usable state with them. On the other hand, I would not descibe this project as vibe-coded. I have heavily guided the LLM, not just released it on the codebase.
+Some of the code here was produced by LLMs. I actually built the majority before I started using them, which turned out to be a blessing because I learnt so much and feel that the code, build flow and interface design is all exatly how I want it. However, the project stagnated a bit and use LLMs has let me iterate much more quickly and focus on some of the more tricky features (like the SVG imports and font-fixing) that I was stuggling to find the time to work on myself. I doubt I would have got this to such a usable state with them. On the other hand, I would not descibe this project as vibe-coded. I have heavily guided the LLM, not just released it on the codebase.
 
 ## Contributing
 

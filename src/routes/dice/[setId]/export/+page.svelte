@@ -1026,7 +1026,12 @@
 					aria-live="polite"
 				>
 					<div class="pointer-events-auto">
-						<BoxProgressDie progress={buildProgress} complete={buildFinished} bind:atFinalFace />
+						<BoxProgressDie
+							progress={buildProgress}
+							showDevTools={devMode}
+							complete={buildFinished}
+							bind:atFinalFace
+						/>
 					</div>
 				</div>
 			{/if}

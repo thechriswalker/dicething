@@ -1,9 +1,11 @@
 <script lang="ts">
-	// A 3D die used as a progress indicator for the box build. It ticks from face
-	// 1 to face 2 to 3 ... in ease-in-out hops with a brief pause on each, driven
-	// by the discrete progress steps streamed from the box worker. The die kind is
-	// chosen by the number of steps (d6/d8/d10/d12/d20) and steps are quantised
-	// onto its faces, so the die acts as the bar.
+	// A 3D die used as a progress indicator for the box build. It ticks down from
+	// the high face toward 1 in ease-in-out hops with a brief pause on each,
+	// driven by the discrete progress steps streamed from the box worker. The die
+	// kind is chosen by the number of steps (d6/d8/d10/d12/d20) and steps are
+	// quantised onto its faces, so the die acts as the bar. Numbering is the
+	// spindown arrangement: consecutive values sit on neighbouring faces, so each
+	// hop is a short tumble rather than a flip to the far side of the die.
 	//
 	// The renderer is deliberately slim (a bare Scene + WebGLRenderer + one
 	// camera, no controls/composer/environment) and uses Builder.flatLegendPreview
@@ -22,7 +24,7 @@
 	import dice from '$lib/dice';
 	import { Builder } from '$lib/utils/builder';
 	import { defaultFont } from '$lib/fonts';
-	import type { LegendSet } from '$lib/utils/legends';
+	import { Legend, type LegendSet } from '$lib/utils/legends';
 	import type { BuildProgress } from './box_builder';
 	import { m } from '$lib/paraglide/messages';
 
@@ -49,8 +51,8 @@
 		atFinalFace?: boolean;
 	} = $props();
 
-	// Standard dice to use as the indicator, smallest first; pick the smallest
-	// whose face count covers the step count (falling back to the d20).
+	// Smallest die whose face count covers the step count (falling back to the
+	// d20). Each kind has an authored spindown order.
 	const DICE_BY_SIDES: Array<{ sides: number; kind: string }> = [
 		{ sides: 6, kind: 'd6_cube' },
 		{ sides: 8, kind: 'd8_trapezohedron' },
@@ -58,6 +60,24 @@
 		{ sides: 12, kind: 'd12_dodecahedron' },
 		{ sides: 20, kind: 'd20_icosahedron' }
 	];
+
+	// Face value for countdown order. Marked 6/9 and the tens glyphs don't match
+	// their Legend enum index.
+	function legendCountdownValue(legend: Legend): number {
+		if (legend === Legend.SIX_MARKED) {
+			return 6;
+		}
+		if (legend === Legend.NINE_MARKED) {
+			return 9;
+		}
+		if (legend === Legend.ZERO || legend === Legend.DOUBLE_ZERO) {
+			return 0;
+		}
+		if (legend >= Legend.THIRTY && legend <= Legend.NINETY) {
+			return (legend - Legend.THIRTY + 3) * 10;
+		}
+		return legend;
+	}
 
 	function pickDieKind(totalSteps: number): string {
 		return (DICE_BY_SIDES.find((d) => d.sides >= totalSteps) ?? DICE_BY_SIDES.at(-1)!).kind;
@@ -200,12 +220,17 @@
 		const next = new Builder(model, legends);
 		// same cheap path as die_preview.worker: flat legend overlays, no manifold.
 		next.flatLegendPreview = true;
-		next.build({}, [], { explode: false });
+		next.build({}, [], { explode: false, ordering: 'spindown' });
 		builder = next;
 
+		// High value first, ticking down toward 0/1. Spindown puts each next
+		// value on a neighbouring face, so this order is a walk around the die.
 		faceQuats = next
 			.getFaces()
 			.filter((f) => f.isNumberFace)
+			.sort(
+				(a, b) => legendCountdownValue(b.defaultLegend) - legendCountdownValue(a.defaultLegend)
+			)
 			.map((f) => {
 				const rot = f.transform.rotation;
 				const normal = new Vector3(0, 0, 1).applyQuaternion(rot).normalize();
@@ -220,10 +245,7 @@
 					Math.atan2(up.x, up.y)
 				);
 				return spin.multiply(q0);
-			})
-			// reverse so the die counts DOWN (high face first, ticking toward 1) as
-			// the build progresses - reads better than a count-up.
-			.reverse();
+			});
 
 		// frame the camera from the die's bounding sphere (at rest orientation).
 		next.diceGroup.quaternion.identity();
@@ -256,6 +278,14 @@
 		const desiredKind = p ? pickDieKind(p.totalSteps) : '';
 		if (desiredKind && desiredKind !== untrack(() => currentKind)) {
 			buildDie(desiredKind);
+		}
+	});
+
+	// Leaving developer mode hides the panel; recouple so the die can finish and
+	// the indicator is allowed to close.
+	$effect(() => {
+		if (!showDevTools && decoupled) {
+			decoupled = false;
 		}
 	});
 
