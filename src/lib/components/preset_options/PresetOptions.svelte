@@ -57,7 +57,7 @@
 	});
 
 	function filteredBuiltins(opt: PresetOptionLegend) {
-		return Object.values(builtins).filter((f) => {
+		const fonts = Object.values(builtins).filter((f) => {
 			if (f.id === 'blanks') {
 				return false;
 			}
@@ -66,6 +66,8 @@
 			}
 			return (f.characterSet ?? 'default') === opt.characterSet;
 		});
+		// Blanks has no glyphs, so it is a valid choice for every character set.
+		return [...fonts, builtins.blanks];
 	}
 
 	function submit() {
@@ -200,11 +202,13 @@
 						>
 							<strong>{f.name}</strong>
 							<div class="flex h-[24px] items-center justify-center">
-								<img
-									src={f.preview}
-									alt={m.preset_options_font_preview()}
-									class="max-h-[24px] dark:invert"
-								/>
+								{#if f.preview}
+									<img
+										src={f.preview}
+										alt={m.preset_options_font_preview()}
+										class="max-h-[24px] dark:invert"
+									/>
+								{/if}
 							</div>
 						</button>
 					{/each}
