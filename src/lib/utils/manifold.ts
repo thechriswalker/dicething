@@ -49,6 +49,39 @@ export function cloneManifold(man: Manifold): Manifold {
 	return new wasm.Manifold(man.getMesh());
 }
 
+/**
+ * Run Manifold ops in sequence, deleting every solid except the last.
+ *
+ * `translate` / `rotate` / `scale` / `transform` each return a new Manifold.
+ * A chain such as `cylinder().rotate().translate()` drops the earlier solids
+ * on the floor. WASM has no garbage collector that runs during a synchronous
+ * build, and the heap never shrinks, so a few hundred supports exhaust it and
+ * the next boolean traps with "memory access out of bounds".
+ */
+export function mapOwned(
+	man: Manifold,
+	...steps: Array<(current: Manifold) => Manifold>
+): Manifold {
+	let cur = man;
+	try {
+		for (const step of steps) {
+			const next = step(cur);
+			if (next !== cur) {
+				cur.delete();
+			}
+			cur = next;
+		}
+		return cur;
+	} catch (e) {
+		try {
+			cur.delete();
+		} catch {
+			// The step that threw may already have deleted it.
+		}
+		throw e;
+	}
+}
+
 // mesh_check welds coincident corners on a 1e-4 mm grid. Manifold's working
 // tolerance can be finer, so CSG output may keep edges shorter than that weld
 // which then read as "degenerate triangles" (and, once those tris are excluded

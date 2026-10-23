@@ -928,6 +928,14 @@ export type BuildEngravedDieArgs = {
 	params: Record<string, number>;
 	stringParams?: Record<string, string>;
 	faceParams: Array<FaceParams>;
+	/**
+	 * Faces of the blank being engraved. `faceParams` are simplified against
+	 * these, and legend orderings (percentile, spindown, …) rewrite
+	 * `defaultLegend` here. A fresh `model.build()` only has standard numbering,
+	 * so an omitted legend falls back to the d10/units glyph. Pass the builder's
+	 * faces. Omitted only when standard numbering is intended.
+	 */
+	faces?: Array<DieFaceModel>;
 	depth: number;
 	bevel: number;
 	tolerance: number;
@@ -937,14 +945,14 @@ export type BuildEngravedDieArgs = {
 };
 
 export function buildEngravedDieManifold(args: BuildEngravedDieArgs): Manifold {
-	const built = args.model.build(args.params, args.stringParams);
-	const blank = getOrBuildBlankManifold(args.model.id, built.faces, args.params, args.stringParams ?? {}, {
+	const faces = args.faces ?? args.model.build(args.params, args.stringParams).faces;
+	const blank = getOrBuildBlankManifold(args.model.id, faces, args.params, args.stringParams ?? {}, {
 		source: args.blankExportGeometry ? 'export' : 'prism',
 		exportGeometry: args.blankExportGeometry,
 		divisions: args.divisions
 	});
-	const engraved = engraveDie(blank, {
-		faces: built.faces,
+	return engraveDie(blank, {
+		faces,
 		legends: args.legends,
 		faceParams: args.faceParams,
 		depth: args.depth,
@@ -953,7 +961,6 @@ export function buildEngravedDieManifold(args: BuildEngravedDieArgs): Manifold {
 		divisions: args.divisions,
 		getScaleForLegend: args.getScaleForLegend
 	});
-	return engraved;
 }
 
 export type ManifoldDieExport = {

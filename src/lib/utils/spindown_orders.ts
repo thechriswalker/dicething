@@ -23,6 +23,8 @@ import type { Legend } from '$lib/utils/legends';
 
 export const spindownOrders: Record<string, Array<Legend>> = {
 	d6_cube: [1, 2, 3, 5, 4, 6],
+	// same face adjacency and build order as the cube
+	d6_rounded: [1, 2, 3, 5, 4, 6],
 	d4_crystal: [1, 2, 4, 3],
 	d6_crystal: [1, 3, 2, 5, 6, 4],
 	d8_crystal: [1, 7, 2, 4, 8, 6, 3, 5],

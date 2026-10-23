@@ -421,6 +421,8 @@ export type EngineExportResult = {
 	meshes: Array<{ name: string; dieId: string; group: string; mesh: Mesh }>;
 	engravingErrors: Array<import('./builder').EngravingError>;
 	meshReport: MeshCheckReport;
+	/** Per export group. Absent on older worker responses; fall back to meshReport. */
+	groupMeshReports?: Record<string, MeshCheckReport>;
 	/** Enclosed volume (mm³) per export group, from Manifold.volume() in the worker. */
 	groupVolumesMm3: Record<string, number>;
 };
@@ -437,6 +439,7 @@ export function exportDieInEngine(
 		meshes: SerialisedExportMesh[];
 		engravingErrors: EngineExportResult['engravingErrors'];
 		meshReport: MeshCheckReport;
+		groupMeshReports?: Record<string, MeshCheckReport>;
 		groupVolumesMm3: Record<string, number>;
 	}>(
 		'exportDie',
@@ -452,6 +455,7 @@ export function exportDieInEngine(
 		return {
 			engravingErrors: r.engravingErrors,
 			meshReport: r.meshReport,
+			groupMeshReports: r.groupMeshReports,
 			groupVolumesMm3: r.groupVolumesMm3 ?? {},
 			meshes: r.meshes.map((m) => ({
 				name: m.name,

@@ -7,6 +7,7 @@ import {
 	DirectionalLight,
 	HemisphereLight,
 	type Material,
+	Matrix4,
 	Mesh,
 	MeshPhysicalMaterial,
 	Object3D,
@@ -50,54 +51,9 @@ const easeInOut = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t 
 const _defaultUp = new Vector3(0, 1, 0);
 const _tweenTarget = new Vector3();
 const _offset = new Vector3();
-const _z0n = new Vector3();
-const _z1n = new Vector3();
-const _cross = new Vector3();
-const _yAligned = new Vector3();
-const _perp = new Vector3();
-const _qAlign = new Quaternion();
-const _qTwist = new Quaternion();
 const _slerpQuat = new Quaternion();
-
-function faceCameraPose(face: DieFaceModel): { pos: Vector3; up: Vector3 } {
-	const pos = defaultCameraPosition.clone();
-	const up = _defaultUp.clone();
-	const q = face.transform.rotation;
-	pos.applyQuaternion(q);
-	up.applyQuaternion(q).normalize();
-	return { pos, up };
-}
-
-// Inverse of applyRotationToCamera / faceCameraState: the rotation that maps the
-// default offset and up to the current pose relative to `target`.
-function extractFaceViewQuat(position: Vector3, up: Vector3, target: Vector3): Quaternion {
-	_offset.copy(position).sub(target);
-	const len = _offset.length();
-	if (len < 1e-9) {
-		return new Quaternion();
-	}
-	_z0n.copy(defaultCameraPosition).normalize();
-	_z1n.copy(_offset).divideScalar(len);
-	_cross.crossVectors(_z0n, _z1n);
-	const dot = Math.max(-1, Math.min(1, _z0n.dot(_z1n)));
-	if (_cross.lengthSq() < 1e-12) {
-		if (dot < 0) {
-			_perp.set(1, 0, 0).cross(_z0n);
-			if (_perp.lengthSq() < 1e-12) {
-				_perp.set(0, 1, 0).cross(_z0n);
-			}
-			_qAlign.setFromAxisAngle(_perp.normalize(), Math.PI);
-		} else {
-			_qAlign.identity();
-		}
-	} else {
-		_qAlign.setFromAxisAngle(_cross.normalize(), Math.acos(dot));
-	}
-	_yAligned.copy(_defaultUp).applyQuaternion(_qAlign);
-	_cross.crossVectors(_yAligned, up);
-	_qTwist.setFromAxisAngle(_z1n, Math.atan2(_cross.dot(_z1n), _yAligned.dot(up)));
-	return _qTwist.clone().multiply(_qAlign);
-}
+const _lookAtMatrix = new Matrix4();
+const _back = new Vector3();
 
 type CameraTween = {
 	startQuat: Quaternion;
@@ -106,6 +62,9 @@ type CameraTween = {
 	endDist: number;
 	startTarget: Vector3;
 	endTarget: Vector3;
+	// Unit vector from the target to the eye, and the up hint for that look-at.
+	endBack: Vector3;
+	endUp: Vector3;
 	startZoom: number;
 	endZoom: number;
 	// 0..1 fraction of the transition spent holding startDist before easing toward endDist.
@@ -155,6 +114,12 @@ export class EngineViewport {
 	private exploded = false;
 	private autoRotate = false;
 	private lastSpinNow = 0;
+	// Shift-left-drag pans. Track whether the pointer actually moved so a
+	// shift-click can still toggle face selection.
+	private shiftPan = false;
+	private shiftPanMoved = false;
+	private shiftPanX = 0;
+	private shiftPanY = 0;
 
 	constructor(canvas: OffscreenCanvas, width: number, height: number, dpr: number) {
 		installWorkerWindowPolyfill();
@@ -245,7 +210,12 @@ export class EngineViewport {
 				this.stepCameraTween();
 			} else {
 				this.controls.update();
-				if (this.autoRotate) {
+				if (this.exploded) {
+					// Trackball lookAt uses camera.up. A face-view up left over from the
+					// solid die is not perpendicular to +Z, and damping can leave the
+					// view edge-on to the face plane. Hold the explode pose.
+					this.enforceExplodeView();
+				} else if (this.autoRotate) {
 					this.stepAutoRotate();
 				}
 			}
@@ -324,11 +294,7 @@ export class EngineViewport {
 		this.controls.noRotate = explode;
 		if (explode) {
 			this.setAutoRotate(false);
-			this.animateQuatDistanceTo(
-				explodeCameraPosition.clone().add(this.viewCenter),
-				_defaultUp,
-				this.viewCenter.clone()
-			);
+			this.animateExplodeCamera();
 		}
 	}
 
@@ -415,10 +381,6 @@ export class EngineViewport {
 		this.syncTrackballEye();
 	}
 
-	private isExplodeCameraPose(): boolean {
-		return this.camera.position.distanceToSquared(explodeCameraPosition) < 100;
-	}
-
 	private syncTrackballEye() {
 		const controls = this.controls as TrackballInternals;
 		controls._eye.subVectors(this.camera.position, this.controls.target);
@@ -432,54 +394,95 @@ export class EngineViewport {
 		controls._lastAngle = 0;
 	}
 
-	private animateFaceView(face: DieFaceModel) {
-		// Trackball zooms a perspective camera by dollying (eye length), not camera.zoom.
-		// Keep that distance through the orientation ease so a zoomed-in view doesn't
-		// snap back to defaultCameraPosition on the first tween frame.
-		const { pos, up } = faceCameraPose(face);
-		const dist = this.camera.position.distanceTo(this.controls.target);
-		const endDist = dist > 1e-6 ? dist : defaultCameraPosition.length();
-		const endPos = pos.clone().normalize().multiplyScalar(endDist).add(this.viewCenter);
-		this.animateQuatDistanceTo(
-			endPos,
-			up,
-			this.viewCenter.clone(),
-			face.transform.rotation.clone(),
-			this.camera.zoom,
-			0
-		);
+	// Face geometry lives in local XY, +Z outward, +Y toward the top of the legend.
+	private faceFrame(face: DieFaceModel): { back: Vector3; up: Vector3 } {
+		const q = face.transform.rotation;
+		const back = new Vector3(0, 0, 1).applyQuaternion(q);
+		const up = new Vector3(0, 1, 0).applyQuaternion(q);
+		if (back.lengthSq() < 1e-12) {
+			back.set(0, 0, 1);
+		}
+		back.normalize();
+		up.addScaledVector(back, -up.dot(back));
+		if (up.lengthSq() < 1e-12) {
+			up.set(Math.abs(back.y) > 0.9 ? 1 : 0, Math.abs(back.y) > 0.9 ? 0 : 1, 0);
+			up.addScaledVector(back, -up.dot(back));
+		}
+		up.normalize();
+		return { back, up };
 	}
 
-	private animateQuatDistanceTo(
-		endPos: Vector3,
+	private animateFaceView(face: DieFaceModel) {
+		// Trackball zooms a perspective camera by dollying (eye length), not camera.zoom.
+		// Keep that distance so framing a face doesn't snap back to the default offset.
+		const { back, up } = this.faceFrame(face);
+		const dist = this.camera.position.distanceTo(this.controls.target);
+		const endDist = dist > 1e-6 ? dist : defaultCameraPosition.length();
+		this.animateLookAt(back, up, this.viewCenter.clone(), endDist, 0, this.camera.zoom);
+	}
+
+	// Eye sits on `endBack` from the target. `endUp` is the on-screen up (world +Y
+	// for the explode grid, the face's legend up otherwise). The pose is a real
+	// lookAt, not a rotation of the default camera offset: that offset is not
+	// perpendicular to its up, so rebuilding from it leaves the view off the
+	// plane and rolls the numbers.
+	private animateLookAt(
+		endBack: Vector3,
 		endUp: Vector3,
 		endTarget: Vector3,
-		endQuat?: Quaternion,
-		endZoom = 1,
-		distDelay = EXPLODE_CAMERA_DIST_DELAY
+		endDist: number,
+		distDelay: number,
+		endZoom: number
 	) {
-		const startTarget = this.controls.target;
-		const startQuat = extractFaceViewQuat(this.camera.position, this.camera.up, startTarget);
-		let eq = (endQuat ?? extractFaceViewQuat(endPos, endUp, endTarget)).clone();
-		if (startQuat.dot(eq) < 0) {
-			eq = new Quaternion(-eq.x, -eq.y, -eq.z, -eq.w);
+		const back = endBack.clone().normalize();
+		const up = endUp.clone().normalize();
+		_offset.copy(endTarget).addScaledVector(back, endDist);
+		_lookAtMatrix.lookAt(_offset, endTarget, up);
+		let endQuat = new Quaternion().setFromRotationMatrix(_lookAtMatrix);
+		if (this.camera.quaternion.dot(endQuat) < 0) {
+			endQuat = new Quaternion(-endQuat.x, -endQuat.y, -endQuat.z, -endQuat.w);
 		}
-		_offset.copy(this.camera.position).sub(startTarget);
-		const startDist = _offset.length();
-		_offset.copy(endPos).sub(endTarget);
-		const endDist = _offset.length();
 		this.camTween = {
-			startQuat,
-			endQuat: eq,
-			startDist,
+			startQuat: this.camera.quaternion.clone(),
+			endQuat,
+			startDist: this.camera.position.distanceTo(this.controls.target),
 			endDist,
-			startTarget: startTarget.clone(),
+			startTarget: this.controls.target.clone(),
 			endTarget: endTarget.clone(),
+			endBack: back,
+			endUp: up,
 			startZoom: this.camera.zoom,
 			endZoom,
 			distDelay,
 			start: performance.now()
 		};
+	}
+
+	// Sit on +Z over `target`, world +Y up, so the XY face grid is face-on and upright.
+	private placeExplodeCamera(target: Vector3, dist: number) {
+		this.camera.up.set(0, 1, 0);
+		this.camera.position.set(target.x, target.y, target.z + dist);
+		this.camera.lookAt(target);
+	}
+
+	private animateExplodeCamera() {
+		this.animateLookAt(
+			new Vector3(0, 0, 1),
+			_defaultUp,
+			this.viewCenter.clone(),
+			explodeCameraPosition.length(),
+			EXPLODE_CAMERA_DIST_DELAY,
+			1
+		);
+	}
+
+	// After trackball update: keep the eye on +Z at the current dolly distance so
+	// zoom and pan still work, but a side-on orientation cannot stick.
+	private enforceExplodeView() {
+		const target = this.controls.target;
+		const dist = this.camera.position.distanceTo(target);
+		this.placeExplodeCamera(target, dist > 1e-3 ? dist : explodeCameraPosition.length());
+		(this.controls as TrackballInternals)._eye.subVectors(this.camera.position, target);
 	}
 
 	private stepCameraTween() {
@@ -496,18 +499,18 @@ export class EngineViewport {
 				? easeInOut(Math.min(1, Math.max(0, (t - tw.distDelay) / (1 - tw.distDelay))))
 				: e;
 		const dist = tw.startDist + (tw.endDist - tw.startDist) * distT;
-		_offset
-			.copy(defaultCameraPosition)
-			.applyQuaternion(_slerpQuat)
-			.normalize()
-			.multiplyScalar(dist);
-		this.camera.position.copy(_offset).add(_tweenTarget);
-		this.camera.up.copy(_defaultUp).applyQuaternion(_slerpQuat).normalize();
 		this.controls.target.copy(_tweenTarget);
-		this.camera.lookAt(_tweenTarget);
+		_slerpQuat.normalize();
+		_back.set(0, 0, 1).applyQuaternion(_slerpQuat);
+		this.camera.position.copy(_tweenTarget).addScaledVector(_back, dist);
+		this.camera.quaternion.copy(_slerpQuat);
+		this.camera.up.set(0, 1, 0).applyQuaternion(_slerpQuat).normalize();
 		this.camera.zoom = tw.startZoom + (tw.endZoom - tw.startZoom) * e;
 		this.camera.updateProjectionMatrix();
 		if (t >= 1) {
+			this.camera.up.copy(tw.endUp);
+			this.camera.position.copy(tw.endTarget).addScaledVector(tw.endBack, tw.endDist);
+			this.camera.lookAt(tw.endTarget);
 			this.syncTrackballEye();
 			this.camTween = null;
 		}
@@ -526,14 +529,36 @@ export class EngineViewport {
 	dispatchPointer(ev: EnginePointerEvent) {
 		if (ev.type === 'pointerdown') {
 			this.camTween = null;
+			const leftButton = (ev.button === undefined || ev.button === 0) && (ev.buttons & 1) !== 0;
+			this.shiftPan = ev.shiftKey && leftButton;
+			this.shiftPanMoved = false;
+			this.shiftPanX = ev.offsetX;
+			this.shiftPanY = ev.offsetY;
+		} else if (
+			this.shiftPan &&
+			(ev.type === 'pointermove' || ev.type === 'pointerup' || ev.type === 'pointerleave')
+		) {
+			if (Math.hypot(ev.offsetX - this.shiftPanX, ev.offsetY - this.shiftPanY) > 4) {
+				this.shiftPanMoved = true;
+			}
 		}
 		const type = ev.type === 'wheel' ? 'wheel' : ev.type === 'pointerleave' ? 'pointerup' : ev.type;
+		// Trackball pans on the right button. Report shift-left as that button
+		// so a Mac trackpad can pan without a right-drag.
+		const trackballEv =
+			this.shiftPan && ev.type === 'pointerdown' ? { ...ev, button: 2, buttons: 2 } : ev;
 		if (type === 'wheel' && ev.deltaY !== undefined) {
 			this.controlSurface.dispatchEvent(syntheticWheelEvent(ev.deltaY));
 		} else if (type !== 'wheel') {
-			this.controlSurface.dispatchEvent(syntheticPointerEvent(ev, type));
+			this.controlSurface.dispatchEvent(syntheticPointerEvent(trackballEv, type));
 		}
-		this.picker.handlePointer(ev);
+		const suppressClick = ev.type === 'pointerup' && this.shiftPan && this.shiftPanMoved;
+		if (ev.type === 'pointerup' || ev.type === 'pointerleave') {
+			this.shiftPan = false;
+		}
+		if (!suppressClick) {
+			this.picker.handlePointer(ev);
+		}
 	}
 
 	resetCamera() {
@@ -550,25 +575,11 @@ export class EngineViewport {
 
 	lookAtFace(faceIndex: number, getFace: (face: number) => DieFaceModel | undefined) {
 		if (this.exploded) {
-			this.animateQuatDistanceTo(
-				explodeCameraPosition.clone().add(this.viewCenter),
-				_defaultUp,
-				this.viewCenter.clone()
-			);
+			this.animateExplodeCamera();
 			return;
 		}
 		const face = getFace(faceIndex);
 		if (!face) {
-			return;
-		}
-		if (this.isExplodeCameraPose()) {
-			const { pos, up } = faceCameraPose(face);
-			this.animateQuatDistanceTo(
-				pos.clone().add(this.viewCenter),
-				up,
-				this.viewCenter.clone(),
-				face.transform.rotation.clone()
-			);
 			return;
 		}
 		this.animateFaceView(face);

@@ -4,11 +4,18 @@ import { Vector3 } from 'three';
 import { CoinD2 } from '$lib/dice/coin';
 import { assembleBlankExportShellGeometry, transformToMat4 } from '../die_manifold';
 import { checkIndexedMesh } from '../mesh_check';
-import { geometryToManifold, manifoldToIndexedMesh, wasm } from '../manifold';
+import {
+	geometryToManifold,
+	manifoldToIndexedMesh,
+	wasm,
+	type Manifold,
+	type Mat4
+} from '../manifold';
 import { computeEdgeSupportLines } from './regions';
 import {
 	buildSingleSupportManifold,
 	buildSupportsManifold,
+	minHeadFaceAngleRad,
 	pillarMiterOverhangMm,
 	placeSupportFoot,
 	sampleSupportContacts
@@ -16,7 +23,7 @@ import {
 import { DEFAULT_SUPPORT_SETTINGS, type SupportRegions } from './types';
 
 describe('support geometry', () => {
-	it('unions a handful of contacts + hexagonal raft pads into a watertight manifold', () => {
+	it('unions contacts and one vented raft into a watertight manifold', () => {
 		const regions: SupportRegions = {
 			edgeLines: [
 				{
@@ -45,13 +52,10 @@ describe('support geometry', () => {
 	it('always angles the foot outward so the cone tips toward the die', () => {
 		const contact = new Vector3(0, 12, 0);
 		const normal = new Vector3(1, 0, 0); // outward +X
-		const foot = placeSupportFoot(
-			contact,
-			normal,
-			DEFAULT_SUPPORT_SETTINGS,
-			undefined,
-			{ x: 0, z: 0 }
-		);
+		const foot = placeSupportFoot(contact, normal, DEFAULT_SUPPORT_SETTINGS, undefined, {
+			x: 0,
+			z: 0
+		});
 		// Foot should sit outward along +X, not under the contact.
 		expect(foot.footX).toBeGreaterThan(0.3);
 		expect(Math.abs(foot.footZ)).toBeLessThan(0.05);
@@ -61,13 +65,10 @@ describe('support geometry', () => {
 		const blocker = wasm.Manifold.cube([8, 10, 8], false).translate([-4, 2, -4]);
 		const contact = new Vector3(0, 12, 0);
 		const normal = new Vector3(1, 0, 0);
-		const foot = placeSupportFoot(
-			contact,
-			normal,
-			DEFAULT_SUPPORT_SETTINGS,
-			blocker,
-			{ x: 0, z: 0 }
-		);
+		const foot = placeSupportFoot(contact, normal, DEFAULT_SUPPORT_SETTINGS, blocker, {
+			x: 0,
+			z: 0
+		});
 		expect(foot.footX).toBeGreaterThan(1);
 		blocker.delete();
 	});
@@ -86,11 +87,7 @@ describe('support geometry', () => {
 		expect(report.isManifold).toBe(true);
 		// The joint ball is centred here and contains this probe. A gap between the
 		// pillar and the angled stub would leave the centre uncovered.
-		const elbow = wasm.Manifold.sphere(0.12, 8).translate([
-			foot.footX,
-			foot.coneBaseY,
-			foot.footZ
-		]);
+		const elbow = wasm.Manifold.sphere(0.12, 8).translate([foot.footX, foot.coneBaseY, foot.footZ]);
 		const inside = wasm.Manifold.intersection(man, elbow);
 		expect(inside.volume()).toBeGreaterThan(elbow.volume() * 0.8);
 		inside.delete();
@@ -166,8 +163,18 @@ describe('support geometry', () => {
 		const support = buildSingleSupportManifold(foot, DEFAULT_SUPPORT_SETTINGS);
 		const tipR = DEFAULT_SUPPORT_SETTINGS.sphereDiameterMm / 2;
 		const carve = wasm.Manifold.sphere(tipR * 1.5, 10).translate([contact.x, contact.y, contact.z]);
-		const body = wasm.Manifold.difference(support, carve);
+		// The blocker includes the build plate, and the raft is supposed to sit
+		// there. Judge the pillar and the head, above the raft.
+		const abovePlate = wasm.Manifold.cube([40, 40, 40], false).translate([
+			-20,
+			DEFAULT_SUPPORT_SETTINGS.raftDepthMm,
+			-20
+		]);
+		const shaft = wasm.Manifold.intersection(support, abovePlate);
+		abovePlate.delete();
 		support.delete();
+		const body = wasm.Manifold.difference(shaft, carve);
+		shaft.delete();
 		carve.delete();
 		const hit = wasm.Manifold.intersection(blocker, body);
 		body.delete();
@@ -234,4 +241,97 @@ describe('support geometry', () => {
 		expect(floating).toBe(0);
 		die.delete();
 	});
+
+	it('leans the head so only the tip sphere enters the face', () => {
+		const settings = DEFAULT_SUPPORT_SETTINGS;
+		const tipR = settings.sphereDiameterMm / 2;
+		const contact = new Vector3(0, 12, 0);
+		// Vertical, the minimum edge-support lean, and a flat overhang.
+		const normals = [new Vector3(1, 0, 0), new Vector3(0.9659, -0.2588, 0), new Vector3(0, -1, 0)];
+		for (const normal of normals) {
+			const die = dieBehindFace(contact, normal);
+			const foot = placeSupportFoot(contact, normal, settings, die, { x: 0, z: 0 });
+			const dx = foot.footX - contact.x;
+			const dy = foot.coneBaseY - contact.y;
+			const dz = foot.footZ - contact.z;
+			const axisLen = Math.hypot(dx, dy, dz);
+			const along = (dx * normal.x + dy * normal.y + dz * normal.z) / (axisLen * normal.length());
+			expect(along).toBeGreaterThanOrEqual(Math.sin(minHeadFaceAngleRad(settings, axisLen)) - 1e-3);
+
+			const support = buildSingleSupportManifold(foot, settings);
+			const reach = supportReachIntoDie(support, die, contact);
+			support.delete();
+			die.delete();
+			expect(reach).toBeGreaterThan(tipR * 0.5);
+			expect(reach).toBeLessThanOrEqual(tipR + 0.03);
+		}
+	});
+
+	it('a shallow head lets the cone cut the face beside the sphere', () => {
+		const settings = DEFAULT_SUPPORT_SETTINGS;
+		const tipR = settings.sphereDiameterMm / 2;
+		const contact = new Vector3(0, 12, 0);
+		const normal = new Vector3(1, 0, 0);
+		const die = dieBehindFace(contact, normal);
+		const coneBaseY = Math.max(
+			settings.raftDepthMm,
+			contact.y - tipR - Math.max(2, settings.coneLengthMm) * 0.85
+		);
+		const support = buildSingleSupportManifold(
+			{ contact, footX: 0.35, footZ: 0, coneBaseY },
+			settings
+		);
+		const reach = supportReachIntoDie(support, die, contact);
+		support.delete();
+		die.delete();
+		expect(reach).toBeGreaterThan(tipR + 0.03);
+	});
 });
+
+/** Die occupying the inward side of the plane through `contact` with outward `normal`. */
+function dieBehindFace(contact: Vector3, normal: Vector3): Manifold {
+	const n = normal.clone().normalize();
+	const ref = Math.abs(n.y) > 0.9 ? new Vector3(1, 0, 0) : new Vector3(0, 1, 0);
+	const y = new Vector3().crossVectors(ref, n).normalize();
+	const z = new Vector3().crossVectors(n, y).normalize();
+	const raw = wasm.Manifold.cube([40, 80, 80], false);
+	const cube = raw.translate([-40, -40, -40]);
+	raw.delete();
+	const moved = cube.transform([
+		n.x,
+		n.y,
+		n.z,
+		0,
+		y.x,
+		y.y,
+		y.z,
+		0,
+		z.x,
+		z.y,
+		z.z,
+		0,
+		contact.x,
+		contact.y,
+		contact.z,
+		1
+	] as unknown as Mat4);
+	cube.delete();
+	return moved;
+}
+
+/** Furthest intersection of `support` with `die` from the contact. The tip sphere reaches ~tipR. */
+function supportReachIntoDie(support: Manifold, die: Manifold, contact: Vector3): number {
+	const hit = wasm.Manifold.intersection(support, die);
+	const mesh = hit.getMesh();
+	hit.delete();
+	let maxDist = 0;
+	const np = mesh.numProp;
+	const v = mesh.vertProperties;
+	for (let i = 0; i < v.length; i += np) {
+		maxDist = Math.max(
+			maxDist,
+			Math.hypot(v[i] - contact.x, v[i + 1] - contact.y, v[i + 2] - contact.z)
+		);
+	}
+	return maxDist;
+}

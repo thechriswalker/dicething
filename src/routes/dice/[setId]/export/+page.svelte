@@ -7,7 +7,18 @@
 	import BoxProgressDie from '$lib/box/BoxProgressDie.svelte';
 	import type { BuildProgress } from '$lib/box/box_builder';
 	import { waitForSet, dieToJSON, type Dice, type DiceSet } from '$lib/interfaces/storage.svelte';
-	import { getPreferences } from '$lib/interfaces/preferences.svelte';
+	import {
+		getPreferences,
+		setPreference,
+		type BuildPlatePreference
+	} from '$lib/interfaces/preferences.svelte';
+	import {
+		BUILD_PLATE_PRESETS,
+		CUSTOM_PLATE_ID,
+		buildPlatePresetGroups
+	} from '$lib/utils/build_plates';
+	import { effectiveDieSupports, globalSupportConfig } from '$lib/utils/supports';
+	import { supportOptionValues } from '$lib/utils/build_options/supports';
 	import { m } from '$lib/paraglide/messages';
 	import { dieListLabel } from '$lib/utils/die_display_name';
 	import { createFancyRender, createGridHelper, type SceneRenderer } from '$lib/utils/scene';
@@ -29,6 +40,7 @@
 		type NamedMesh,
 		type OptionStates
 	} from '$lib/utils/export';
+	import { applyPlateLayout, planPlateLayout, type PlateRect } from '$lib/utils/plate_layout';
 	import {
 		defaultValues,
 		extraBuildOptions,
@@ -41,14 +53,22 @@
 	import { exportDieInEngine, loadEngineSet } from '$lib/utils/die_engine_client';
 	import { legendsJsonForEngine } from '$lib/utils/preview_legends';
 	import { mergeMeshReports, type MeshCheckReport } from '$lib/utils/mesh_check';
-	import { onMount } from 'svelte';
+	import { onMount, untrack } from 'svelte';
 	import {
+		Box3,
 		BufferAttribute,
 		BufferGeometry,
+		CanvasTexture,
 		DoubleSide,
+		EdgesGeometry,
 		Group,
+		LineBasicMaterial,
+		LineSegments,
 		Mesh,
-		MeshBasicMaterial
+		MeshBasicMaterial,
+		PlaneGeometry,
+		SRGBColorSpace,
+		Vector3
 	} from 'three';
 	import { TriangleAlert, ArrowLeft, Download, Frame, Rotate3d, Sparkles } from '@lucide/svelte';
 	import { Button } from 'bits-ui';
@@ -66,27 +86,31 @@
 	let format = $state<ExportFormat>('3mf');
 	let fileLayout = $state<'single' | 'group' | 'object'>('single');
 
-	function initialOptionValues(
-		optionId: string,
-		controls: (typeof extraBuildOptions)[0]['controls']
-	) {
-		const base = defaultValues(controls);
-		if (optionId === 'supports') {
-			// Size prefs only — layer toggles stay at control defaults (all on).
-			const s = getPreferences().supportSettings;
-			const sizes = Object.fromEntries(
-				Object.entries(s).filter(([k]) => k in base && typeof base[k] === 'number')
-			);
-			return { ...base, ...sizes };
+	function initialOptionValues(controls: (typeof extraBuildOptions)[0]['controls']) {
+		return defaultValues(controls);
+	}
+
+	function optionStatesForDie(die: Dice, options: OptionStates): OptionStates {
+		const supports = options.supports;
+		if (!setData || !supports?.enabled) {
+			return options;
 		}
-		return base;
+		return {
+			...options,
+			supports: {
+				enabled: true,
+				values: supportOptionValues(
+					effectiveDieSupports(die, setData, globalSupportConfig(getPreferences()))
+				)
+			}
+		};
 	}
 
 	let optionStates = $state<OptionStates>(
 		Object.fromEntries(
 			extraBuildOptions.map((o) => [
 				o.id,
-				{ enabled: !!o.defaultEnabled, values: initialOptionValues(o.id, o.controls) }
+				{ enabled: !!o.defaultEnabled, values: initialOptionValues(o.controls) }
 			])
 		)
 	);
@@ -101,7 +125,8 @@
 			id: setData.id,
 			name: setData.name,
 			updated: setData.updated,
-			dice: setData.dice
+			dice: setData.dice,
+			supports: setData.supports
 		});
 		await loadEngineSet(setData.id, setJson, legendsJsonForEngine(setData.legends));
 		// build every die once on the first preview pass to discover engraving
@@ -226,6 +251,224 @@
 	}
 
 	const gridHelper = createGridHelper(80);
+	const plateGroups = buildPlatePresetGroups();
+
+	let plateCount = $state(0);
+	let plateOverflow = $state(0);
+	let framedSig = '';
+	let plateGroup: Group | undefined;
+	const plateFillMat = new MeshBasicMaterial({
+		color: 0x5b8def,
+		transparent: true,
+		opacity: 0.35,
+		depthWrite: false,
+		side: DoubleSide
+	});
+	const plateEdgeMat = new LineBasicMaterial({
+		color: 0xd6e4ff,
+		transparent: true,
+		opacity: 0.9
+	});
+
+	function formatPlateMm(n: number): string {
+		return String(Math.round(n * 100) / 100);
+	}
+
+	function buildPlateCaption(): Array<string> {
+		const plate = getPreferences().buildPlate;
+		const name = plate.preset === CUSTOM_PLATE_ID ? m.export_plate_custom() : plate.preset;
+		return [name, `${formatPlateMm(plate.x)}mm x ${formatPlateMm(plate.y)}mm`];
+	}
+
+	// Flat on the bed, just in front of the plate (+Z, the side the camera
+	// starts on), left edge lined up with the plate's left edge. Two lines so
+	// the caption stays readable when the camera frames the whole plate.
+	function plateLabelMesh(lines: Array<string>, maxWidth: number): Mesh | undefined {
+		const fontPx = 96;
+		const lineGap = 18;
+		const canvas = document.createElement('canvas');
+		const draw = canvas.getContext('2d');
+		if (!draw || lines.length === 0 || maxWidth <= 0) {
+			return undefined;
+		}
+		const font = `600 ${fontPx}px ui-sans-serif, system-ui, sans-serif`;
+		draw.font = font;
+		const textW = Math.max(...lines.map((line) => draw.measureText(line).width));
+		const padX = 28;
+		const padY = 22;
+		const textH = lines.length * fontPx + (lines.length - 1) * lineGap;
+		canvas.width = Math.max(1, Math.ceil(textW + padX * 2));
+		canvas.height = Math.ceil(textH + padY * 2);
+		draw.font = font;
+		draw.textBaseline = 'top';
+		draw.lineJoin = 'round';
+		draw.miterLimit = 2;
+		draw.lineWidth = 14;
+		draw.strokeStyle = 'rgba(0,0,0,0.8)';
+		draw.fillStyle = '#f4f7ff';
+		let y = padY;
+		for (const line of lines) {
+			draw.strokeText(line, padX, y);
+			draw.fillText(line, padX, y);
+			y += fontPx + lineGap;
+		}
+		const texture = new CanvasTexture(canvas);
+		texture.colorSpace = SRGBColorSpace;
+		const width = maxWidth * 0.5;
+		const height = width * (canvas.height / canvas.width);
+		const geo = new PlaneGeometry(width, height);
+		geo.rotateX(-Math.PI / 2);
+		const mat = new MeshBasicMaterial({
+			map: texture,
+			transparent: true,
+			depthWrite: false,
+			toneMapped: false,
+			side: DoubleSide
+		});
+		const mesh = new Mesh(geo, mat);
+		mesh.renderOrder = 2;
+		mesh.userData.labelWidth = width;
+		mesh.userData.labelDepth = height;
+		return mesh;
+	}
+
+	function syncBuildPlates(rects: Array<PlateRect>) {
+		if (plateGroup) {
+			plateGroup.traverse((o) => {
+				const mesh = o as Mesh;
+				if (mesh.geometry) {
+					mesh.geometry.dispose();
+				}
+				const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+				for (const mat of materials) {
+					if (!mat || mat === plateFillMat || mat === plateEdgeMat) {
+						continue;
+					}
+					if (mat instanceof MeshBasicMaterial && mat.map) {
+						mat.map.dispose();
+					}
+					mat.dispose();
+				}
+			});
+			ctx?.scene.remove(plateGroup);
+			plateGroup = undefined;
+		}
+		if (!ctx || rects.length === 0) {
+			return;
+		}
+		const caption = buildPlateCaption();
+		const group = new Group();
+		for (const rect of rects) {
+			const geo = new PlaneGeometry(rect.width, rect.depth);
+			geo.rotateX(-Math.PI / 2);
+			const mesh = new Mesh(geo, plateFillMat);
+			mesh.position.set(rect.cx, -0.2, rect.cz);
+			mesh.renderOrder = -1;
+			group.add(mesh);
+			const edge = new LineSegments(new EdgesGeometry(geo), plateEdgeMat);
+			edge.position.copy(mesh.position);
+			edge.renderOrder = -1;
+			group.add(edge);
+			const label = plateLabelMesh(caption, rect.width);
+			if (label) {
+				const labelWidth = label.userData.labelWidth as number;
+				const labelDepth = label.userData.labelDepth as number;
+				label.position.set(
+					rect.cx - rect.width / 2 + labelWidth / 2,
+					0.4,
+					rect.cz + rect.depth / 2 + 2 + labelDepth / 2
+				);
+				group.add(label);
+			}
+		}
+		ctx.scene.add(group);
+		plateGroup = group;
+	}
+
+	function framePlates(sig: string, rects: Array<PlateRect>, named: Array<NamedMesh>) {
+		if (!ctx) {
+			return;
+		}
+		if (prefs.exportArrange !== 'plate') {
+			if (framedSig.startsWith('plate')) {
+				ctx.camera.position.set(0, 60, 90);
+				ctx.controls.target.set(0, 0, 0);
+				ctx.camera.lookAt(0, 0, 0);
+				ctx.syncControls();
+				framedSig = 'grid';
+			}
+			return;
+		}
+		if (sig === framedSig) {
+			return;
+		}
+		framedSig = sig;
+		const box = new Box3();
+		for (const r of rects) {
+			box.expandByPoint(new Vector3(r.cx - r.width / 2, 0, r.cz - r.depth / 2));
+			box.expandByPoint(new Vector3(r.cx + r.width / 2, 0, r.cz + r.depth / 2));
+		}
+		// The caption sits just past the near edge.
+		if (plateGroup) {
+			box.union(new Box3().setFromObject(plateGroup));
+		}
+		for (const n of named) {
+			n.mesh.geometry.computeBoundingBox();
+			if (n.mesh.geometry.boundingBox) {
+				box.union(n.mesh.geometry.boundingBox);
+			}
+		}
+		if (box.isEmpty()) {
+			return;
+		}
+		const size = new Vector3();
+		const center = new Vector3();
+		box.getSize(size);
+		box.getCenter(center);
+		const radius = Math.max(size.x, size.y, size.z, 40) * 0.55;
+		const dist = radius / Math.sin((ctx.camera.fov * Math.PI) / 360);
+		ctx.camera.position.set(center.x + dist * 0.15, center.y + dist * 0.65, center.z + dist * 0.85);
+		ctx.camera.lookAt(center);
+		ctx.controls.target.copy(center);
+		ctx.camera.far = Math.max(5000, dist * 8);
+		ctx.camera.updateProjectionMatrix();
+		ctx.syncControls();
+	}
+
+	function updateBuildPlate(patch: Partial<BuildPlatePreference>) {
+		setPreference('buildPlate', { ...getPreferences().buildPlate, ...patch });
+	}
+
+	function commitPreset(id: string) {
+		if (id === CUSTOM_PLATE_ID) {
+			updateBuildPlate({ preset: CUSTOM_PLATE_ID });
+			return;
+		}
+		const size = BUILD_PLATE_PRESETS[id];
+		if (!size) {
+			return;
+		}
+		updateBuildPlate({ preset: id, x: size.x, y: size.y });
+	}
+
+	function commitPlateSize(axis: 'x' | 'y', raw: string, input: HTMLInputElement) {
+		const n = Number(raw);
+		const cur = getPreferences().buildPlate;
+		if (!Number.isFinite(n) || n < 20 || n > 2000) {
+			input.value = String(cur[axis]);
+			return;
+		}
+		const next: BuildPlatePreference = { ...cur, [axis]: n };
+		const selected = cur.preset !== CUSTOM_PLATE_ID ? BUILD_PLATE_PRESETS[cur.preset] : undefined;
+		if (
+			!selected ||
+			Math.abs(selected.x - next.x) > 0.001 ||
+			Math.abs(selected.y - next.y) > 0.001
+		) {
+			next.preset = CUSTOM_PLATE_ID;
+		}
+		setPreference('buildPlate', next);
+	}
 
 	let fancyRender = $state<ReturnType<typeof createFancyRender>>();
 	let fancy = $state(true);
@@ -317,23 +560,6 @@
 		return reports.length > 0 ? mergeMeshReports(reports) : undefined;
 	}
 
-	/** Enable merge options that target `group` (e.g. supports → dice/blanks). */
-	function withMergeOptionsFor(
-		group: string,
-		options: OptionStates,
-		base: OptionStates
-	): OptionStates {
-		const out = { ...base };
-		for (const option of extraBuildOptions) {
-			if (!option.mergeInto?.includes(group)) continue;
-			const state = options[option.id];
-			if (!state?.enabled) continue;
-			out[option.id] = { enabled: true, values: state.values };
-		}
-		return out;
-	}
-
-	/** One worker job = one group for one die (dice / blanks / platforms). */
 	type ExportBuildJob = {
 		die: Dice;
 		dieSig: string;
@@ -355,7 +581,13 @@
 		);
 	}
 
-	/** Missing/stale groups as separate jobs — never couples dice with blanks. */
+	/** One worker call per die, covering every stale group.
+	 *
+	 * Supports are unioned into both the numbered die and the blank. Separate
+	 * calls rebuild that boolean from scratch; the second pass runs after the
+	 * WASM heap has already grown to fit the first, and the heap never shrinks,
+	 * so it traps with "memory access out of bounds" partway through a set.
+	 */
 	function collectMissingJobs(
 		entry: DieExportCache | undefined,
 		dieSig: string,
@@ -364,34 +596,40 @@
 	): Array<Pick<ExportBuildJob, 'group' | 'label' | 'includeDice' | 'optionStates'>> {
 		const jobs: Array<Pick<ExportBuildJob, 'group' | 'label' | 'includeDice' | 'optionStates'>> =
 			[];
+		const states = emptyOptionStates(options);
 		const diceSig = exportDiceCacheSig(dieSig, options);
-		if (wantDice && (!entry?.groups.dice || entry.groups.dice.sig !== diceSig)) {
-			jobs.push({
-				group: 'dice',
-				label: m.export_building_dice(),
-				includeDice: true,
-				optionStates: withMergeOptionsFor('dice', options, emptyOptionStates(options))
-			});
-		}
+		const diceStale = wantDice && (!entry?.groups.dice || entry.groups.dice.sig !== diceSig);
+		const staleOptions: Array<(typeof extraBuildOptions)[number]> = [];
 		for (const option of extraBuildOptions) {
 			if (isMergeOption(option)) continue;
 			const state = options[option.id];
-			if (!state?.enabled) {
-				continue;
-			}
+			if (!state?.enabled) continue;
 			const sig = exportGroupCacheSig(dieSig, option.id, state.values, options);
 			const cached = entry?.groups[option.id];
 			if (!cached || cached.sig !== sig) {
-				const optionStates = emptyOptionStates(options);
-				optionStates[option.id] = { enabled: true, values: state.values };
-				jobs.push({
-					group: option.id,
-					label: m.export_building_option({ option: option.label() }),
-					includeDice: false,
-					optionStates: withMergeOptionsFor(option.id, options, optionStates)
-				});
+				staleOptions.push(option);
+				states[option.id] = { enabled: true, values: state.values };
 			}
 		}
+		if (!diceStale && staleOptions.length === 0) {
+			return jobs;
+		}
+		const targets = [...(diceStale ? ['dice'] : []), ...staleOptions.map((option) => option.id)];
+		for (const option of extraBuildOptions) {
+			if (!option.mergeInto?.some((target) => targets.includes(target))) continue;
+			const state = options[option.id];
+			if (!state?.enabled) continue;
+			states[option.id] = { enabled: true, values: state.values };
+		}
+		const primary = diceStale ? 'dice' : staleOptions[0].id;
+		jobs.push({
+			group: primary,
+			label: diceStale
+				? m.export_building_dice()
+				: m.export_building_option({ option: staleOptions[0].label() }),
+			includeDice: diceStale,
+			optionStates: states
+		});
 		return jobs;
 	}
 
@@ -426,7 +664,7 @@
 		// Use the worker's report (Manifold index topology). Re-checking the
 		// transferred Three.js buffer here false-flags micro-edges as non-manifold
 		// — the solids were already verified before manifolds were disposed.
-		const report = result.meshReport;
+		const reportFor = (group: string) => result.groupMeshReports?.[group] ?? result.meshReport;
 
 		if (requested.includeDice) {
 			const meshes = byGroup.get('dice') ?? [];
@@ -434,7 +672,7 @@
 			entry.groups.dice = {
 				sig: exportDiceCacheSig(dieSig, requested.optionStates),
 				meshes,
-				meshReport: report,
+				meshReport: reportFor('dice'),
 				volumeMm3: result.groupVolumesMm3.dice ?? 0
 			};
 		}
@@ -449,7 +687,7 @@
 			entry.groups[option.id] = {
 				sig: exportGroupCacheSig(dieSig, option.id, state.values, requested.optionStates),
 				meshes,
-				meshReport: report,
+				meshReport: reportFor(option.id),
 				volumeMm3: result.groupVolumesMm3[option.id] ?? 0
 			};
 		}
@@ -524,9 +762,11 @@
 		_ctx.scene.add(gridHelper);
 		_ctx.camera.position.set(0, 60, 90);
 		_ctx.camera.lookAt(0, 0, 0);
+		_ctx.camera.far = 5000;
+		_ctx.camera.updateProjectionMatrix();
 		fancyRender = createFancyRender(_ctx);
 		fancyRender.setEnabled(fancy);
-		gridHelper.visible = !fancy;
+		gridHelper.visible = !fancy && getPreferences().exportArrange !== 'plate';
 		// start the render loop (otherwise the canvas stays blank).
 		_ctx.render();
 	};
@@ -534,7 +774,7 @@
 	function toggleFancy() {
 		fancy = !fancy;
 		fancyRender?.setEnabled(fancy);
-		gridHelper.visible = !fancy;
+		gridHelper.visible = !fancy && prefs.exportArrange !== 'plate';
 		previewMeshes.forEach((m) => fancyRender?.styleMesh(m));
 	}
 
@@ -596,7 +836,24 @@
 		}
 		diceVolumeMl = diceMm3 / 1000;
 		artifactVolumesMl = vols;
-		layoutNamedMeshes(named);
+		const plate = getPreferences().buildPlate;
+		let plateRects: Array<PlateRect> = [];
+		if (getPreferences().exportArrange === 'plate') {
+			const plan = planPlateLayout(named, { x: plate.x, y: plate.y });
+			plateRects = applyPlateLayout(named, plan, 'spread');
+			plateCount = plan.plateCount;
+			plateOverflow = plan.overflow;
+		} else {
+			layoutNamedMeshes(named);
+			plateCount = 0;
+			plateOverflow = 0;
+		}
+		syncBuildPlates(plateRects);
+		framePlates(
+			`plate:${plate.x}x${plate.y}:${plateCount}:${plateOverflow}:${buildPlateCaption().join('|')}`,
+			plateRects,
+			named
+		);
 		const group = new Group();
 		const meshes = named.map((n) => n.mesh);
 		meshes.forEach((mesh) => {
@@ -641,6 +898,7 @@
 					continue;
 				}
 				const dieSig = exportDieGeometrySig(die, setData.legends.id);
+				const dieOptions = optionStatesForDie(die, optionSnap);
 				let entry = exportMeshCache.get(die.id);
 				if (entry && entry.dieSig !== dieSig) {
 					disposeExportCacheEntry(entry);
@@ -648,7 +906,7 @@
 					entry = undefined;
 				}
 				const wantDice = buildingAllForErrors || includeDice;
-				for (const job of collectMissingJobs(entry, dieSig, wantDice, optionSnap)) {
+				for (const job of collectMissingJobs(entry, dieSig, wantDice, dieOptions)) {
 					const full = { die, dieSig, ...job };
 					if (job.group === 'dice') {
 						diceJobs.push(full);
@@ -659,11 +917,10 @@
 			}
 			const jobs = [...diceJobs, ...optionJobs];
 
-			// Show whatever is already cached immediately (hide blanks without waiting).
-			const visibleIds = buildingAllForErrors ? setData.dice.map((d) => d.id) : selectedIds;
-			applyPreviewFromCache(optionSnap, includeDice, visibleIds, generation);
-
 			if (jobs.length === 0) {
+				// Nothing to build: arrange the cache immediately.
+				const visibleIds = buildingAllForErrors ? setData.dice.map((d) => d.id) : selectedIds;
+				applyPreviewFromCache(optionSnap, includeDice, visibleIds, generation);
 				buildingPreview = false;
 				buildProgress = null;
 				buildFinished = false;
@@ -736,13 +993,10 @@
 					includeDice: job.includeDice,
 					optionStates: job.optionStates
 				});
+			}
 
-				if (!errorsInitialized && job.includeDice) {
-					// keep going — finish all dice jobs before narrowing selection
-				}
-
-				const idsForPreview = errorsInitialized ? selectedIds : setData.dice.map((d) => d.id);
-				applyPreviewFromCache(optionSnap, includeDice, idsForPreview, generation);
+			if (generation !== checkGeneration) {
+				return;
 			}
 
 			if (!errorsInitialized) {
@@ -753,7 +1007,6 @@
 				dieErrors = errs;
 				selectedIds = setData.dice.filter((d) => (errs[d.id]?.length ?? 0) === 0).map((d) => d.id);
 				errorsInitialized = true;
-				applyPreviewFromCache(optionSnap, includeDice, selectedIds, generation);
 			}
 
 			for (const id of [...exportMeshCache.keys()]) {
@@ -763,9 +1016,10 @@
 				}
 			}
 
-			if (generation === checkGeneration) {
-				buildFinished = true;
-			}
+			// Pack once, after every mesh exists. Doing it per die repeats the
+			// plate search on a growing set and dominates the build.
+			applyPreviewFromCache(optionSnap, includeDice, selectedIds, generation);
+			buildFinished = true;
 		} catch (err) {
 			console.warn('export preview rebuild failed', err);
 			if (generation === checkGeneration) {
@@ -803,6 +1057,31 @@
 		if (ctx && setData) {
 			schedulePreview();
 		}
+	});
+
+	// Plate size and arrangement only move cached meshes, so they must not
+	// rebuild geometry. untrack keeps selection changes on the debounced path.
+	$effect(() => {
+		prefs.exportArrange;
+		prefs.buildPlate.preset;
+		prefs.buildPlate.x;
+		prefs.buildPlate.y;
+		if (!ctx || !setData) {
+			return;
+		}
+		untrack(() => {
+			// A build lays the scene out once, when every mesh exists.
+			if (buildingPreview) {
+				return;
+			}
+			const optionSnap = $state.snapshot(optionStates) as OptionStates;
+			applyPreviewFromCache(optionSnap, includeDice, selectedIds, checkGeneration);
+		});
+	});
+
+	$effect(() => {
+		gridHelper.visible = !fancy && prefs.exportArrange !== 'plate';
+		plateFillMat.opacity = prefs.buildPlate.opacity;
 	});
 
 	function dieLabel(die: Dice, idx: number): string {
@@ -871,8 +1150,10 @@
 	let totalVolumeMl = $derived(volumeGroups.reduce((sum, row) => sum + row.volume, 0));
 
 	// the "one file per group" layout only makes sense with more than one group
-	// (dice + at least one artifact type). Fall back to a single file otherwise.
-	let multiGroup = $derived(volumeGroups.length > 1);
+	// (dice + at least one artifact type, or one kind split across plates).
+	let multiGroup = $derived(
+		volumeGroups.length > 1 || (prefs.exportArrange === 'plate' && plateCount > 1)
+	);
 	$effect(() => {
 		if (fileLayout === 'group' && !multiGroup) {
 			fileLayout = 'single';
@@ -909,7 +1190,16 @@
 		}
 		try {
 			const name = (setData.name || 'set').replace(/[^a-z0-9-_]+/gi, '_');
-			const groups = groupMeshesByCategory(named, name);
+			const platePrefs = getPreferences();
+			const plan =
+				platePrefs.exportArrange === 'plate'
+					? planPlateLayout(named, { x: platePrefs.buildPlate.x, y: platePrefs.buildPlate.y })
+					: undefined;
+			const groups = groupMeshesByCategory(
+				named,
+				name,
+				plan ? (mesh) => plan.placements.get(mesh)?.plate ?? -1 : undefined
+			);
 			if (fileLayout === 'object') {
 				download(
 					format === '3mf' ? await exportThreeMfZip(named, 'y') : exportStlZip(named, 'y'),
@@ -917,7 +1207,17 @@
 				);
 			} else if (fileLayout === 'group' && groups.length > 1) {
 				for (const g of groups) {
-					layoutNamedMeshes(g.meshes);
+					if (plan) {
+						// Each file is its own plate: pack that group on its own so it
+						// sits centred on the bed, matching the grid layout's per-file pack.
+						const sub = planPlateLayout(g.meshes, {
+							x: platePrefs.buildPlate.x,
+							y: platePrefs.buildPlate.y
+						});
+						applyPlateLayout(g.meshes, sub, 'spread');
+					} else {
+						layoutNamedMeshes(g.meshes);
+					}
 				}
 				download(
 					format === '3mf'
@@ -926,7 +1226,11 @@
 					`${name}.zip`
 				);
 			} else {
-				layoutNamedMeshes(named);
+				if (plan) {
+					applyPlateLayout(named, plan, 'spread');
+				} else {
+					layoutNamedMeshes(named);
+				}
 				if (format === '3mf') {
 					download(await exportThreeMfGrouped(groups, 'y'), `${name}.3mf`);
 				} else {
@@ -1282,7 +1586,7 @@
 								{#if option.description}
 									<p class="text-surface-600-400 text-xs">{option.description()}</p>
 								{/if}
-								{#if optionStates[option.id].enabled}
+								{#if optionStates[option.id].enabled && option.controls.length > 0}
 									<div class="mt-2 flex flex-col gap-2">
 										{#each option.controls as control}
 											{#if isControlVisible(control, optionStates[option.id].values)}
@@ -1346,6 +1650,106 @@
 						<input type="radio" class="radio" value="stl" bind:group={format} />
 						<span>STL</span>
 					</label>
+				</div>
+			</Collapsible>
+
+			<!-- arrangement -->
+			<Collapsible title={m.export_arrangement()}>
+				<div class="flex flex-col gap-3 pt-2">
+					<label class="flex items-center gap-2 text-sm">
+						<input
+							type="radio"
+							class="radio"
+							name="export-arrange"
+							value="grid"
+							checked={prefs.exportArrange === 'grid'}
+							onchange={() => setPreference('exportArrange', 'grid')}
+						/>
+						<span>{m.export_arrange_grid()}</span>
+					</label>
+					<label class="flex items-center gap-2 text-sm">
+						<input
+							type="radio"
+							class="radio"
+							name="export-arrange"
+							value="plate"
+							checked={prefs.exportArrange === 'plate'}
+							onchange={() => setPreference('exportArrange', 'plate')}
+						/>
+						<span>{m.export_arrange_plate()}</span>
+					</label>
+					{#if prefs.exportArrange === 'plate'}
+						<p class="text-surface-600-400 text-xs">{m.export_plate_hint()}</p>
+						<label class="flex flex-col gap-1 text-sm">
+							<span>{m.export_plate_printer()}</span>
+							<select
+								class="select"
+								value={prefs.buildPlate.preset}
+								onchange={(e) => commitPreset(e.currentTarget.value)}
+							>
+								<option value={CUSTOM_PLATE_ID}>{m.export_plate_custom()}</option>
+								{#each plateGroups as group (group.brand)}
+									<optgroup label={group.brand}>
+										{#each group.presets as preset (preset.id)}
+											<option value={preset.id}>{preset.model}</option>
+										{/each}
+									</optgroup>
+								{/each}
+							</select>
+						</label>
+						<div class="grid grid-cols-2 gap-2">
+							<label class="flex flex-col gap-1 text-sm">
+								<span>{m.export_plate_width()}</span>
+								<span class="flex items-center gap-1">
+									<input
+										type="number"
+										class="input w-full"
+										min="20"
+										max="2000"
+										step="0.01"
+										value={prefs.buildPlate.x}
+										onchange={(e) => commitPlateSize('x', e.currentTarget.value, e.currentTarget)}
+									/>
+									<span class="text-surface-600-400 text-xs">mm</span>
+								</span>
+							</label>
+							<label class="flex flex-col gap-1 text-sm">
+								<span>{m.export_plate_depth()}</span>
+								<span class="flex items-center gap-1">
+									<input
+										type="number"
+										class="input w-full"
+										min="20"
+										max="2000"
+										step="0.01"
+										value={prefs.buildPlate.y}
+										onchange={(e) => commitPlateSize('y', e.currentTarget.value, e.currentTarget)}
+									/>
+									<span class="text-surface-600-400 text-xs">mm</span>
+								</span>
+							</label>
+						</div>
+						<div class="flex flex-col">
+							<span class="flex justify-between text-sm">
+								<span>{m.export_plate_opacity()}</span>
+								<span>{Math.round(prefs.buildPlate.opacity * 100)}%</span>
+							</span>
+							<Slider
+								class="py-1"
+								value={prefs.buildPlate.opacity}
+								min={0}
+								max={1}
+								step={0.05}
+								onChange={(v) => updateBuildPlate({ opacity: v })}
+							/>
+						</div>
+						<p class="text-sm">{m.export_plate_count({ count: Math.max(plateCount, 1) })}</p>
+						{#if plateOverflow > 0}
+							<p class="text-warning-600-400 text-xs">
+								{m.export_plate_overflow({ count: plateOverflow })}
+							</p>
+						{/if}
+					{/if}
 				</div>
 			</Collapsible>
 

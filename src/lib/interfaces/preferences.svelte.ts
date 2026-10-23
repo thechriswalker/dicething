@@ -1,8 +1,15 @@
 import { browser } from '$app/environment';
 import { defaultFont } from '$lib/fonts';
 import {
+	BUILD_PLATE_PRESETS,
+	CUSTOM_PLATE_ID,
+	DEFAULT_BUILD_PLATE_ID
+} from '$lib/utils/build_plates';
+import {
+	DEFAULT_SUPPORT_LAYER_VISIBILITY,
 	DEFAULT_SUPPORT_SETTINGS,
 	mergeSupportSettings,
+	type SupportLayerVisibility,
 	type SupportSettings
 } from '$lib/utils/supports/types';
 
@@ -25,16 +32,42 @@ export type Preferences = {
 	// developer/debug mode: enables wireframe + FPS stats on scenes, the raw /
 	// JSON parameter editors, and unfinished features like the box builder.
 	developerMode: boolean;
-	/** Defaults for automatic SLA supports (editor preview + export option). */
+	/** Global default sizes for automatic SLA supports. */
 	supportSettings: SupportSettings;
+	/** Global default layer visibility (edges, legends, tip post). */
+	supportLayers: SupportLayerVisibility;
+	/** How the export preview arranges objects. */
+	exportArrange: 'grid' | 'plate';
+	/** Last build plate used by "fit to build plate". */
+	buildPlate: BuildPlatePreference;
 };
+
+export type BuildPlatePreference = {
+	/** A BUILD_PLATE_PRESETS key, or CUSTOM_PLATE_ID. */
+	preset: string;
+	/** Millimetres. Matches the preset unless preset is custom. */
+	x: number;
+	y: number;
+	/** 0–1 opacity of the plate preview. */
+	opacity: number;
+};
+
+const defaultPlate = BUILD_PLATE_PRESETS[DEFAULT_BUILD_PLATE_ID];
 
 const defaults: Preferences = {
 	defaultEngravingDepth: 0.8,
 	defaultLegendSet: defaultFont.id,
 	defaultEngravingTolerance: 0.5,
 	developerMode: false,
-	supportSettings: { ...DEFAULT_SUPPORT_SETTINGS }
+	supportSettings: { ...DEFAULT_SUPPORT_SETTINGS },
+	supportLayers: { ...DEFAULT_SUPPORT_LAYER_VISIBILITY },
+	exportArrange: 'grid',
+	buildPlate: {
+		preset: DEFAULT_BUILD_PLATE_ID,
+		x: defaultPlate.x,
+		y: defaultPlate.y,
+		opacity: 0.35
+	}
 };
 
 // reactive singleton holding the current preferences.
@@ -53,6 +86,14 @@ function load(): Preferences {
 		// merge over defaults so new keys (added in later versions) fall back cleanly.
 		const merged = { ...defaults, ...parsed };
 		merged.supportSettings = mergeSupportSettings(parsed.supportSettings);
+		merged.supportLayers = {
+			...DEFAULT_SUPPORT_LAYER_VISIBILITY,
+			...(parsed.supportLayers ?? {})
+		};
+		merged.buildPlate = sanitizeBuildPlate(parsed.buildPlate);
+		if (parsed.exportArrange !== 'grid' && parsed.exportArrange !== 'plate') {
+			merged.exportArrange = defaults.exportArrange;
+		}
 		return merged;
 	} catch {
 		return { ...defaults };
@@ -75,6 +116,29 @@ if (browser) {
 // backed) and persist changes via setPreference / updatePreferences.
 export function getPreferences(): Preferences {
 	return prefs;
+}
+
+function sanitizeBuildPlate(raw: Partial<BuildPlatePreference> | undefined): BuildPlatePreference {
+	const plate: BuildPlatePreference = { ...defaults.buildPlate, ...(raw ?? {}) };
+	if (plate.preset !== CUSTOM_PLATE_ID && !BUILD_PLATE_PRESETS[plate.preset]) {
+		plate.preset = CUSTOM_PLATE_ID;
+	}
+	if (plate.preset !== CUSTOM_PLATE_ID) {
+		const size = BUILD_PLATE_PRESETS[plate.preset];
+		plate.x = size.x;
+		plate.y = size.y;
+	} else {
+		if (!Number.isFinite(plate.x) || plate.x <= 0) {
+			plate.x = defaults.buildPlate.x;
+		}
+		if (!Number.isFinite(plate.y) || plate.y <= 0) {
+			plate.y = defaults.buildPlate.y;
+		}
+	}
+	plate.opacity = Number.isFinite(plate.opacity)
+		? Math.min(1, Math.max(0, plate.opacity))
+		: defaults.buildPlate.opacity;
+	return plate;
 }
 
 function persist() {

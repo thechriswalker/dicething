@@ -28,13 +28,15 @@ export async function loadStorageSnapshot(): Promise<StorageUpdatedPayload> {
 				updated: number;
 				dice: unknown;
 				legends: string;
+				supports?: StorageDiceSetSnapshot['supports'];
 			};
 			sets.push({
 				id: stored.id ?? key,
 				name: stored.name,
 				updated: stored.updated,
 				dice: JSON.stringify(stored.dice),
-				legendsId: stored.legends
+				legendsId: stored.legends,
+				supports: stored.supports
 			});
 		} catch {
 			await idbDelete(STORE_SETS, key);

@@ -6,7 +6,10 @@ export type SupportSettings = {
 	coneLengthMm: number;
 	sphereDiameterMm: number;
 	raftDepthMm: number;
-	/** Raft pad radius on the build plate (mm); pads are hexagonal. */
+	/**
+	 * How far the raft top extends past the convex hull of the pillars (mm).
+	 * The rim slopes in toward the plate at 45°.
+	 */
 	raftSizeMm: number;
 	/** How far contacts sit inward from a sharp edge onto the face. */
 	edgeInsetMm: number;
@@ -44,19 +47,25 @@ export const SUPPORT_SETTING_LIMITS = {
 } as const;
 
 export const DEFAULT_SUPPORT_SETTINGS: SupportSettings = {
-	pillarDiameterMm: 0.45,
+	pillarDiameterMm: 0.8,
 	coneLengthMm: 3,
 	sphereDiameterMm: 0.3,
-	raftDepthMm: 0.2,
-	raftSizeMm: 2.25,
-	edgeInsetMm: 0.6,
+	raftDepthMm: 1,
+	raftSizeMm: 1.5,
+	edgeInsetMm: 0.5,
 	edgeSpacingMm: 1,
 	legendSpacingMm: 1,
 	faceMinAngleDeg: 15,
 	maxHeadLeanDeg: 45,
-	postDiameterMm: 1.5,
-	postFinThicknessMm: 0.15
+	postDiameterMm: 2,
+	postFinThicknessMm: 0.25
 };
+
+/**
+ * Angle between each raft side and the build plate. The raft is narrower on
+ * the plate and slopes up and outward, so a scraper can get under the lip.
+ */
+export const RAFT_WALL_FROM_PLATE_DEG = 45;
 
 /**
  * Inset support run along a sharp edge, in print space (Y-up, plate y = 0).

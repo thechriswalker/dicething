@@ -7,196 +7,60 @@ import {
 import {
 	buildSupportsManifold,
 	computeSupportRegions,
+	DEFAULT_SUPPORT_LAYER_VISIBILITY,
+	DEFAULT_SUPPORT_SETTINGS,
 	filterSupportRegions,
 	mergeSupportSettings,
 	orientFaceLegendShapes,
 	SupportCancelledError,
-	SUPPORT_SETTING_LIMITS,
+	type SupportConfig,
 	type SupportLayerVisibility,
 	type SupportSettings
 } from '../supports';
-import { controlValue, type ExtraBuildContext, type ExtraBuildOption, type OptionValues } from './types';
+import { type ExtraBuildContext, type ExtraBuildOption, type OptionValues } from './types';
 
-const L = SUPPORT_SETTING_LIMITS;
+function finiteNumber(v: number | boolean | undefined, fallback: number): number {
+	return typeof v === 'number' && Number.isFinite(v) ? v : fallback;
+}
 
-const controls: ExtraBuildOption['controls'] = [
-	{
-		id: 'layerEdges',
-		kind: 'bool',
-		label: m.supports_layer_edges,
-		default: true,
-		help: m.supports_layer_edges_help
-	},
-	{
-		id: 'layerLegends',
-		kind: 'bool',
-		label: m.supports_layer_legends,
-		default: true,
-		help: m.supports_layer_legends_help
-	},
-	{
-		id: 'layerTipPost',
-		kind: 'bool',
-		label: m.supports_layer_tip_post,
-		default: true,
-		help: m.supports_layer_tip_post_help
-	},
-	{
-		id: 'pillarDiameterMm',
-		kind: 'number',
-		label: m.export_opt_supports_pillar_label,
-		min: L.pillarDiameterMm.min,
-		max: L.pillarDiameterMm.max,
-		step: L.pillarDiameterMm.step,
-		default: 0.45,
-		unit: m.export_unit_mm,
-		help: m.export_opt_supports_pillar_help
-	},
-	{
-		id: 'coneLengthMm',
-		kind: 'number',
-		label: m.export_opt_supports_cone_label,
-		min: L.coneLengthMm.min,
-		max: L.coneLengthMm.max,
-		step: L.coneLengthMm.step,
-		default: 3,
-		unit: m.export_unit_mm,
-		help: m.export_opt_supports_cone_help
-	},
-	{
-		id: 'sphereDiameterMm',
-		kind: 'number',
-		label: m.export_opt_supports_sphere_label,
-		min: L.sphereDiameterMm.min,
-		max: L.sphereDiameterMm.max,
-		step: L.sphereDiameterMm.step,
-		default: 0.2,
-		unit: m.export_unit_mm,
-		help: m.export_opt_supports_sphere_help
-	},
-	{
-		id: 'raftDepthMm',
-		kind: 'number',
-		label: m.export_opt_supports_raft_label,
-		min: L.raftDepthMm.min,
-		max: L.raftDepthMm.max,
-		step: L.raftDepthMm.step,
-		default: 0.2,
-		unit: m.export_unit_mm,
-		help: m.export_opt_supports_raft_help
-	},
-	{
-		id: 'raftSizeMm',
-		kind: 'number',
-		label: m.export_opt_supports_raft_size_label,
-		min: L.raftSizeMm.min,
-		max: L.raftSizeMm.max,
-		step: L.raftSizeMm.step,
-		default: 1,
-		unit: m.export_unit_mm,
-		help: m.export_opt_supports_raft_size_help
-	},
-	{
-		id: 'edgeInsetMm',
-		kind: 'number',
-		label: m.export_opt_supports_inset_label,
-		min: L.edgeInsetMm.min,
-		max: L.edgeInsetMm.max,
-		step: L.edgeInsetMm.step,
-		default: 0.6,
-		unit: m.export_unit_mm,
-		help: m.export_opt_supports_inset_help
-	},
-	{
-		id: 'edgeSpacingMm',
-		kind: 'number',
-		label: m.export_opt_supports_spacing_label,
-		min: L.edgeSpacingMm.min,
-		max: L.edgeSpacingMm.max,
-		step: L.edgeSpacingMm.step,
-		default: 1,
-		unit: m.export_unit_mm,
-		help: m.export_opt_supports_spacing_help
-	},
-	{
-		id: 'legendSpacingMm',
-		kind: 'number',
-		label: m.export_opt_supports_legend_spacing_label,
-		min: L.legendSpacingMm.min,
-		max: L.legendSpacingMm.max,
-		step: L.legendSpacingMm.step,
-		default: 1,
-		unit: m.export_unit_mm,
-		help: m.export_opt_supports_legend_spacing_help
-	},
-	{
-		id: 'faceMinAngleDeg',
-		kind: 'number',
-		label: m.export_opt_supports_face_angle_label,
-		min: L.faceMinAngleDeg.min,
-		max: L.faceMinAngleDeg.max,
-		step: L.faceMinAngleDeg.step,
-		default: 10,
-		unit: m.export_unit_deg,
-		help: m.export_opt_supports_face_angle_help
-	},
-	{
-		id: 'maxHeadLeanDeg',
-		kind: 'number',
-		label: m.export_opt_supports_lean_label,
-		min: L.maxHeadLeanDeg.min,
-		max: L.maxHeadLeanDeg.max,
-		step: L.maxHeadLeanDeg.step,
-		default: 45,
-		unit: m.export_unit_deg,
-		help: m.export_opt_supports_lean_help
-	},
-	{
-		id: 'postDiameterMm',
-		kind: 'number',
-		label: m.export_opt_supports_post_diameter_label,
-		min: L.postDiameterMm.min,
-		max: L.postDiameterMm.max,
-		step: L.postDiameterMm.step,
-		default: 1.5,
-		unit: m.export_unit_mm,
-		help: m.export_opt_supports_post_diameter_help
-	},
-	{
-		id: 'postFinThicknessMm',
-		kind: 'number',
-		label: m.export_opt_supports_post_fin_label,
-		min: L.postFinThicknessMm.min,
-		max: L.postFinThicknessMm.max,
-		step: L.postFinThicknessMm.step,
-		default: 0.15,
-		unit: m.export_unit_mm,
-		help: m.export_opt_supports_post_fin_help
-	}
-];
+function finiteBool(v: number | boolean | undefined, fallback: boolean): boolean {
+	return typeof v === 'boolean' ? v : fallback;
+}
+
+/** Flat control bag for one resolved support config, used as the export option values. */
+export function supportOptionValues(config: SupportConfig): OptionValues {
+	return {
+		layerEdges: config.layers.edges,
+		layerLegends: config.layers.legends,
+		layerTipPost: config.layers.tipPost,
+		...config.settings
+	};
+}
 
 export function supportSettingsFromValues(values: OptionValues): SupportSettings {
+	const D = DEFAULT_SUPPORT_SETTINGS;
 	return mergeSupportSettings({
-		pillarDiameterMm: Number(controlValue(controls, values, 'pillarDiameterMm')),
-		coneLengthMm: Number(controlValue(controls, values, 'coneLengthMm')),
-		sphereDiameterMm: Number(controlValue(controls, values, 'sphereDiameterMm')),
-		raftDepthMm: Number(controlValue(controls, values, 'raftDepthMm')),
-		raftSizeMm: Number(controlValue(controls, values, 'raftSizeMm')),
-		edgeInsetMm: Number(controlValue(controls, values, 'edgeInsetMm')),
-		edgeSpacingMm: Number(controlValue(controls, values, 'edgeSpacingMm')),
-		legendSpacingMm: Number(controlValue(controls, values, 'legendSpacingMm')),
-		faceMinAngleDeg: Number(controlValue(controls, values, 'faceMinAngleDeg')),
-		maxHeadLeanDeg: Number(controlValue(controls, values, 'maxHeadLeanDeg')),
-		postDiameterMm: Number(controlValue(controls, values, 'postDiameterMm')),
-		postFinThicknessMm: Number(controlValue(controls, values, 'postFinThicknessMm'))
+		pillarDiameterMm: finiteNumber(values.pillarDiameterMm, D.pillarDiameterMm),
+		coneLengthMm: finiteNumber(values.coneLengthMm, D.coneLengthMm),
+		sphereDiameterMm: finiteNumber(values.sphereDiameterMm, D.sphereDiameterMm),
+		raftDepthMm: finiteNumber(values.raftDepthMm, D.raftDepthMm),
+		raftSizeMm: finiteNumber(values.raftSizeMm, D.raftSizeMm),
+		edgeInsetMm: finiteNumber(values.edgeInsetMm, D.edgeInsetMm),
+		edgeSpacingMm: finiteNumber(values.edgeSpacingMm, D.edgeSpacingMm),
+		legendSpacingMm: finiteNumber(values.legendSpacingMm, D.legendSpacingMm),
+		faceMinAngleDeg: finiteNumber(values.faceMinAngleDeg, D.faceMinAngleDeg),
+		maxHeadLeanDeg: finiteNumber(values.maxHeadLeanDeg, D.maxHeadLeanDeg),
+		postDiameterMm: finiteNumber(values.postDiameterMm, D.postDiameterMm),
+		postFinThicknessMm: finiteNumber(values.postFinThicknessMm, D.postFinThicknessMm)
 	});
 }
 
 export function supportLayersFromValues(values: OptionValues): SupportLayerVisibility {
+	const V = DEFAULT_SUPPORT_LAYER_VISIBILITY;
 	return {
-		edges: Boolean(controlValue(controls, values, 'layerEdges')),
-		legends: Boolean(controlValue(controls, values, 'layerLegends')),
-		tipPost: Boolean(controlValue(controls, values, 'layerTipPost'))
+		edges: finiteBool(values.layerEdges, V.edges),
+		legends: finiteBool(values.layerLegends, V.legends),
+		tipPost: finiteBool(values.layerTipPost, V.tipPost)
 	};
 }
 
@@ -206,8 +70,9 @@ export const supportsOption: ExtraBuildOption = {
 	description: m.export_opt_supports_description,
 	defaultEnabled: false,
 	// Union into the printable die / blank — not a separate support body.
+	// Sizes and layers are configured per die / per set in the dice builder.
 	mergeInto: ['dice', 'blanks'],
-	controls,
+	controls: [],
 	generate(ctx) {
 		try {
 			return generateSupports(ctx);
@@ -228,11 +93,8 @@ function generateSupports(ctx: ExtraBuildContext) {
 	}
 	const faces = ctx.builder.getFaces();
 	const printT = ctx.builder.getPrintingTransform();
-	const faceShapes = orientFaceLegendShapes(
-		faces,
-		ctx.die.face_parameters,
-		ctx.legends,
-		(l) => ctx.builder.getDefaultScaleForLegend(l)
+	const faceShapes = orientFaceLegendShapes(faces, ctx.die.face_parameters, ctx.legends, (l) =>
+		ctx.builder.getDefaultScaleForLegend(l)
 	);
 
 	const cancel = { cancelled: false };

@@ -37,9 +37,12 @@ import {
 	computeSupportRegions,
 	iterateSupportSolids,
 	meshFromSupportSolid,
+	buildSupportRaft,
+	type RaftFoot,
 	DEFAULT_SUPPORT_LAYER_VISIBILITY,
 	filterSupportRegions,
 	mergeSupportSettings,
+	normalizeStoredSupports,
 	orientFaceLegendShapes,
 	sampleSupportContacts,
 	SupportCancelledError,
@@ -415,8 +418,9 @@ async function runBuildSupports(
 		overlay.name = 'supports-solid';
 		supportsOverlay = overlay;
 		viewport?.scene.add(overlay);
+		const feet: Array<RaftFoot> = [];
 		try {
-			for (const solid of iterateSupportSolids(visible, settings, diePrint, supportsCancel)) {
+			for (const solid of iterateSupportSolids(visible, settings, diePrint, supportsCancel, feet)) {
 				if (generation !== latestSupportsGeneration) {
 					solid.delete();
 					throw new SupportCancelledError();
@@ -434,6 +438,15 @@ async function runBuildSupports(
 				if (generation !== latestSupportsGeneration || supportsCancel.cancelled) {
 					throw new SupportCancelledError();
 				}
+			}
+			const raft = buildSupportRaft(
+				feet,
+				Math.max(0, settings.raftDepthMm),
+				Math.max(0.5, settings.raftSizeMm)
+			);
+			if (raft) {
+				overlay.add(meshFromSupportSolid(raft));
+				viewport?.composer.render();
 			}
 		} finally {
 			diePrint.delete();
@@ -466,6 +479,7 @@ async function hydrateSet(setJson: string, legendsJson: string): Promise<DiceSet
 		updated: number;
 		dice: Dice[] | string;
 		legends?: string;
+		supports?: DiceSet['supports'];
 	};
 	const legends = await resolveWorkerLegends(legendsJson, stored.legends ?? legendsJson);
 	// Dice arrive either as a JSON string or as an already-parsed array. The
@@ -475,13 +489,16 @@ async function hydrateSet(setJson: string, legendsJson: string): Promise<DiceSet
 		typeof stored.dice === 'string' ? stored.dice : JSON.stringify(stored.dice),
 		dieJsonReviver
 	) as Dice[];
-	return {
+	const set: DiceSet = {
 		id: stored.id,
 		name: stored.name,
 		updated: stored.updated,
 		dice: diceArr,
-		legends
+		legends,
+		supports: stored.supports
 	};
+	normalizeStoredSupports(set);
+	return set;
 }
 
 async function handleRequest(msg: EngineRequest) {
@@ -628,9 +645,17 @@ async function handleRequest(msg: EngineRequest) {
 				);
 				// Prefer Manifold index topology while the solids are still alive —
 				// geometric welding of the Three.js buffer false-flags micro-edges.
-				const meshReport = mergeMeshReports(
-					named.map((n) => checkExportMesh(n, { collectBad: true }))
-				);
+				const reportsByGroup = new Map<string, Array<ReturnType<typeof checkExportMesh>>>();
+				for (const n of named) {
+					const list = reportsByGroup.get(n.group) ?? [];
+					list.push(checkExportMesh(n, { collectBad: true }));
+					reportsByGroup.set(n.group, list);
+				}
+				const groupMeshReports: Record<string, ReturnType<typeof mergeMeshReports>> = {};
+				for (const [group, reports] of reportsByGroup) {
+					groupMeshReports[group] = mergeMeshReports(reports);
+				}
+				const meshReport = mergeMeshReports(Object.values(groupMeshReports));
 				// Measure while Manifolds are still alive — cheaper and exact vs
 				// re-walking the transferred Three.js triangle soup on the main thread.
 				// Numbered dice use the blank (pre-engraving) solid so the UI volume
@@ -666,6 +691,7 @@ async function handleRequest(msg: EngineRequest) {
 						meshes: out,
 						engravingErrors,
 						meshReport,
+						groupMeshReports,
 						groupVolumesMm3
 					} satisfies EngineResponse,
 					transfer

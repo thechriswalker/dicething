@@ -23,6 +23,7 @@
 		diceFromJSON,
 		diceToJSON,
 		dieFromJSON,
+		dieGeometrySig,
 		dieToJSON,
 		getSavedLegends,
 		loadLegends,
@@ -34,7 +35,7 @@
 	} from '$lib/interfaces/storage.svelte';
 	import type { LegendSet } from '$lib/utils/legends';
 	import type { DieTags, FaceParams } from '$lib/interfaces/dice';
-	import { getPreferences, setPreference } from '$lib/interfaces/preferences.svelte';
+	import { getPreferences, updatePreferences } from '$lib/interfaces/preferences.svelte';
 	import { m } from '$lib/paraglide/messages';
 	import {
 		engravingParam,
@@ -60,14 +61,18 @@
 		setSupportsPreviewInEngine
 	} from '$lib/utils/die_engine_client';
 	import {
-		DEFAULT_SUPPORT_LAYER_VISIBILITY,
-		DEFAULT_SUPPORT_SETTINGS,
-		SUPPORT_SETTING_LIMITS,
-		mergeSupportSettings,
+		cloneSupportConfig,
+		effectiveDieSupports,
+		effectiveSetSupports,
+		globalSupportConfig,
+		supportConfigEqual,
+		type SupportConfig,
 		type SupportLayerVisibility,
 		type SupportSettings
-	} from '$lib/utils/supports/types';
+	} from '$lib/utils/supports';
 	import SetConfigModal from '$lib/components/set_config/SetConfigModal.svelte';
+	import PrintSupportsModal from '$lib/components/supports/PrintSupportsModal.svelte';
+	import SupportSettingsFields from '$lib/components/supports/SupportSettingsFields.svelte';
 	import { computeLandWarning } from '$lib/utils/stability';
 	import { legendsJsonForEngine } from '$lib/utils/preview_legends';
 	import { requestEngravingBoundsCheck } from '$lib/utils/engraving_check_client';
@@ -86,7 +91,6 @@
 		FileCode,
 		Focus,
 		Frame,
-		Info,
 		LayoutGrid,
 		Plus,
 		Rotate3d,
@@ -348,6 +352,9 @@
 	let ctx = $state<EngineSceneHandle | undefined>();
 	let fancy = $state(false);
 	let explodeMode = $state(false);
+	// Bumps on every active-die rebuild so a slow build can't apply an explode
+	// flag or camera move from before the latest toggle.
+	let activeDieBuild = 0;
 	let autoRotate = $state(false);
 	function toggleFancy() {
 		fancy = !fancy;
@@ -675,7 +682,7 @@
 		if (!setData) {
 			return '';
 		}
-		return JSON.stringify(diceToJSON(setData.dice)) + '|' + setData.legends.id;
+		return setData.dice.map((d) => dieGeometrySig(d)).join('\n') + '|' + setData.legends.id;
 	});
 	let engineReady = $state(false);
 	let renderedDice = $state('');
@@ -740,13 +747,15 @@
 			return;
 		}
 		const switching = id !== renderedDice;
-		explodeMode;
+		const mode = explodeMode;
+		const build = ++activeDieBuild;
 		// Don't subscribe to autoRotate — toggling spin must not rebuild the die.
 		const keepSpinning = untrack(() => autoRotate);
 		// Track param/legend edits (and persist them). The live editor mutates the
 		// die in place; without this, rebuilds/export see the new shape but
 		// IndexedDB / die previews / the box builder keep the last saved copy.
-		dieToJSON(d);
+		// Print-support overrides are omitted so slider changes do not rebuild.
+		dieGeometrySig(d);
 		save(setData);
 		void (async () => {
 			engineTrace('editor:buildActiveDie', { id, switching });
@@ -761,8 +770,8 @@
 					}
 				}
 				await setEngineActiveDie(id);
-				await engineBuildDie(d, explodeMode, true);
-				if (dieId && dieId !== id) {
+				await engineBuildDie(d, mode, true);
+				if (build !== activeDieBuild || (dieId && dieId !== id)) {
 					span.end({ cancelled: true });
 					return;
 				}
@@ -778,7 +787,7 @@
 						lookAtFace(0);
 					}
 				}
-				setEngineExploded(explodeMode);
+				setEngineExploded(mode);
 				span.end();
 			} catch (e) {
 				span.end({ error: e instanceof Error ? e.message : String(e) });
@@ -891,14 +900,28 @@
 	const prefs = getPreferences();
 	let supportsPreviewOn = $state(false);
 	let supportsMode = $state<'placement' | 'solid'>('placement');
-	let supportSettings = $state<SupportSettings>(
-		mergeSupportSettings({ ...DEFAULT_SUPPORT_SETTINGS, ...prefs.supportSettings })
-	);
+	let supportsConfigOpen = $state(false);
 
-	function formatSupportMm(v: number): string {
-		const rounded = Math.round(v * 100) / 100;
-		return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(2).replace(/0$/, '');
-	}
+	let supportGlobal = $derived(globalSupportConfig(prefs));
+	let resolvedSupports = $derived.by((): SupportConfig => {
+		if (!setData) {
+			return supportGlobal;
+		}
+		const die = setData.dice.find((d) => d.id === dieId);
+		return effectiveDieSupports(die, setData, supportGlobal);
+	});
+	let supportBaseline = $derived.by(() =>
+		setData ? effectiveSetSupports(setData, supportGlobal) : supportGlobal
+	);
+	let supportsDiffer = $derived(!supportConfigEqual(resolvedSupports, supportBaseline));
+	// Die id for which the sliders are open before an override has been stored.
+	let supportCustomizeHold = $state<string | null>(null);
+	let supportCustomize = $derived(supportsDiffer || supportCustomizeHold === dieId);
+	let setSupports = $derived.by(() =>
+		setData ? effectiveSetSupports(setData, supportGlobal) : supportGlobal
+	);
+	let setSupportsAreGlobal = $derived.by(() => (setData ? setData.supports == null : true));
+
 	let supportsBusy = $state(false);
 	// Set once placement has sampled contacts, then advanced per finished solid.
 	let supportBuildProgress = $state<BuildProgress | null>(null);
@@ -908,8 +931,6 @@
 		contacts: number;
 		tipFins: number;
 	} | null>(null);
-	let supportLayers = $state<SupportLayerVisibility>({ ...DEFAULT_SUPPORT_LAYER_VISIBILITY });
-
 	async function rebuildSupportsPreview() {
 		if (!supportsPreviewOn) {
 			return;
@@ -918,7 +939,7 @@
 		supportBuildProgress = null;
 		try {
 			const result = await buildSupportsInEngine(
-				supportSettings,
+				resolvedSupports.settings,
 				supportsMode,
 				(p) => {
 					if (!supportsPreviewOn || p.step == null || p.total == null || p.total < 1) {
@@ -931,7 +952,7 @@
 						label: m.supports_building_count({ done: p.step, total: p.total })
 					};
 				},
-				supportLayers
+				resolvedSupports.layers
 			);
 			if (!supportsPreviewOn) {
 				return;
@@ -950,14 +971,152 @@
 		}
 	}
 
+	function writeDieSupports(next: SupportConfig) {
+		const die = currentDie();
+		if (!die || !setData) {
+			return;
+		}
+		const baseline = effectiveSetSupports(setData, globalSupportConfig(prefs));
+		if (supportConfigEqual(next, baseline)) {
+			die.supports = undefined;
+		} else {
+			die.supports = cloneSupportConfig(next);
+		}
+		save(setData);
+	}
+
 	function updateSupportLayer<K extends keyof SupportLayerVisibility>(
 		key: K,
 		value: SupportLayerVisibility[K]
 	) {
-		supportLayers = { ...supportLayers, [key]: value };
-		if (supportsPreviewOn) {
-			scheduleSupportsRebuild(0);
+		writeDieSupports({
+			settings: resolvedSupports.settings,
+			layers: { ...resolvedSupports.layers, [key]: value }
+		});
+	}
+
+	function updateSupportSetting<K extends keyof SupportSettings>(
+		key: K,
+		value: SupportSettings[K]
+	) {
+		writeDieSupports({
+			settings: { ...resolvedSupports.settings, [key]: value },
+			layers: resolvedSupports.layers
+		});
+	}
+
+	function clearDiceMatching(baseline: SupportConfig) {
+		if (!setData) {
+			return;
 		}
+		for (const die of setData.dice) {
+			if (die.supports && supportConfigEqual(die.supports, baseline)) {
+				die.supports = undefined;
+			}
+		}
+	}
+
+	function saveSupportsAsSet() {
+		if (!setData) {
+			return;
+		}
+		const next = cloneSupportConfig(resolvedSupports);
+		setData.supports = next;
+		clearDiceMatching(next);
+		save(setData);
+	}
+
+	function saveSupportsAsGlobal() {
+		if (!setData) {
+			return;
+		}
+		const next = cloneSupportConfig(resolvedSupports);
+		updatePreferences({
+			supportSettings: next.settings,
+			supportLayers: next.layers
+		});
+		if (setData.supports && supportConfigEqual(setData.supports, next)) {
+			setData.supports = undefined;
+		}
+		clearDiceMatching(effectiveSetSupports(setData, next));
+		save(setData);
+	}
+
+	function writeSetSupports(next: SupportConfig) {
+		if (!setData) {
+			return;
+		}
+		const global = globalSupportConfig(prefs);
+		if (supportConfigEqual(next, global)) {
+			setData.supports = undefined;
+		} else {
+			setData.supports = cloneSupportConfig(next);
+		}
+		save(setData);
+	}
+
+	function updateSetSupportLayer<K extends keyof SupportLayerVisibility>(
+		key: K,
+		value: SupportLayerVisibility[K]
+	) {
+		writeSetSupports({
+			settings: setSupports.settings,
+			layers: { ...setSupports.layers, [key]: value }
+		});
+	}
+
+	function updateSetSupportSetting<K extends keyof SupportSettings>(
+		key: K,
+		value: SupportSettings[K]
+	) {
+		writeSetSupports({
+			settings: { ...setSupports.settings, [key]: value },
+			layers: setSupports.layers
+		});
+	}
+
+	function makeSetSupportsGlobal() {
+		if (!setData) {
+			return;
+		}
+		const next = cloneSupportConfig(setSupports);
+		updatePreferences({
+			supportSettings: next.settings,
+			supportLayers: next.layers
+		});
+		setData.supports = undefined;
+		clearDiceMatching(next);
+		save(setData);
+	}
+
+	function setSupportCustomize(on: boolean) {
+		if (on) {
+			supportCustomizeHold = dieId;
+			return;
+		}
+		supportCustomizeHold = null;
+		const die = currentDie();
+		if (!setData || !die?.supports) {
+			return;
+		}
+		die.supports = undefined;
+		save(setData);
+	}
+
+	$effect(() => {
+		const id = dieId;
+		if (untrack(() => supportCustomizeHold) !== id) {
+			supportCustomizeHold = null;
+		}
+	});
+
+	function useGlobalSetSupports() {
+		if (!setData) {
+			return;
+		}
+		setData.supports = undefined;
+		clearDiceMatching(globalSupportConfig(prefs));
+		save(setData);
 	}
 
 	const scheduleSupportsRebuild = debounce(300, (_: number) => {
@@ -986,16 +1145,17 @@
 		void rebuildSupportsPreview();
 	}
 
-	function updateSupportSetting<K extends keyof SupportSettings>(
-		key: K,
-		value: SupportSettings[K]
-	) {
-		supportSettings = { ...supportSettings, [key]: value };
-		setPreference('supportSettings', { ...supportSettings });
-		if (supportsPreviewOn) {
-			scheduleSupportsRebuild(0);
+	$effect(() => {
+		// Slider and set-default edits rebuild the overlay for the die already
+		// on screen. A die switch waits for the geometry build (renderPass).
+		const cfg = resolvedSupports;
+		const id = dieId;
+		if (!untrack(() => supportsPreviewOn) || untrack(() => renderedDice) !== id) {
+			return;
 		}
-	}
+		void cfg;
+		scheduleSupportsRebuild(0);
+	});
 
 	$effect(() => {
 		// Drop the previous die's counts as soon as the selection changes. The
@@ -1392,7 +1552,7 @@
 		]
 	};
 
-	const setOptionsMenu: MenuItemSubmenu = {
+	const setOptionsMenu: MenuItemSubmenu = $derived({
 		type: 'submenu',
 		title: m.set_options_menu(),
 		icon: Settings,
@@ -1413,6 +1573,18 @@
 					engravingOpen = true;
 				}
 			},
+			...(devMode
+				? [
+						{
+							type: 'action' as const,
+							title: m.set_supports_menu(),
+							icon: UtilityPole,
+							action: () => {
+								supportsConfigOpen = true;
+							}
+						}
+					]
+				: []),
 			{
 				type: 'action',
 				title: m.share_button(),
@@ -1435,7 +1607,7 @@
 				}
 			}
 		]
-	};
+	});
 </script>
 
 <Layout>
@@ -1489,6 +1661,16 @@
 				onChangeDepth={(v) => setEngravingForAllDice(engravingParam.id, v)}
 				onChangeTolerance={(v) => setEngravingForAllDice(engravingToleranceParam.id, v)}
 				onChangeBevel={(v) => setEngravingForAllDice(engravingBevelParam.id, v)}
+			/>
+			<PrintSupportsModal
+				bind:open={supportsConfigOpen}
+				settings={setSupports.settings}
+				layers={setSupports.layers}
+				usingGlobal={setSupportsAreGlobal}
+				onSetting={updateSetSupportSetting}
+				onLayer={updateSetSupportLayer}
+				onMakeGlobal={makeSetSupportsGlobal}
+				onUseGlobal={useGlobalSetSupports}
 			/>
 			<ShareModal bind:open={shareOpen} showTrigger={false} set={loadedSet} />
 			<DeleteSetDialog
@@ -1857,279 +2039,47 @@
 									}}>{m.supports_view_solid()}</button
 								>
 							</div>
-							{#snippet supportHelp(text: string)}
-								<!-- span (not button) so nested <label> still targets the range/checkbox -->
-								<Tooltip content={text} side="left">
-									{#snippet children(props)}
-										<span
-											{...props}
-											role="button"
-											tabindex={0}
-											class="text-surface-500 hover:text-primary-500 inline-flex shrink-0 items-center"
-											aria-label={text}
-										>
-											<Info class="size-3" />
-										</span>
-									{/snippet}
-								</Tooltip>
-							{/snippet}
-							<div class="border-surface-300-700 flex flex-col gap-1 border-t pt-2">
-								<label class="flex items-center justify-between gap-2 text-xs">
-									<span class="flex items-center gap-1">
-										<span>{m.supports_layer_edges()}</span>
-										{@render supportHelp(m.supports_layer_edges_help())}
-									</span>
-									<input
-										type="checkbox"
-										class="checkbox"
-										checked={supportLayers.edges}
-										onchange={(e) => updateSupportLayer('edges', e.currentTarget.checked)}
-									/>
-								</label>
-								<label class="flex items-center justify-between gap-2 text-xs">
-									<span class="flex items-center gap-1">
-										<span>{m.supports_layer_legends()}</span>
-										{@render supportHelp(m.supports_layer_legends_help())}
-									</span>
-									<input
-										type="checkbox"
-										class="checkbox"
-										checked={supportLayers.legends}
-										onchange={(e) => updateSupportLayer('legends', e.currentTarget.checked)}
-									/>
-								</label>
-								<label class="flex items-center justify-between gap-2 text-xs">
-									<span class="flex items-center gap-1">
-										<span>{m.supports_layer_tip_post()}</span>
-										{@render supportHelp(m.supports_layer_tip_post_help())}
-									</span>
-									<input
-										type="checkbox"
-										class="checkbox"
-										checked={supportLayers.tipPost}
-										onchange={(e) => updateSupportLayer('tipPost', e.currentTarget.checked)}
-									/>
-								</label>
-							</div>
-							<label class="flex flex-col gap-0.5 text-xs">
-								<span class="flex items-baseline justify-between gap-2">
-									<span class="flex items-center gap-1">
-										<span>{m.export_opt_supports_pillar_label()}</span>
-										{@render supportHelp(m.export_opt_supports_pillar_help())}
-									</span>
-									<span class="text-surface-600-400 tabular-nums"
-										>{formatSupportMm(supportSettings.pillarDiameterMm)} mm</span
-									>
-								</span>
+							<p class="text-surface-600-400 text-xs">
+								{supportsDiffer
+									? m.supports_using_die()
+									: setData.supports
+										? m.supports_using_set()
+										: m.supports_using_global()}
+							</p>
+							<label class="flex items-center justify-between gap-2 text-xs">
+								<span>{m.supports_customize()}</span>
 								<input
-									type="range"
-									min={SUPPORT_SETTING_LIMITS.pillarDiameterMm.min}
-									max={SUPPORT_SETTING_LIMITS.pillarDiameterMm.max}
-									step={SUPPORT_SETTING_LIMITS.pillarDiameterMm.step}
-									value={supportSettings.pillarDiameterMm}
-									oninput={(e) =>
-										updateSupportSetting('pillarDiameterMm', Number(e.currentTarget.value))}
+									type="checkbox"
+									class="checkbox"
+									checked={supportCustomize}
+									onchange={(e) => setSupportCustomize(e.currentTarget.checked)}
 								/>
 							</label>
-							<label class="flex flex-col gap-0.5 text-xs">
-								<span class="flex items-baseline justify-between gap-2">
-									<span class="flex items-center gap-1">
-										<span>{m.export_opt_supports_cone_label()}</span>
-										{@render supportHelp(m.export_opt_supports_cone_help())}
-									</span>
-									<span class="text-surface-600-400 tabular-nums"
-										>{formatSupportMm(supportSettings.coneLengthMm)} mm</span
-									>
-								</span>
-								<input
-									type="range"
-									min={SUPPORT_SETTING_LIMITS.coneLengthMm.min}
-									max={SUPPORT_SETTING_LIMITS.coneLengthMm.max}
-									step={SUPPORT_SETTING_LIMITS.coneLengthMm.step}
-									value={supportSettings.coneLengthMm}
-									oninput={(e) =>
-										updateSupportSetting('coneLengthMm', Number(e.currentTarget.value))}
+							{#if supportCustomize}
+								{#if supportsDiffer}
+									<div class="flex flex-col gap-1">
+										<span class="text-surface-600-400 text-xs">{m.supports_save_defaults()}</span>
+										<div class="flex gap-1">
+											<button
+												type="button"
+												class="btn btn-sm preset-tonal grow"
+												onclick={saveSupportsAsGlobal}>{m.supports_save_global()}</button
+											>
+											<button
+												type="button"
+												class="btn btn-sm preset-tonal grow"
+												onclick={saveSupportsAsSet}>{m.supports_save_set()}</button
+											>
+										</div>
+									</div>
+								{/if}
+								<SupportSettingsFields
+									settings={resolvedSupports.settings}
+									layers={resolvedSupports.layers}
+									onSetting={updateSupportSetting}
+									onLayer={updateSupportLayer}
 								/>
-							</label>
-							<label class="flex flex-col gap-0.5 text-xs">
-								<span class="flex items-baseline justify-between gap-2">
-									<span class="flex items-center gap-1">
-										<span>{m.export_opt_supports_sphere_label()}</span>
-										{@render supportHelp(m.export_opt_supports_sphere_help())}
-									</span>
-									<span class="text-surface-600-400 tabular-nums"
-										>{formatSupportMm(supportSettings.sphereDiameterMm)} mm</span
-									>
-								</span>
-								<input
-									type="range"
-									min={SUPPORT_SETTING_LIMITS.sphereDiameterMm.min}
-									max={SUPPORT_SETTING_LIMITS.sphereDiameterMm.max}
-									step={SUPPORT_SETTING_LIMITS.sphereDiameterMm.step}
-									value={supportSettings.sphereDiameterMm}
-									oninput={(e) =>
-										updateSupportSetting('sphereDiameterMm', Number(e.currentTarget.value))}
-								/>
-							</label>
-							<label class="flex flex-col gap-0.5 text-xs">
-								<span class="flex items-baseline justify-between gap-2">
-									<span class="flex items-center gap-1">
-										<span>{m.export_opt_supports_raft_label()}</span>
-										{@render supportHelp(m.export_opt_supports_raft_help())}
-									</span>
-									<span class="text-surface-600-400 tabular-nums"
-										>{formatSupportMm(supportSettings.raftDepthMm)} mm</span
-									>
-								</span>
-								<input
-									type="range"
-									min={SUPPORT_SETTING_LIMITS.raftDepthMm.min}
-									max={SUPPORT_SETTING_LIMITS.raftDepthMm.max}
-									step={SUPPORT_SETTING_LIMITS.raftDepthMm.step}
-									value={supportSettings.raftDepthMm}
-									oninput={(e) =>
-										updateSupportSetting('raftDepthMm', Number(e.currentTarget.value))}
-								/>
-							</label>
-							<label class="flex flex-col gap-0.5 text-xs">
-								<span class="flex items-baseline justify-between gap-2">
-									<span class="flex items-center gap-1">
-										<span>{m.export_opt_supports_raft_size_label()}</span>
-										{@render supportHelp(m.export_opt_supports_raft_size_help())}
-									</span>
-									<span class="text-surface-600-400 tabular-nums"
-										>{formatSupportMm(supportSettings.raftSizeMm)} mm</span
-									>
-								</span>
-								<input
-									type="range"
-									min={SUPPORT_SETTING_LIMITS.raftSizeMm.min}
-									max={SUPPORT_SETTING_LIMITS.raftSizeMm.max}
-									step={SUPPORT_SETTING_LIMITS.raftSizeMm.step}
-									value={supportSettings.raftSizeMm}
-									oninput={(e) => updateSupportSetting('raftSizeMm', Number(e.currentTarget.value))}
-								/>
-							</label>
-							<label class="flex flex-col gap-0.5 text-xs">
-								<span class="flex items-baseline justify-between gap-2">
-									<span class="flex items-center gap-1">
-										<span>{m.export_opt_supports_inset_label()}</span>
-										{@render supportHelp(m.export_opt_supports_inset_help())}
-									</span>
-									<span class="text-surface-600-400 tabular-nums"
-										>{formatSupportMm(supportSettings.edgeInsetMm)} mm</span
-									>
-								</span>
-								<input
-									type="range"
-									min={SUPPORT_SETTING_LIMITS.edgeInsetMm.min}
-									max={SUPPORT_SETTING_LIMITS.edgeInsetMm.max}
-									step={SUPPORT_SETTING_LIMITS.edgeInsetMm.step}
-									value={supportSettings.edgeInsetMm}
-									oninput={(e) =>
-										updateSupportSetting('edgeInsetMm', Number(e.currentTarget.value))}
-								/>
-							</label>
-							<label class="flex flex-col gap-0.5 text-xs">
-								<span class="flex items-baseline justify-between gap-2">
-									<span class="flex items-center gap-1">
-										<span>{m.export_opt_supports_spacing_label()}</span>
-										{@render supportHelp(m.export_opt_supports_spacing_help())}
-									</span>
-									<span class="text-surface-600-400 tabular-nums"
-										>{formatSupportMm(supportSettings.edgeSpacingMm)} mm</span
-									>
-								</span>
-								<input
-									type="range"
-									min={SUPPORT_SETTING_LIMITS.edgeSpacingMm.min}
-									max={SUPPORT_SETTING_LIMITS.edgeSpacingMm.max}
-									step={SUPPORT_SETTING_LIMITS.edgeSpacingMm.step}
-									value={supportSettings.edgeSpacingMm}
-									oninput={(e) =>
-										updateSupportSetting('edgeSpacingMm', Number(e.currentTarget.value))}
-								/>
-							</label>
-							<label class="flex flex-col gap-0.5 text-xs">
-								<span class="flex items-baseline justify-between gap-2">
-									<span class="flex items-center gap-1">
-										<span>{m.export_opt_supports_legend_spacing_label()}</span>
-										{@render supportHelp(m.export_opt_supports_legend_spacing_help())}
-									</span>
-									<span class="text-surface-600-400 tabular-nums"
-										>{formatSupportMm(supportSettings.legendSpacingMm)} mm</span
-									>
-								</span>
-								<input
-									type="range"
-									min={SUPPORT_SETTING_LIMITS.legendSpacingMm.min}
-									max={SUPPORT_SETTING_LIMITS.legendSpacingMm.max}
-									step={SUPPORT_SETTING_LIMITS.legendSpacingMm.step}
-									value={supportSettings.legendSpacingMm}
-									oninput={(e) =>
-										updateSupportSetting('legendSpacingMm', Number(e.currentTarget.value))}
-								/>
-							</label>
-							<label class="flex flex-col gap-0.5 text-xs">
-								<span class="flex items-baseline justify-between gap-2">
-									<span class="flex items-center gap-1">
-										<span>{m.export_opt_supports_face_angle_label()}</span>
-										{@render supportHelp(m.export_opt_supports_face_angle_help())}
-									</span>
-									<span class="text-surface-600-400 tabular-nums"
-										>{formatSupportMm(supportSettings.faceMinAngleDeg)}°</span
-									>
-								</span>
-								<input
-									type="range"
-									min={SUPPORT_SETTING_LIMITS.faceMinAngleDeg.min}
-									max={SUPPORT_SETTING_LIMITS.faceMinAngleDeg.max}
-									step={SUPPORT_SETTING_LIMITS.faceMinAngleDeg.step}
-									value={supportSettings.faceMinAngleDeg}
-									oninput={(e) =>
-										updateSupportSetting('faceMinAngleDeg', Number(e.currentTarget.value))}
-								/>
-							</label>
-							<label class="flex flex-col gap-0.5 text-xs">
-								<span class="flex items-baseline justify-between gap-2">
-									<span class="flex items-center gap-1">
-										<span>{m.export_opt_supports_post_diameter_label()}</span>
-										{@render supportHelp(m.export_opt_supports_post_diameter_help())}
-									</span>
-									<span class="text-surface-600-400 tabular-nums"
-										>{formatSupportMm(supportSettings.postDiameterMm)} mm</span
-									>
-								</span>
-								<input
-									type="range"
-									min={SUPPORT_SETTING_LIMITS.postDiameterMm.min}
-									max={SUPPORT_SETTING_LIMITS.postDiameterMm.max}
-									step={SUPPORT_SETTING_LIMITS.postDiameterMm.step}
-									value={supportSettings.postDiameterMm}
-									oninput={(e) =>
-										updateSupportSetting('postDiameterMm', Number(e.currentTarget.value))}
-								/>
-							</label>
-							<label class="flex flex-col gap-0.5 text-xs">
-								<span class="flex items-baseline justify-between gap-2">
-									<span class="flex items-center gap-1">
-										<span>{m.export_opt_supports_post_fin_label()}</span>
-										{@render supportHelp(m.export_opt_supports_post_fin_help())}
-									</span>
-									<span class="text-surface-600-400 tabular-nums"
-										>{formatSupportMm(supportSettings.postFinThicknessMm)} mm</span
-									>
-								</span>
-								<input
-									type="range"
-									min={SUPPORT_SETTING_LIMITS.postFinThicknessMm.min}
-									max={SUPPORT_SETTING_LIMITS.postFinThicknessMm.max}
-									step={SUPPORT_SETTING_LIMITS.postFinThicknessMm.step}
-									value={supportSettings.postFinThicknessMm}
-									oninput={(e) =>
-										updateSupportSetting('postFinThicknessMm', Number(e.currentTarget.value))}
-								/>
-							</label>
+							{/if}
 							{#if supportsStats}
 								<div class="text-surface-600-400 flex flex-col gap-0.5 text-xs">
 									<span>{m.supports_edge_lines({ count: supportsStats.edges })}</span>

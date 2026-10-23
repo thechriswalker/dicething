@@ -1,6 +1,18 @@
 export {
+	cloneSupportConfig,
+	effectiveDieSupports,
+	effectiveSetSupports,
+	globalSupportConfig,
+	normalizeStoredSupports,
+	parseSupportConfig,
+	supportConfigEqual,
+	type SupportConfig
+} from './config';
+
+export {
 	DEFAULT_SUPPORT_SETTINGS,
 	DEFAULT_SUPPORT_LAYER_VISIBILITY,
+	RAFT_WALL_FROM_PLATE_DEG,
 	SUPPORT_SETTING_LIMITS,
 	SupportCancelledError,
 	assertNotCancelled,
@@ -61,5 +73,13 @@ export {
 } from './geometry';
 
 export { buildTipPostManifold } from './tip_post';
+
+export {
+	buildSupportRaft,
+	raftHoleCenter,
+	RAFT_HOLE_FLAT_MM,
+	RAFT_HOLE_WALL_MM,
+	type RaftFoot
+} from './raft';
 
 export { buildPlacementOverlay, disposeOverlayGroup, serializeRegions } from './placement';

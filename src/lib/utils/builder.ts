@@ -324,11 +324,7 @@ export class Builder {
 		// more than one loop (or none), so this returns a list of loops.
 		let loops: Array<Array<Vector2>>;
 		try {
-			const csLoop = insetShapeViaCrossSection(
-				face.shape,
-				this.currentTolerance,
-				DefaultDivisions
-			);
+			const csLoop = insetShapeViaCrossSection(face.shape, this.currentTolerance, DefaultDivisions);
 			loops = csLoop ? [csLoop] : [];
 		} catch {
 			loops = insetPolygon(face.shape, this.currentTolerance, face.convex !== false);
@@ -477,11 +473,7 @@ export class Builder {
 			return;
 		}
 		this.legends = set;
-		this.recalculateLegendScaling(
-			this.lastDieParams,
-			this.lastStringParams,
-			this.lastOrdering
-		);
+		this.recalculateLegendScaling(this.lastDieParams, this.lastStringParams, this.lastOrdering);
 		this.forceRerenderFaces = true;
 	}
 
@@ -489,11 +481,7 @@ export class Builder {
 	// *contents* of a custom legend set have been edited (same id, new shapes).
 	reloadLegends(set: LegendSet) {
 		this.legends = set;
-		this.recalculateLegendScaling(
-			this.lastDieParams,
-			this.lastStringParams,
-			this.lastOrdering
-		);
+		this.recalculateLegendScaling(this.lastDieParams, this.lastStringParams, this.lastOrdering);
 		this.forceRerenderFaces = true;
 	}
 
@@ -577,8 +565,7 @@ export class Builder {
 			// too: a build option (e.g. blanks) builds a builder then re-exports it
 			// with the SAME params, so export()'s dieChanged guard would otherwise
 			// skip recomputing this and the artifact would export un-oriented.
-			this.printingTransform =
-				x.printingTransform ?? computePointDownPrintingTransform(x.faces);
+			this.printingTransform = x.printingTransform ?? computePointDownPrintingTransform(x.faces);
 			// the ordering rewrites the number faces' default legends, and the
 			// legend scaling reads those, so apply it before recalculating.
 			applyOrderingToFaces(this.model.id, ordering, this.faces, dieParams);
@@ -647,34 +634,33 @@ export class Builder {
 		}
 		try {
 			for (let i = 0; i < this.faces.length; i++) {
-			// hidden faces are handled by the merged clump above; make sure no stale
-			// individual group lingers for this index, then skip it.
-			if (this.faces[i].hidden) {
-				this.removeFaceObject(i);
-				continue;
-			}
-			const newFaceParams = simplifyFaceParams(faceParams[i], this.faces[i]);
-			if (
-				dieChanged ||
-				this.forceRerenderFaces ||
-				faceParamsNotEqual(this.lastFaceParams[i], newFaceParams, this.faces[i])
-			) {
-				// need to rebuild
-				if (!this.faceObjects[i]) {
-					this.faceObjects[i] = new Group();
-					this.faceObjects[i].userData.diceThingFace = i;
-					this.faceObjects[i].userData.diceThingId = this.id;
-					this.diceGroup.add(this.faceObjects[i]);
-				} else {
-					this.faceObjects[i].remove(...this.faceObjects[i].children);
+				// hidden faces are handled by the merged clump above; make sure no stale
+				// individual group lingers for this index, then skip it.
+				if (this.faces[i].hidden) {
+					this.removeFaceObject(i);
+					continue;
 				}
-				rebuiltFaces++;
-				this.lastFaceParams[i] = newFaceParams;
-				this.buildFace(i, dieParams.engraving_depth, newFaceParams, {
-					forExport: false,
-					sharedEngraved
-				}).forEach(
-					(g) => {
+				const newFaceParams = simplifyFaceParams(faceParams[i], this.faces[i]);
+				if (
+					dieChanged ||
+					this.forceRerenderFaces ||
+					faceParamsNotEqual(this.lastFaceParams[i], newFaceParams, this.faces[i])
+				) {
+					// need to rebuild
+					if (!this.faceObjects[i]) {
+						this.faceObjects[i] = new Group();
+						this.faceObjects[i].userData.diceThingFace = i;
+						this.faceObjects[i].userData.diceThingId = this.id;
+						this.diceGroup.add(this.faceObjects[i]);
+					} else {
+						this.faceObjects[i].remove(...this.faceObjects[i].children);
+					}
+					rebuiltFaces++;
+					this.lastFaceParams[i] = newFaceParams;
+					this.buildFace(i, dieParams.engraving_depth, newFaceParams, {
+						forExport: false,
+						sharedEngraved
+					}).forEach((g) => {
 						g.userData.diceThingFace = i;
 						g.userData.diceThingId = this.id;
 						let m: Material;
@@ -702,11 +688,10 @@ export class Builder {
 						mesh.userData = { ...g.userData };
 						mesh.visible = visible;
 						this.faceObjects[i].add(mesh);
-					}
-				);
-				this.refreshLegendAreaOutline(i);
+					});
+					this.refreshLegendAreaOutline(i);
+				}
 			}
-		}
 		} finally {
 			sharedEngraved?.delete();
 		}
@@ -819,6 +804,24 @@ export class Builder {
 			// avoids a manifold engrave pass per rim segment on high-segment coins.
 			const g = buildBlankFaceCapGeometry(face, PreviewDivisions);
 			face.transform.applyToGeometry(g);
+			// A curved cap's thin facets have unstable plane normals. Point each
+			// vertex normal out from the sphere centre so shared corners match
+			// and the patch shades as the sphere it lies on.
+			const shadeCenter = face.shadeCenter;
+			if (shadeCenter) {
+				const pos = g.getAttribute('position');
+				const normals = g.getAttribute('normal');
+				if (pos && normals) {
+					for (let v = 0; v < pos.count; v++) {
+						const nx = pos.getX(v) - shadeCenter.x;
+						const ny = pos.getY(v) - shadeCenter.y;
+						const nz = pos.getZ(v) - shadeCenter.z;
+						const len = Math.hypot(nx, ny, nz) || 1;
+						normals.setXYZ(v, nx / len, ny / len, nz / len);
+					}
+					normals.needsUpdate = true;
+				}
+			}
 			geos.push(g);
 		}
 		if (geos.length === 0) {
@@ -983,8 +986,7 @@ export class Builder {
 			this.lastOrdering = ordering;
 			this.recalculateLegendScaling(dieParams, stringParams, ordering);
 			// most dice omit this; default is sharpest-vertex-down + clearance.
-			this.printingTransform =
-				x.printingTransform ?? computePointDownPrintingTransform(x.faces);
+			this.printingTransform = x.printingTransform ?? computePointDownPrintingTransform(x.faces);
 			this.faceObjects.forEach((g) => g.children?.forEach((c) => g.remove(c)));
 			// drop any stale per-face errors from a previous (larger) blank; the loop
 			// below repopulates index 0..faces.length-1.
@@ -1055,14 +1057,16 @@ export class Builder {
 		faceParams: Array<FaceParams>
 	): Mesh {
 		const blankGeo = this.blankExportGeometry(dieParams);
-		const simplified = this.faces.map((face, i) =>
-			simplifyFaceParams(faceParams[i], face)
-		);
+		const simplified = this.faces.map((face, i) => simplifyFaceParams(faceParams[i], face));
+		// Engrave these faces, not a fresh model.build(). Ordering (percentile,
+		// spindown, …) only exists as defaultLegend here; face params omit a legend
+		// when it matches that default, so rebuilding would fall back to standard.
 		const exported = buildEngravedDieExport({
 			model: this.model,
 			legends: this.legends,
 			params: dieParams,
 			stringParams: this.lastStringParams,
+			faces: this.faces,
 			faceParams: simplified,
 			depth: dieParams.engraving_depth,
 			bevel: dieParams.engraving_bevel,
@@ -1102,9 +1106,7 @@ export class Builder {
 			this.lastStringParams,
 			{ source: 'export', exportGeometry: blankGeo, divisions }
 		);
-		const simplified = this.faces.map((face, i) =>
-			simplifyFaceParams(faceParams[i], face)
-		);
+		const simplified = this.faces.map((face, i) => simplifyFaceParams(faceParams[i], face));
 		const engraved = engraveDie(blank, {
 			faces: this.faces,
 			legends: this.legends,
@@ -1147,7 +1149,13 @@ export class Builder {
 
 		if (
 			legend !== Legend.BLANK &&
-			!canEngraveLegend(face.shape, symbols, orientation, this.currentTolerance, face.convex !== false)
+			!canEngraveLegend(
+				face.shape,
+				symbols,
+				orientation,
+				this.currentTolerance,
+				face.convex !== false
+			)
 		) {
 			error = {
 				faceIndex: i,
@@ -1272,10 +1280,7 @@ export class Builder {
 		return this.individualLegendScaling;
 	}
 
-	private buildFaceFlatPreview(
-		i: number,
-		params: FaceParams
-	): Array<BufferGeometry> {
+	private buildFaceFlatPreview(i: number, params: FaceParams): Array<BufferGeometry> {
 		const face = this.faces[i];
 		const legend = params.legend ?? face.defaultLegend;
 		const symbols = this.legends.get(legend);
@@ -1286,7 +1291,13 @@ export class Builder {
 		let error: EngravingError | null = null;
 		if (
 			legend !== Legend.BLANK &&
-			!canEngraveLegend(face.shape, symbols, orientation, this.currentTolerance, face.convex !== false)
+			!canEngraveLegend(
+				face.shape,
+				symbols,
+				orientation,
+				this.currentTolerance,
+				face.convex !== false
+			)
 		) {
 			error = {
 				faceIndex: i,

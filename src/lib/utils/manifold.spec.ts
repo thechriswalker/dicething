@@ -6,6 +6,7 @@ import {
 	manifoldToGeometry,
 	manifoldToIndexedMesh,
 	differenceGeometry,
+	mapOwned,
 	toFlatPositions
 } from './manifold';
 import { checkMesh } from './mesh_check';
@@ -58,5 +59,32 @@ describe('manifold adapter', () => {
 		expect(report.duplicateTriangleCount).toBe(0);
 		// a through-hole adds genus, so it must have more triangles than the slab.
 		expect(report.triangleCount).toBeGreaterThan(12);
+	});
+
+	it('mapOwned deletes every transform except the last', () => {
+		const wasm = manifold();
+		const probe = wasm.Manifold.cube([1, 1, 1], true);
+		const proto = Object.getPrototypeOf(probe) as { delete: () => void };
+		probe.delete();
+		const orig = proto.delete;
+		let deleted = 0;
+		proto.delete = function (this: unknown) {
+			deleted += 1;
+			return orig.call(this);
+		};
+		try {
+			const out = mapOwned(
+				wasm.Manifold.cube([1, 1, 1], true),
+				(m) => m.translate([2, 0, 0]),
+				(m) => m.rotate([0, 90, 0])
+			);
+			// cube + translated copy. The rotated result stays alive.
+			expect(deleted).toBe(2);
+			expect(out.volume()).toBeCloseTo(1);
+			out.delete();
+			expect(deleted).toBe(3);
+		} finally {
+			proto.delete = orig;
+		}
 	});
 });

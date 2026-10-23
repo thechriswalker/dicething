@@ -6,6 +6,7 @@ import type { Dice, DiceSet } from '$lib/interfaces/storage.svelte';
 import { Builder } from './builder';
 import { applyOrderingToFaces } from '$lib/utils/legend_orderings';
 import { migrateLegacyDice } from '$lib/utils/die_migrate';
+import { normalizeStoredSupports } from './supports/config';
 import { Legend, loadMutableLegends, type LegendSet, type SerialisedLegendSet } from './legends';
 import { extraBuildOptions, isMergeOption, type OptionValues } from './build_options';
 import { blanks, isBuiltin, loadBuiltinById } from '$lib/fonts';
@@ -29,6 +30,7 @@ import {
 import { toNonIndexed } from './3d';
 
 const _exportMergeMaterial = new MeshNormalMaterial();
+import { partitionForPlates } from './plate_layout';
 import {
 	buildThreeMf,
 	buildThreeMfGrouped,
@@ -247,9 +249,7 @@ export function buildExportMeshesForDie(
 	}
 
 	const targetHasMerge = (target: string) =>
-		extraBuildOptions.some(
-			(o) => o.mergeInto?.includes(target) && mergeSolids.has(o.id)
-		);
+		extraBuildOptions.some((o) => o.mergeInto?.includes(target) && mergeSolids.has(o.id));
 
 	const mergeIntoTarget = (target: string, host: Manifold): Manifold => {
 		let result = host;
@@ -458,7 +458,7 @@ function layoutNamedMeshesInGrid(
 		const dx = x - f.center.x;
 		const dz = z - f.center.z;
 		entry.mesh.geometry.translate(dx, 0, dz);
-		entry.manifold?.translate(dx, 0, dz);
+		moveManifold(entry, dx, 0, dz);
 	});
 }
 
@@ -479,7 +479,20 @@ function translateNamedMeshes(named: Array<NamedMesh>, dx: number, dz: number): 
 	}
 	for (const entry of named) {
 		entry.mesh.geometry.translate(dx, 0, dz);
-		entry.manifold?.translate(dx, 0, dz);
+		moveManifold(entry, dx, 0, dz);
+	}
+}
+
+// Manifold.translate returns a new solid and leaves the receiver where it was.
+function moveManifold(entry: NamedMesh, dx: number, dy: number, dz: number): void {
+	const man = entry.manifold;
+	if (!man || (dx === 0 && dy === 0 && dz === 0)) {
+		return;
+	}
+	const next = man.translate(dx, dy, dz);
+	if (next !== man) {
+		man.delete();
+		entry.manifold = next;
 	}
 }
 
@@ -550,7 +563,10 @@ const STL_HEADER_BYTES = 80;
 const STL_TRI_BYTES = 50; // 12*float32 + uint16 attribute
 
 // Binary STL from a flat 9-floats-per-triangle position buffer (print-bed frame).
-export function flatPositionsToStlBinary(positions: Float32Array, header = 'dicething'): Uint8Array {
+export function flatPositionsToStlBinary(
+	positions: Float32Array,
+	header = 'dicething'
+): Uint8Array {
 	const triCount = Math.floor(positions.length / 9);
 	const out = new Uint8Array(STL_HEADER_BYTES + 4 + triCount * STL_TRI_BYTES);
 	const view = new DataView(out.buffer);
@@ -736,22 +752,33 @@ export type ThreeMfMeshGroup = { name: string; meshes: Array<NamedMesh> };
 // 'blanks', 'platforms', ...), preserving first-appearance order. Each category
 // becomes a single grouped 3MF object named `${prefix}_${group}`, so a slicer
 // sees e.g. all numbered dice as one object, all blanks as another, etc.
+//
+// When `plateOf` is given and a category occupies more than one plate, that
+// category is split into one group per plate (`${prefix}_${group}_plate1`, …)
+// so a group that spans beds does not stay a single slicer object.
 export function groupMeshesByCategory(
 	named: Array<NamedMesh>,
-	prefix: string
+	prefix: string,
+	plateOf?: (mesh: NamedMesh) => number
 ): Array<ThreeMfMeshGroup> {
-	const order: Array<string> = [];
-	const byGroup = new Map<string, Array<NamedMesh>>();
-	for (const n of named) {
-		let bucket = byGroup.get(n.group);
-		if (!bucket) {
-			bucket = [];
-			byGroup.set(n.group, bucket);
-			order.push(n.group);
+	if (!plateOf) {
+		const order: Array<string> = [];
+		const byGroup = new Map<string, Array<NamedMesh>>();
+		for (const n of named) {
+			let bucket = byGroup.get(n.group);
+			if (!bucket) {
+				bucket = [];
+				byGroup.set(n.group, bucket);
+				order.push(n.group);
+			}
+			bucket.push(n);
 		}
-		bucket.push(n);
+		return order.map((g) => ({ name: `${prefix}_${g}`, meshes: byGroup.get(g)! }));
 	}
-	return order.map((g) => ({ name: `${prefix}_${g}`, meshes: byGroup.get(g)! }));
+	return partitionForPlates(named, plateOf).map((part) => ({
+		name: `${prefix}_${part.key}`,
+		meshes: part.items
+	}));
 }
 
 // All meshes combined into a single .3mf, but each group becomes ONE grouped
@@ -832,7 +859,8 @@ export function exportSetJson(set: DiceSet, opts: { embedLegends: EmbedLegends }
 			id: set.id,
 			name: set.name,
 			updated: set.updated,
-			dice: set.dice
+			dice: set.dice,
+			supports: set.supports
 		},
 		legends
 	};
@@ -876,13 +904,16 @@ export async function importSetJson(json: string): Promise<DiceSet> {
 		(set.dice as Array<Dice>).map((die) => ({ ...die, id: uuid() }))
 	);
 
-	return {
+	const imported = {
 		id: uuid(),
 		name: typeof set.name === 'string' && set.name ? set.name : 'Imported set',
 		updated: Date.now(),
 		dice: migrated,
-		legends
+		legends,
+		supports: set.supports
 	};
+	normalizeStoredSupports(imported);
+	return imported;
 }
 
 // Resolve the legend set referenced by an imported file: prefer the matching

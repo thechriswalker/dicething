@@ -1,6 +1,6 @@
 import type { Transform } from '$lib/utils/3d';
 import type { Legend } from '$lib/utils/legends';
-import type { BufferGeometry, Shape, Vector2 } from 'three';
+import type { BufferGeometry, Shape, Vector2, Vector3 } from 'three';
 
 export type DieTags = {
 	kind: string; // broad shape family, e.g. "polyhedron", "trapezohedron"
@@ -137,6 +137,10 @@ export type DieFaceModel = {
 	noRest?: boolean;
 	transform: Transform; // transform to put the face in position.
 	explodeTransform?: Transform; // transfor to put the face in the exploded position
+	// Sphere centre for a hidden facet on a curved cap. A thin triangle there has
+	// an unstable plane normal; the preview points each vertex normal from this
+	// centre through the vertex so the cap shades as the sphere it lies on.
+	shadeCenter?: Vector3;
 };
 
 // one selectable option of a "toggle" parameter.

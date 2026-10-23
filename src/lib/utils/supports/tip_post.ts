@@ -4,8 +4,8 @@
 // regions.ts.
 
 import { Vector3 } from 'three';
-import { deleteAll, manifold, type Manifold, type Mat4 } from '../manifold';
-import type { SupportSettings, SupportTipPost } from './types';
+import { deleteAll, manifold, mapOwned, type Manifold, type Mat4 } from '../manifold';
+import { type SupportSettings, type SupportTipPost } from './types';
 
 const CYL_SEGMENTS = 24;
 
@@ -29,12 +29,16 @@ export function buildTipPostManifold(tip: SupportTipPost, settings: SupportSetti
 
 	const parts: Manifold[] = [];
 
-	const cylH = cylTop - raft;
+	// The stump continues through the raft to the plate. Fins still occupy only
+	// the upper half of the clearance above the raft.
+	const cylH = cylTop;
 	if (cylH > 1e-4) {
 		parts.push(
-			wasm.Manifold.cylinder(cylH, postR, postR, CYL_SEGMENTS, false)
-				.rotate([-90, 0, 0])
-				.translate([ax, raft, az])
+			mapOwned(
+				wasm.Manifold.cylinder(cylH, postR, postR, CYL_SEGMENTS, false),
+				(m) => m.rotate([-90, 0, 0]),
+				(m) => m.translate([ax, 0, az])
+			)
 		);
 	}
 
@@ -55,12 +59,7 @@ export function buildTipPostManifold(tip: SupportTipPost, settings: SupportSetti
 
 			// Unit cube along +X/+Y/+Z: radial × height × thickness, then map
 			// +X→horiz (center→rim), +Y→up, +Z→thin (centered on the plane).
-			const box = wasm.Manifold.cube([postR, finH, finT], false).translate([
-				0,
-				0,
-				-finT / 2
-			]);
-			const m: number[] = [
+			const mat = [
 				horiz.x,
 				horiz.y,
 				horiz.z,
@@ -77,24 +76,22 @@ export function buildTipPostManifold(tip: SupportTipPost, settings: SupportSetti
 				finBottom,
 				az,
 				1
-			];
-			parts.push(box.transform(m as unknown as Mat4));
+			] as unknown as Mat4;
+			const box = mapOwned(
+				wasm.Manifold.cube([postR, finH, finT], false),
+				(m) => m.translate([0, 0, -finT / 2]),
+				(m) => m.transform(mat)
+			);
+			parts.push(box);
 		}
 	}
 
-	if (raft > 1e-6) {
-		const padR = Math.max(settings.raftSizeMm, postR + 0.5);
-		parts.push(
-			wasm.Manifold.cylinder(raft, padR, padR, 6, false)
-				.rotate([-90, 0, 0])
-				.translate([ax, 0, az])
-		);
-	}
-
 	if (parts.length === 0) {
-		return wasm.Manifold.cylinder(0.5, postR, postR, CYL_SEGMENTS, false)
-			.rotate([-90, 0, 0])
-			.translate([ax, 0, az]);
+		return mapOwned(
+			wasm.Manifold.cylinder(0.5, postR, postR, CYL_SEGMENTS, false),
+			(m) => m.rotate([-90, 0, 0]),
+			(m) => m.translate([ax, 0, az])
+		);
 	}
 	if (parts.length === 1) {
 		return parts[0];

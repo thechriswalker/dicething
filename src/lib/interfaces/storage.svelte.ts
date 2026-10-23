@@ -24,6 +24,7 @@ import {
 import type { StorageUpdatedPayload } from '$lib/utils/die_engine_protocol';
 import { engineTrace, engineTraceSpan } from '$lib/utils/engine_trace';
 import { migrateLegacyDiceSet } from '$lib/utils/die_migrate';
+import { normalizeStoredSupports, type SupportConfig } from '$lib/utils/supports/config';
 
 // fired (same-tab) whenever a custom legend set is saved or deleted, with the
 // affected id as the event detail. Cross-tab changes arrive via the localStorage
@@ -47,6 +48,11 @@ export type DiceSetWithoutLegends = {
 	name: string;
 	updated: number; // unix millis
 	dice: Dice[];
+	/**
+	 * Print-support defaults for this set. Absent means the set uses the global
+	 * preferences. Individual dice may still override this.
+	 */
+	supports?: SupportConfig;
 };
 
 export type DiceSet = DiceSetWithoutLegends & { legends: LegendSet };
@@ -74,11 +80,29 @@ export type Dice = {
 	// strip tooltip and editable in the parameters panel; the shape display name
 	// remains derived from kind + ordering.
 	nickname?: string;
+	/**
+	 * Print-support override for this die. Absent means use the set defaults,
+	 * or the global preferences when the set has none.
+	 */
+	supports?: SupportConfig;
 };
 
 export function dieToJSON(die: Dice): string {
 	// this is actually the same...
 	return toJson(die);
+}
+
+/** Geometry/identity signature. Omits print-support overrides so tweaking them does not rebuild the die. */
+export function dieGeometrySig(die: Dice): string {
+	return dieToJSON({
+		id: die.id,
+		kind: die.kind,
+		parameters: die.parameters,
+		string_parameters: die.string_parameters,
+		face_parameters: die.face_parameters,
+		legend_ordering: die.legend_ordering,
+		nickname: die.nickname
+	});
 }
 export function dieFromJSON(json: string): Dice {
 	return JSON.parse(json, reviver) as Dice;
@@ -145,9 +169,7 @@ export async function waitForSet(id: string): Promise<DiceSet | undefined> {
 }
 
 async function hydrateFromEngineSnapshot(payload: StorageUpdatedPayload): Promise<Array<DiceSet>> {
-	const customById = new Map(
-		payload.legends.map((l) => [l.id, loadMutableLegends(l)] as const)
-	);
+	const customById = new Map(payload.legends.map((l) => [l.id, loadMutableLegends(l)] as const));
 	const sets: Array<DiceSet> = [];
 	const migrated: Array<DiceSet> = [];
 	for (const snap of payload.sets) {
@@ -164,8 +186,10 @@ async function hydrateFromEngineSnapshot(payload: StorageUpdatedPayload): Promis
 				name: snap.name,
 				updated: snap.updated,
 				dice: diceArr,
-				legends: legendSet
+				legends: legendSet,
+				supports: snap.supports
 			};
+			normalizeStoredSupports(set);
 			if (migrateLegacyDiceSet(set)) {
 				migrated.push(set);
 			}
@@ -353,6 +377,7 @@ function getListOfSets() {
 			const { legends, ...stored } = diceSetFromJSON(v);
 			const legendSet = await loadLegends(legends);
 			const set: DiceSet = { legends: legendSet, ...stored };
+			normalizeStoredSupports(set);
 			if (migrateLegacyDiceSet(set)) {
 				saveSet(set);
 			}
@@ -390,9 +415,7 @@ export function getCustomLegendSet(id: string): MutableLegendSet | undefined {
 export function saveLegendSet(set: MutableLegendSet) {
 	set.updated = Date.now();
 	const json = JSON.stringify(set);
-	void saveLegendInEngine(json).catch(() =>
-		localStorage.setItem(LEGENDS_PREFIX + set.id, json)
-	);
+	void saveLegendInEngine(json).catch(() => localStorage.setItem(LEGENDS_PREFIX + set.id, json));
 	upsertLegendsInList(set);
 	dispatchLegendsChanged(set.id);
 }
@@ -423,8 +446,7 @@ export async function cloneLegendSet(src: LegendSet): Promise<MutableLegendSet> 
 		font = { kind: 'builtin', builtinId };
 		const builtinMeta = builtins[builtinId as keyof typeof builtins];
 		const charset =
-			src.characterSet ??
-			(builtinMeta?.characterSet === 'five_player' ? 'five_player' : 'default');
+			src.characterSet ?? (builtinMeta?.characterSet === 'five_player' ? 'five_player' : 'default');
 		// Builtins are bundled without their per-slot sources. Rebuild them from
 		// the matching character set so the clone's glyphs stay regenerable.
 		if (!sources || sources.length === 0) {

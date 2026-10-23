@@ -45,6 +45,9 @@ const dice = {
 	d4_caltrop_custom: CaltropCustomD4,
 	d4_truncated_tetrahedron: TruncatedTetrahedronD4,
 	d6_cube: CubeD6,
+	// Not ready to ship. The model stays in rounded_cube.ts; register
+	// `d6_rounded: RoundedD6` (and its tags below) when it should be pickable.
+	// d6_rounded: RoundedD6,
 	d4_crystal: CrystalD4,
 	d6_crystal: CrystalD6,
 	d8_crystal: CrystalD8,
@@ -99,6 +102,7 @@ const diceTags: Record<keyof typeof dice, DieTags> = {
 	d4_caltrop_custom: { kind: 'caltrop', variant: 'custom', sides: '4', rarity: 'common' },
 	d4_truncated_tetrahedron: { kind: 'caltrop', variant: 'truncated', sides: '4', rarity: 'rare' },
 	d6_cube: { kind: 'polyhedron', variant: 'cube', sides: '6', rarity: 'common' },
+	// d6_rounded: { kind: 'polyhedron', variant: 'rounded', sides: '6', rarity: 'uncommon' },
 	d4_crystal: { kind: 'crystal', sides: '4', rarity: 'uncommon' },
 	d6_crystal: { kind: 'crystal', sides: '6', rarity: 'uncommon' },
 	d8_crystal: { kind: 'crystal', sides: '8', rarity: 'uncommon' },

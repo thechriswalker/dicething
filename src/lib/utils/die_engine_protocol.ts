@@ -4,6 +4,7 @@
 import type { EngravingError } from './builder';
 import type { MeshCheckReport } from './mesh_check';
 import type { SerialisedLegendSet } from './legends';
+import type { SupportConfig } from './supports/config';
 
 // --- Storage snapshots (plain JSON, no three.js) --------------------------------
 
@@ -13,6 +14,8 @@ export type StorageDiceSetSnapshot = {
 	updated: number;
 	dice: string;
 	legendsId: string;
+	/** Set-level print-support defaults, when the set is not using the global ones. */
+	supports?: SupportConfig;
 };
 
 export type StorageUpdatedPayload = {
@@ -229,6 +232,8 @@ export type EngineResponse =
 			engravingErrors: Array<EngravingError>;
 			// Indexed Manifold topology when available (avoids weld false-positives).
 			meshReport: MeshCheckReport;
+			/** Per export group, so a combined dice+blanks job doesn't double-count. */
+			groupMeshReports?: Record<string, MeshCheckReport>;
 			// Enclosed volume (mm³) per export group, from Manifold.volume() while
 			// the solids are still alive. Keyed by group id ('dice', 'blanks', …).
 			groupVolumesMm3: Record<string, number>;
