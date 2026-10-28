@@ -1,6 +1,13 @@
 <script lang="ts">
 	import { Vector2 } from 'three';
-	import { boxOutline, deriveAutoLayout, isLayoutValid, LAYOUT_MIN_HALF, rotateHull } from '$lib/box/box_builder';
+	import {
+		boxOutline,
+		deriveAutoLayout,
+		isLayoutValid,
+		LAYOUT_MIN_HALF,
+		rotateHull
+	} from '$lib/box/box_builder';
+	import { BOX_LAYOUT_COLOURS } from '$lib/box/layout_figure';
 	import {
 		defaultBoxParams,
 		layoutParamsFrom,
@@ -99,8 +106,6 @@
 		}
 		wasOpen = open;
 	});
-
-	const PALETTE = ['#22d3ee', '#a78bfa', '#f472b6', '#facc15', '#34d399', '#fb923c', '#60a5fa'];
 
 	let effParams = $derived<BoxParams>({
 		...params,
@@ -542,7 +547,7 @@
 	}
 
 	function dieColour(i: number): string {
-		return PALETTE[i % PALETTE.length];
+		return BOX_LAYOUT_COLOURS[i % BOX_LAYOUT_COLOURS.length];
 	}
 </script>
 
@@ -716,26 +721,27 @@
 					</p>
 				{:else}
 					<div class="absolute top-2 right-2 z-10 flex flex-col gap-1">
-							<button
-								class="btn-icon btn-icon-sm preset-filled-surface-100-900"
-								aria-label={m.boxes_layout_zoom_in()}
-								onclick={() => zoomBy(ZOOM_STEP)}><ZoomIn class="size-4" /></button
-							>
-							<button
-								class="btn-icon btn-icon-sm preset-filled-surface-100-900"
-								aria-label={m.boxes_layout_zoom_out()}
-								onclick={() => zoomBy(1 / ZOOM_STEP)}><ZoomOut class="size-4" /></button
-							>
-							<button
-								class="btn-icon btn-icon-sm preset-filled-surface-100-900"
-								aria-label={m.boxes_layout_zoom_fit()}
-								onclick={fitView}><Maximize class="size-4" /></button
-							>
-							<button 
-								class="btn-icon btn-icon-sm preset-filled-surface-100-900"
-								aria-label={m.boxes_layout_snap_to_center()}
-								onclick={() => snapToCenter = !snapToCenter}><SquareCenterlineDashedHorizontal class="size-4" /></button
-							>
+						<button
+							class="btn-icon btn-icon-sm preset-filled-surface-100-900"
+							aria-label={m.boxes_layout_zoom_in()}
+							onclick={() => zoomBy(ZOOM_STEP)}><ZoomIn class="size-4" /></button
+						>
+						<button
+							class="btn-icon btn-icon-sm preset-filled-surface-100-900"
+							aria-label={m.boxes_layout_zoom_out()}
+							onclick={() => zoomBy(1 / ZOOM_STEP)}><ZoomOut class="size-4" /></button
+						>
+						<button
+							class="btn-icon btn-icon-sm preset-filled-surface-100-900"
+							aria-label={m.boxes_layout_zoom_fit()}
+							onclick={fitView}><Maximize class="size-4" /></button
+						>
+						<button
+							class="btn-icon btn-icon-sm preset-filled-surface-100-900"
+							aria-label={m.boxes_layout_snap_to_center()}
+							onclick={() => (snapToCenter = !snapToCenter)}
+							><SquareCenterlineDashedHorizontal class="size-4" /></button
+						>
 					</div>
 					<svg
 						bind:this={svgEl}

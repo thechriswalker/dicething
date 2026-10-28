@@ -6,7 +6,7 @@
 	import Collapsible from '$lib/components/collapsible/Collapsible.svelte';
 	import Tooltip from '$lib/components/tooltip/Tooltip.svelte';
 	import { waitForSet, type DiceSet } from '$lib/interfaces/storage.svelte';
-	import { getPreferences } from '$lib/interfaces/preferences.svelte';
+	import { getPreferences, setPreference } from '$lib/interfaces/preferences.svelte';
 	import { m } from '$lib/paraglide/messages';
 	import { dieListLabel } from '$lib/utils/die_display_name';
 	import dice from '$lib/dice';
@@ -17,11 +17,13 @@
 	import BoxProgressDie from '$lib/box/BoxProgressDie.svelte';
 	import LayoutEditor from '$lib/components/box_layout/LayoutEditor.svelte';
 	import type { EditorItem, LayoutResult } from '$lib/components/box_layout/types';
+	import DeleteBoxDialog from '$lib/components/delete_box/DeleteBoxDialog.svelte';
 	import {
-		defaultBoxConfig,
-		loadBoxConfig,
+		boxForRouteParam,
+		listBoxConfigs,
 		reconcileBoxConfig,
-		saveBoxConfig
+		saveBoxConfig,
+		uniqueBoxName
 	} from '$lib/box/store';
 	import {
 		applyLayoutEditorParams,
@@ -41,13 +43,19 @@
 	import { onDestroy, onMount, tick } from 'svelte';
 	import {
 		BufferGeometry,
+		CanvasTexture,
+		FrontSide,
 		Group,
 		LineBasicMaterial,
 		LineLoop,
+		LineSegments,
 		Mesh,
 		MeshBasicMaterial,
 		MeshNormalMaterial,
 		MeshPhysicalMaterial,
+		PlaneGeometry,
+		Quaternion,
+		SRGBColorSpace,
 		Vector3
 	} from 'three';
 	import {
@@ -59,15 +67,24 @@
 		Copy,
 		Play,
 		Package,
-		PackageOpen
+		PackageOpen,
+		X
 	} from '@lucide/svelte';
+	import { mergeProps } from 'svelte-toolbelt';
 	import { Button } from 'bits-ui';
 	import { getLightDarkContext } from '$lib/components/light_switch/light_dark_context';
 
-	const setId = page.params.setId ?? '';
+	function mergeTriggerProps(parent: unknown, tip: Record<string, unknown>) {
+		return mergeProps(parent as Record<string, unknown>, tip);
+	}
+
+	const boxId = page.params.boxId ?? '';
 
 	let setData = $state<DiceSet | undefined>(undefined);
 	let config = $state<BoxConfig | undefined>(undefined);
+	// set once the user confirms delete, so a debounced save can't recreate the box.
+	let removed = false;
+	let alive = true;
 	// Opaque Three.js handle — do NOT put this in $state. Deep-proxying the
 	// renderer/camera/controls makes TrackballControls + the rAF loop fight the
 	// reactive system and can leave the first frame blank.
@@ -89,8 +106,6 @@
 	let buildSeq = 0;
 	let outerSize = $state<{ x: number; y: number }>({ x: 0, y: 0 });
 
-	// user-facing scene control: dice see-through-ness (0 = hidden, 1 = solid).
-	let dieOpacity = $state(0.33);
 	let fileLayout = $state<'single' | 'zip'>('single');
 	let format = $state<ExportFormat>('3mf');
 
@@ -102,15 +117,20 @@
 	const normalMat = new MeshNormalMaterial();
 	// dice use a plain basic material in regular mode so their opacity can be
 	// dialled down (the normal material ignores opacity).
-	const dieBasicMat = new MeshBasicMaterial({ color: 0xd8b25a, transparent: true });
+	const dieBasicMat = new MeshBasicMaterial({
+		color: getPreferences().boxDiceRenderColor,
+		transparent: true,
+		opacity: getPreferences().diceRenderOpacity
+	});
 	const dieFancyMat = new MeshPhysicalMaterial({
-		color: 0xd8b25a,
+		color: getPreferences().boxDiceRenderColor,
 		roughness: 1.0,
 		metalness: 0.25,
 		clearcoat: 0.81,
 		clearcoatRoughness: 0.5,
 		envMapIntensity: 0.9,
-		transparent: true
+		transparent: true,
+		opacity: getPreferences().diceRenderOpacity
 	});
 
 	let built = $state<BuiltBox | undefined>(undefined);
@@ -159,8 +179,10 @@
 	let wireframeOn = $state(false);
 	let showBounds = $state(false);
 
-	let ld = getLightDarkContext()
-	let controlPresetClass = $derived(ld?.isLight ? 'preset-filled-surface-200-800' : 'preset-filled-surface-100-900')
+	let ld = getLightDarkContext();
+	let controlPresetClass = $derived(
+		ld?.isLight ? 'preset-filled-surface-200-800' : 'preset-filled-surface-100-900'
+	);
 
 	$effect(() => {
 		void sceneReadyTick;
@@ -181,6 +203,12 @@
 		void sceneReadyTick;
 		renderBounds();
 	});
+	// footprint size guides follow the built box and the light/dark background.
+	$effect(() => {
+		void built;
+		void sceneReadyTick;
+		renderSizeGuides(ld?.isLight ?? false);
+	});
 	// the FPS counter is always shown in developer mode.
 	$effect(() => {
 		void sceneReadyTick;
@@ -192,18 +220,16 @@
 	// (don't call ctx.render() here - that starts a second, compounding loop).
 	$effect(() => {
 		for (const mat of [dieBasicMat, dieFancyMat]) {
-			mat.opacity = dieOpacity;
+			mat.opacity = prefs.diceRenderOpacity;
 			// keep transparent always on; toggling it at runtime needs a shader
 			// recompile and otherwise leaves the dice rendering opaque.
 			mat.transparent = true;
 		}
 	});
 
-	// tuning panel state; defaults mirror createFancyRender() plus separate base
-	// colours for the box shell and the dice.
+	// tuning panel state; defaults mirror createFancyRender(). Colours live in
+	// global preferences so the canvas controls and the dice export agree.
 	let tune = $state({
-		boxColour: '#58697e',
-		dieColour: '#a3a3a3',
 		roughness: 1,
 		metalness: 0.07,
 		clearcoat: 0.81,
@@ -224,9 +250,9 @@
 		if (!fr || !ctx) {
 			return;
 		}
-		fr.material.color.set(tune.boxColour);
-		dieFancyMat.color.set(tune.dieColour);
-		dieBasicMat.color.set(tune.dieColour);
+		fr.material.color.set(prefs.boxRenderColor);
+		dieFancyMat.color.set(prefs.boxDiceRenderColor);
+		dieBasicMat.color.set(prefs.boxDiceRenderColor);
 		for (const mat of [fr.material, dieFancyMat]) {
 			mat.roughness = tune.roughness;
 			mat.metalness = tune.metalness;
@@ -247,16 +273,37 @@
 	});
 
 	onMount(async () => {
-		setData = await waitForSet(setId);
+		const boxes = listBoxConfigs();
+		const found = boxForRouteParam(boxes, boxId);
+		if (!found) {
+			goto('/boxes');
+			return;
+		}
+		// an old /boxes/<setId> link, when that set has a single box.
+		if (found.id !== boxId) {
+			await goto(`/boxes/${found.id}`, { replaceState: true });
+		}
+		if (!alive) {
+			return;
+		}
+		setData = await waitForSet(found.setId);
+		if (!alive) {
+			return;
+		}
 		if (!setData) {
 			goto('/boxes');
 			return;
 		}
-		const existing = loadBoxConfig(setId);
-		config = existing
-			? reconcileBoxConfig(existing, setData.dice)
-			: defaultBoxConfig(setId, setData.dice);
+		let next = reconcileBoxConfig(found, setData.dice);
+		if (!next.name.trim()) {
+			const taken = boxes.filter((b) => b.id !== next.id).map((b) => b.name);
+			next = { ...next, name: uniqueBoxName(setData.name, taken) };
+		}
+		config = next;
 		await tick();
+		if (!alive) {
+			return;
+		}
 		queueRebuild(false);
 	});
 
@@ -271,7 +318,10 @@
 		_ctx.syncControls?.();
 		fancyRender = createFancyRender(_ctx);
 		fancyRender.setEnabled(fancy);
-		_ctx.onBeforeRender(stepLidAnim);
+		_ctx.onBeforeRender(() => {
+			stepLidAnim();
+			faceSizeLabels();
+		});
 		// start the continuous rAF loop (otherwise the canvas stays blank).
 		_ctx.render();
 		sceneReadyTick++;
@@ -316,13 +366,11 @@
 		applyMaterials();
 	}
 
-	// Copy the current tuning values as the `let tune = $state({...})` initialiser
-	// so they can be pasted straight back into this file to bless new defaults.
+	// Copy the current tuning values so they can be pasted back in to bless new
+	// defaults: colours are preference fields, the rest is the `tune` initialiser.
 	let copiedTuning = $state(false);
 	async function copyTuning() {
 		const lines = [
-			`\tboxColour: '${tune.boxColour}',`,
-			`\tdieColour: '${tune.dieColour}',`,
 			`\troughness: ${tune.roughness},`,
 			`\tmetalness: ${tune.metalness},`,
 			`\tclearcoat: ${tune.clearcoat},`,
@@ -337,7 +385,12 @@
 			`\taoThickness: ${tune.aoThickness},`,
 			`\taoDistanceExponent: ${tune.aoDistanceExponent}`
 		];
-		const snippet = `let tune = $state({\n${lines.join('\n')}\n});`;
+		const snippet = [
+			`boxDiceRenderColor: '${prefs.boxDiceRenderColor}',`,
+			`boxRenderColor: '${prefs.boxRenderColor}',`,
+			`diceRenderOpacity: ${prefs.diceRenderOpacity},`,
+			`let tune = $state({\n${lines.join('\n')}\n});`
+		].join('\n');
 		try {
 			await navigator.clipboard.writeText(snippet);
 			copiedTuning = true;
@@ -441,7 +494,25 @@
 	// dev-only: replay a synthetic progress sequence so the loading indicator can
 	// be watched without waiting for a real (slow) build.
 	let previewTimer: ReturnType<typeof setInterval> | undefined;
-	onDestroy(() => clearInterval(previewTimer));
+	const persistName = debounce<void>(400, () => {
+		if (removed || !config) {
+			return;
+		}
+		try {
+			saveBoxConfig($state.snapshot(config) as BoxConfig);
+		} catch (e) {
+			console.warn('failed to persist box name', e);
+		}
+	});
+	onDestroy(() => {
+		alive = false;
+		clearInterval(previewTimer);
+		clearSizeGuides();
+		sizeGuideMat.dispose();
+		if (!removed) {
+			persistName.flush();
+		}
+	});
 	function previewLoading() {
 		const seq = ++buildSeq;
 		const totalSteps = 12;
@@ -475,6 +546,7 @@
 		if (!ctx || !built) {
 			return;
 		}
+		clearSizeGuides();
 		disposeGroup(previewGroup);
 		// the box is built Z-up (print frame); the preview is viewed top-down (the
 		// camera looks straight down the box's height axis). The -90deg X rotation
@@ -590,13 +662,185 @@
 		boundsGroup = root;
 	}
 
+	// Dimension lines for the body footprint only: width (X) and depth (Y) of the
+	// seam octagon. Corner cuts don't change those two sizes. The hinge barrels
+	// and the gap between the open halves are not included. Drawn on the base,
+	// which stays put when the lid folds shut.
+	let sizeGuideGroup: Group | undefined;
+	const sizeGuideMat = new LineBasicMaterial({
+		color: 0xe2e8f0,
+		depthTest: false,
+		depthWrite: false,
+		toneMapped: false
+	});
+
+	function clearSizeGuides() {
+		if (!sizeGuideGroup) {
+			return;
+		}
+		sizeGuideGroup.traverse((o) => {
+			const mesh = o as Mesh;
+			if (mesh.userData.sizeLabel && mesh.material instanceof MeshBasicMaterial) {
+				mesh.geometry?.dispose();
+				mesh.material.map?.dispose();
+				mesh.material.dispose();
+				return;
+			}
+			if ((o as LineSegments).isLineSegments) {
+				(o as LineSegments).geometry?.dispose();
+			}
+		});
+		sizeGuideGroup.removeFromParent();
+		sizeGuideGroup = undefined;
+	}
+
+	// Planes, not sprites. A sprite under the preview's -90° X rotation billboards
+	// with its front face pointing down, so the top-down camera only sees the
+	// blank back of the quad. These planes are turned to face the camera each
+	// frame (see faceSizeLabels).
+	function sizeLabel(text: string, height: number, light: boolean): Mesh {
+		const fontPx = 128;
+		const canvas = document.createElement('canvas');
+		const draw = canvas.getContext('2d');
+		const geo = new PlaneGeometry(1, 1);
+		if (!draw) {
+			return new Mesh(geo);
+		}
+		const font = `600 ${fontPx}px ui-sans-serif, system-ui, sans-serif`;
+		draw.font = font;
+		const padX = 18;
+		const padY = 12;
+		canvas.width = Math.ceil(draw.measureText(text).width + padX * 2);
+		canvas.height = fontPx + padY * 2;
+		draw.font = font;
+		draw.textBaseline = 'middle';
+		draw.lineJoin = 'round';
+		draw.miterLimit = 2;
+		draw.lineWidth = 12;
+		draw.strokeStyle = light ? 'rgba(255,255,255,0.95)' : 'rgba(0,0,0,0.8)';
+		draw.fillStyle = light ? '#0f172a' : '#f8fafc';
+		const ty = canvas.height / 2;
+		draw.strokeText(text, padX, ty);
+		draw.fillText(text, padX, ty);
+		const texture = new CanvasTexture(canvas);
+		texture.colorSpace = SRGBColorSpace;
+		const mat = new MeshBasicMaterial({
+			map: texture,
+			transparent: true,
+			depthTest: false,
+			depthWrite: false,
+			toneMapped: false,
+			side: FrontSide
+		});
+		const mesh = new Mesh(geo, mat);
+		const aspect = canvas.width / canvas.height;
+		mesh.scale.set(height * aspect, height, 1);
+		mesh.renderOrder = 1000;
+		mesh.userData.sizeLabel = true;
+		return mesh;
+	}
+
+	const _labelParentQuat = new Quaternion();
+	// World orientation = parent * local. Set local so the plane's +Z matches the
+	// camera's +Z, which points back at the viewer — the numbered face leads.
+	function faceSizeLabels() {
+		if (!sizeGuideGroup || !ctx) {
+			return;
+		}
+		// onBeforeRender runs before the renderer refreshes world matrices, so a
+		// group added this frame would still report an identity orientation.
+		sizeGuideGroup.updateWorldMatrix(true, false);
+		sizeGuideGroup.traverse((o) => {
+			const mesh = o as Mesh;
+			if (!mesh.userData.sizeLabel || !mesh.parent) {
+				return;
+			}
+			mesh.parent.getWorldQuaternion(_labelParentQuat);
+			mesh.quaternion.copy(ctx.camera.quaternion).premultiply(_labelParentQuat.invert());
+		});
+	}
+
+	function renderSizeGuides(light: boolean) {
+		clearSizeGuides();
+		if (!ctx || !built || !previewGroup) {
+			return;
+		}
+		const hx = built.outer.x / 2;
+		const hy = built.outer.y / 2;
+		if (!(hx > 1) || !(hy > 1)) {
+			return;
+		}
+		sizeGuideMat.color.set(light ? 0x0f172a : 0xe2e8f0);
+		const offset = Math.max(5, Math.min(hx, hy) * 0.16);
+		const tick = Math.min(2.4, Math.max(1.2, offset * 0.28));
+		const arrow = tick * 1.5;
+		const edgeGap = 1.6;
+		const z = built.baseHeight + 0.5;
+		const textH = Math.min(6.5, Math.max(3.2, Math.min(hx, hy) * 0.18));
+		const yLine = -hy - offset;
+		const xLine = -hx - offset;
+		const pts: Array<Vector3> = [];
+		const seg = (ax: number, ay: number, bx: number, by: number) => {
+			pts.push(new Vector3(ax, ay, z), new Vector3(bx, by, z));
+		};
+		// arrow at the tip, opening back along (ix, iy) which points inward.
+		const arrowHead = (tx: number, ty: number, ix: number, iy: number) => {
+			const bx = tx + ix * arrow;
+			const by = ty + iy * arrow;
+			const px = -iy * arrow * 0.45;
+			const py = ix * arrow * 0.45;
+			seg(tx, ty, bx + px, by + py);
+			seg(tx, ty, bx - px, by - py);
+		};
+
+		// width, along the opening side (front, -Y) — clear of the hinge.
+		seg(-hx, yLine, hx, yLine);
+		seg(-hx, yLine - tick, -hx, yLine + tick);
+		seg(hx, yLine - tick, hx, yLine + tick);
+		arrowHead(-hx, yLine, 1, 0);
+		arrowHead(hx, yLine, -1, 0);
+		seg(-hx, -hy - edgeGap, -hx, yLine - tick);
+		seg(hx, -hy - edgeGap, hx, yLine - tick);
+
+		// depth, along the left side (-X).
+		seg(xLine, -hy, xLine, hy);
+		seg(xLine - tick, -hy, xLine + tick, -hy);
+		seg(xLine - tick, hy, xLine + tick, hy);
+		arrowHead(xLine, -hy, 0, 1);
+		arrowHead(xLine, hy, 0, -1);
+		seg(-hx - edgeGap, -hy, xLine - tick, -hy);
+		seg(-hx - edgeGap, hy, xLine - tick, hy);
+
+		const lines = new LineSegments(new BufferGeometry().setFromPoints(pts), sizeGuideMat);
+		lines.renderOrder = 998;
+		const unit = m.boxes_unit_mm();
+		const xLabel = sizeLabel(`${built.outer.x.toFixed(1)} ${unit}`, textH, light);
+		xLabel.position.set(0, yLine - textH * 0.7, z);
+		const yLabel = sizeLabel(`${built.outer.y.toFixed(1)} ${unit}`, textH, light);
+		yLabel.position.set(xLine - yLabel.scale.x * 0.55 - textH * 0.25, 0, z);
+
+		const g = new Group();
+		const plateGap = built.hinge ? built.hinge.partingGap : 8;
+		g.position.set(0, -(built.outer.y + plateGap) / 2, 0);
+		g.add(lines, xLabel, yLabel);
+		previewGroup.add(g);
+		sizeGuideGroup = g;
+	}
+
 	const scheduleRebuild = debounce<void>(200, () => {
 		void rebuild();
 	});
+	onDestroy(() => scheduleRebuild.cancel());
+
+	function prepareToDeleteBox() {
+		removed = true;
+		persistName.cancel();
+		scheduleRebuild.cancel();
+	}
 
 	/** Kick a build once scene + set + config are all present. */
 	function queueRebuild(debounced: boolean) {
-		if (!ctx || !setData || !config) {
+		if (removed || !ctx || !setData || !config) {
 			return;
 		}
 		if (debounced) {
@@ -748,7 +992,7 @@
 		if (!built) {
 			return;
 		}
-		const name = (setData?.name || 'set').replace(/[^a-z0-9-_]+/gi, '_');
+		const name = (config?.name || setData?.name || 'box').replace(/[^a-z0-9-_]+/gi, '_');
 		const threemfOpts =
 			format === '3mf' && built.magnetPauseZ !== undefined
 				? { magnetPauseZ: built.magnetPauseZ }
@@ -815,58 +1059,85 @@
 
 <div class="flex h-full flex-row gap-4 p-4">
 	<Scene class="relative h-full grow" {sceneReady}>
-		<ul class="absolute top-2 left-2 flex flex-col gap-2 z-10">
-			<li class="card {controlPresetClass} flex w-56 flex-col gap-1 p-2 text-sm">
-				<span class="flex justify-between">
-					<span>{m.boxes_tuning_die_opacity()}</span>
-					<span>{Math.round(dieOpacity * 100)}%</span>
-				</span>
-				<Slider
-					class="py-1"
-					value={dieOpacity}
-					min={0}
-					max={1}
-					step={0.01}
-					onChange={(v) => (dieOpacity = v)}
-				/>
+		<ul class="absolute top-2 left-2 z-10 flex flex-col gap-2">
+			<li class="card {controlPresetClass} flex w-56 flex-col gap-2 p-2 text-sm">
+				<label class="flex items-center justify-between gap-2">
+					<span>{m.boxes_tuning_die_colour()}</span>
+					<input
+						type="color"
+						class="h-6 w-10 cursor-pointer rounded"
+						aria-label={m.boxes_tuning_die_colour()}
+						value={prefs.boxDiceRenderColor}
+						oninput={(e) => setPreference('boxDiceRenderColor', e.currentTarget.value)}
+					/>
+				</label>
+				<div class="flex flex-col gap-1">
+					<span class="flex justify-between">
+						<span>{m.boxes_tuning_die_opacity()}</span>
+						<span>{Math.round(prefs.diceRenderOpacity * 100)}%</span>
+					</span>
+					<Slider
+						class="py-1"
+						value={prefs.diceRenderOpacity}
+						min={0}
+						max={1}
+						step={0.01}
+						onChange={(v) => setPreference('diceRenderOpacity', v)}
+					/>
+				</div>
 			</li>
-				{#if built}
-					<li class="card {controlPresetClass} flex w-56 flex-col gap-1 p-2 text-sm">
-						<span class="flex justify-between" title={m.boxes_lid_position_hint()}>
-							<span>{m.boxes_hinge_position()}</span>
-							<span class="text-surface-600-400 tabular-nums">{Math.round(lidClosedT * 100)}%</span>
-						</span>
-						<div class="flex items-center gap-2">
-							<Tooltip content={boxClosed ? m.boxes_open_box() : m.boxes_close_box()} side="right">
-								{#snippet children(props)}
-									<Button.Root
-										{...props}
-										class={'btn-icon shrink-0 ' +
-											(boxClosed ? 'preset-filled-primary-500' : 'preset-tonal-primary')}
-										aria-label={boxClosed ? m.boxes_open_box() : m.boxes_close_box()}
-										aria-pressed={boxClosed}
-										onclick={toggleClosed}
-										>{#if boxClosed}<Package />{:else}<PackageOpen />{/if}</Button.Root
-									>
-								{/snippet}
-							</Tooltip>
-							<Slider
-								class="min-w-0 flex-1 py-1"
-								value={lidClosedT}
-								min={0}
-								max={1}
-								step={0.01}
-								onChange={setLidClosedT}
-							/>
-						</div>
-					</li>
-				{/if}
-				<li><div class="card {controlPresetClass} inline-flex gap-2 p-2">
+			<li class="card {controlPresetClass} flex w-56 flex-col gap-1 p-2 text-sm">
+				<label class="flex items-center justify-between gap-2">
+					<span>{m.boxes_tuning_box_colour()}</span>
+					<input
+						type="color"
+						class="h-6 w-10 cursor-pointer rounded"
+						aria-label={m.boxes_tuning_box_colour()}
+						title={m.export_render_tuning_hint()}
+						value={prefs.boxRenderColor}
+						oninput={(e) => setPreference('boxRenderColor', e.currentTarget.value)}
+					/>
+				</label>
+			</li>
+			{#if built}
+				<li class="card {controlPresetClass} flex w-56 flex-col gap-1 p-2 text-sm">
+					<span class="flex justify-between" title={m.boxes_lid_position_hint()}>
+						<span>{m.boxes_hinge_position()}</span>
+						<span class="text-surface-600-400 tabular-nums">{Math.round(lidClosedT * 100)}%</span>
+					</span>
+					<div class="flex items-center gap-2">
+						<Tooltip content={boxClosed ? m.boxes_open_box() : m.boxes_close_box()} side="right">
+							{#snippet children(props)}
+								<Button.Root
+									{...props}
+									class={'btn-icon shrink-0 ' +
+										(boxClosed ? 'preset-filled-primary-500' : 'preset-tonal-primary')}
+									aria-label={boxClosed ? m.boxes_open_box() : m.boxes_close_box()}
+									aria-pressed={boxClosed}
+									onclick={toggleClosed}
+									>{#if boxClosed}<Package />{:else}<PackageOpen />{/if}</Button.Root
+								>
+							{/snippet}
+						</Tooltip>
+						<Slider
+							class="min-w-0 flex-1 py-1"
+							value={lidClosedT}
+							min={0}
+							max={1}
+							step={0.01}
+							onChange={setLidClosedT}
+						/>
+					</div>
+				</li>
+			{/if}
+			<li>
+				<div class="card {controlPresetClass} inline-flex gap-2 p-2">
 					<Tooltip content={m.controls_toggle_fancy_render()} side="right">
 						{#snippet children(props)}
 							<Button.Root
 								{...props}
-								class={'btn-icon ' + (fancy ? 'preset-filled-secondary-500' : 'preset-filled-primary-500')}
+								class={'btn-icon ' +
+									(fancy ? 'preset-filled-secondary-500' : 'preset-filled-primary-500')}
 								aria-label={m.controls_toggle_fancy_render()}
 								aria-pressed={fancy}
 								onclick={toggleFancy}><Sparkles /></Button.Root
@@ -913,44 +1184,79 @@
 							{/snippet}
 						</Tooltip>
 					{/if}
-				</div></li>
-				{#if building}
-					<li>
-						<BoxProgressDie
-							progress={buildProgress}
-							showDevTools={devMode}
-							complete={buildFinished}
-							bind:decoupled={progressDecoupled}
-							bind:atFinalFace
-						/>
-					</li>
-				{/if}
-			</ul>
-		</Scene>
+				</div>
+			</li>
+			{#if building}
+				<li>
+					<BoxProgressDie
+						progress={buildProgress}
+						showDevTools={devMode}
+						complete={buildFinished}
+						bind:decoupled={progressDecoupled}
+						bind:atFinalFace
+					/>
+				</li>
+			{/if}
+		</ul>
+	</Scene>
 
-		<div class="card preset-tonal-surface flex w-80 shrink-0 flex-col gap-3 overflow-y-auto p-4">
-			<a class="btn preset-tonal-surface self-start" href="/boxes">{m.boxes_back_to_sets()}</a>
+	<div class="card preset-tonal-surface flex w-80 shrink-0 flex-col gap-3 overflow-y-auto p-4">
+		<div class="flex items-center justify-between gap-2">
+			<a class="btn preset-tonal-surface" href="/boxes">{m.boxes_back_to_boxes()}</a>
 			{#if config}
-				{#if built && !built.closure.ok}
-					<p class="text-warning-500 text-sm">{m.boxes_closure_warning()}</p>
-				{/if}
-				{#snippet sliderRow(
+				{@const boxConfig = config}
+				<Tooltip content={m.boxes_delete_button()} side="bottom">
+					{#snippet children(tipProps)}
+						<DeleteBoxDialog
+							boxId={boxConfig.id}
+							boxName={boxConfig.name || setData?.name || ''}
+							beforeDelete={prepareToDeleteBox}
+							onDeleted={() => goto('/boxes')}
+						>
+							{#snippet trigger(dialogProps)}
+								{@const merged = mergeTriggerProps(dialogProps, tipProps)}
+								<button
+									{...merged}
+									type="button"
+									class="btn-icon preset-filled-error-500 shrink-0"
+									aria-label={m.boxes_delete_button()}
+								>
+									<X class="size-4" />
+								</button>
+							{/snippet}
+						</DeleteBoxDialog>
+					{/snippet}
+				</Tooltip>
+			{/if}
+		</div>
+		{#if config}
+			<label class="label">
+				<span class="label-text">{m.boxes_name()}</span>
+				<input class="input" type="text" bind:value={config.name} oninput={() => persistName()} />
+			</label>
+			{#if setData}
+				<p class="text-surface-600-400 text-sm">{m.boxes_from_set({ name: setData.name })}</p>
+			{/if}
+			{#if built && !built.closure.ok}
+				<p class="text-warning-500 text-sm">{m.boxes_closure_warning()}</p>
+			{/if}
+			{#snippet sliderRow(
 					label: string,
 					value: number,
 					bounds: ParamSliderBounds,
 					set: (v: number) => void,
 					unit = m.boxes_unit_mm()
 				)}
-					<div class="flex flex-col">
-						<span class="flex justify-between text-sm">
-							<span>{label}</span>
-							<span>{value}{unit ? ' ' + unit : ''}</span>
-						</span>
-						<Slider class="py-1" {value} {...bounds} onChange={set} />
-					</div>
-				{/snippet}
+				<div class="flex flex-col">
+					<span class="flex justify-between text-sm">
+						<span>{label}</span>
+						<span>{value}{unit ? ' ' + unit : ''}</span>
+					</span>
+					<Slider class="py-1" {value} {...bounds} onChange={set} />
+				</div>
+			{/snippet}
 
-				{#snippet tuneRow(
+			{#snippet tuneRow(
 					label: string,
 					value: number,
 					min: number,
@@ -958,404 +1264,398 @@
 					step: number,
 					set: (v: number) => void
 				)}
-					<div class="flex flex-col">
-						<span class="flex justify-between text-xs">
-							<span>{label}</span>
-							<span>{value.toFixed(2)}</span>
-						</span>
-						<Slider class="py-1" {value} {min} {max} {step} onChange={set} />
-					</div>
-				{/snippet}
+				<div class="flex flex-col">
+					<span class="flex justify-between text-xs">
+						<span>{label}</span>
+						<span>{value.toFixed(2)}</span>
+					</span>
+					<Slider class="py-1" {value} {min} {max} {step} onChange={set} />
+				</div>
+			{/snippet}
 
-				<p class="text-surface-600-400 text-xs">
-					{m.boxes_outer_size({ x: outerSize.x.toFixed(1), y: outerSize.y.toFixed(1) })}
-				</p>
-				{#if buildError}
-					<p class="text-error-500 text-xs" role="alert">{buildError}</p>
-				{/if}
-				<p class="text-surface-600-400 text-xs">{m.boxes_seam_hint()}</p>
-
-				<Collapsible title={m.boxes_section_dimensions()}>
-					<div class="flex flex-col gap-2 pt-2">
-						{@render sliderRow(m.boxes_wall(), config.params.wall, BOX_PARAM_SLIDER_BOUNDS.wall, (v) =>
-							setParam('wall', v)
-						)}
-						{@render sliderRow(
-							m.boxes_floor(),
-							config.params.floor,
-							BOX_PARAM_SLIDER_BOUNDS.floor,
-							(v) => setParam('floor', v)
-						)}
-						{@render sliderRow(
-							m.boxes_chamfer(),
-							config.params.chamfer,
-							BOX_PARAM_SLIDER_BOUNDS.chamfer,
-							(v) => setParam('chamfer', v)
-						)}
-						<p class="text-surface-600-400 text-xs">{m.boxes_chamfer_hint()}</p>
-						{@render sliderRow(
-							m.boxes_bevel(),
-							config.params.bevel,
-							BOX_PARAM_SLIDER_BOUNDS.bevel,
-							(v) => setParam('bevel', v)
-						)}
-						<p class="text-surface-600-400 text-xs">{m.boxes_bevel_hint()}</p>
-						{@render sliderRow(
-							m.boxes_tray_depth_base(),
-							config.params.trayDepthBase,
-							BOX_PARAM_SLIDER_BOUNDS.trayDepthBase,
-							(v) => setParam('trayDepthBase', v)
-						)}
-						{@render sliderRow(
-							m.boxes_tray_depth_lid(),
-							config.params.trayDepthLid,
-							BOX_PARAM_SLIDER_BOUNDS.trayDepthLid,
-							(v) => setParam('trayDepthLid', v)
-						)}
-						<p class="text-surface-600-400 text-xs">{m.boxes_tray_depth_hint()}</p>
-					</div>
-				</Collapsible>
-
-				<Collapsible title={m.boxes_section_cavities()}>
-					<div class="flex flex-col gap-2 pt-2">
-						{@render sliderRow(
-							m.boxes_cavity_tolerance(),
-							config.params.cavityTolerance,
-							BOX_PARAM_SLIDER_BOUNDS.cavityTolerance,
-							(v) => setParam('cavityTolerance', v)
-						)}
-						{@render sliderRow(
-							m.boxes_cavity_bevel(),
-							config.params.cavityBevel,
-							BOX_PARAM_SLIDER_BOUNDS.cavityBevel,
-							(v) => setParam('cavityBevel', v)
-						)}
-						<p class="text-surface-600-400 text-xs">{m.boxes_cavity_bevel_hint()}</p>
-					</div>
-				</Collapsible>
-
-				<Collapsible title={m.boxes_section_magnets()}>
-					<div class="flex flex-col gap-2 pt-2">
-						<p class="text-surface-600-400 text-xs">{m.boxes_magnets_hint()}</p>
-						<label class="flex items-center justify-between gap-2 text-sm">
-							<span>{m.boxes_magnets_enabled()}</span>
-							<input
-								type="checkbox"
-								class="checkbox"
-								checked={config.params.magnets.enabled}
-								onchange={(e) => setMagnet('enabled', e.currentTarget.checked)}
-							/>
-						</label>
-						{#if config.params.magnets.enabled}
-							<div class="flex flex-col">
-								<span class="flex justify-between text-sm">
-									<span>{m.boxes_magnet_count()}</span>
-									<span>{config.params.magnets.count}</span>
-								</span>
-								<Slider
-									class="py-1"
-									value={config.params.magnets.count}
-									{...BOX_PARAM_SLIDER_BOUNDS.magnets.count}
-									onChange={(v) => setMagnet('count', v)}
-								/>
-							</div>
-							<div class="flex flex-col gap-1">
-								<span class="text-sm">{m.boxes_magnet_mode()}</span>
-								<div class="flex gap-2">
-									<label class="flex items-center gap-1 text-sm">
-										<input
-											type="radio"
-											class="radio"
-											checked={config.params.magnets.mode === 'pushin'}
-											onchange={() => setMagnet('mode', 'pushin')}
-										/>
-										<span>{m.boxes_magnet_pushin()}</span>
-									</label>
-									<label class="flex items-center gap-1 text-sm">
-										<input
-											type="radio"
-											class="radio"
-											checked={config.params.magnets.mode === 'printin'}
-											onchange={() => setMagnet('mode', 'printin')}
-										/>
-										<span>{m.boxes_magnet_printin()}</span>
-									</label>
-								</div>
-							</div>
-							{@render sliderRow(
-								m.boxes_magnet_diameter(),
-								config.params.magnets.diameter,
-								BOX_PARAM_SLIDER_BOUNDS.magnets.diameter,
-								(v) => setMagnet('diameter', v)
-							)}
-							{@render sliderRow(
-								m.boxes_magnet_thickness(),
-								config.params.magnets.thickness,
-								BOX_PARAM_SLIDER_BOUNDS.magnets.thickness,
-								(v) => setMagnet('thickness', v)
-							)}
-							{@render sliderRow(
-								m.boxes_magnet_tolerance(),
-								config.params.magnets.tolerance,
-								BOX_PARAM_SLIDER_BOUNDS.magnets.tolerance,
-								(v) => setMagnet('tolerance', v)
-							)}
-							{#if config.params.magnets.mode === 'printin'}
-								{@render sliderRow(
-									m.boxes_magnet_cover(),
-									config.params.magnets.cover,
-									BOX_PARAM_SLIDER_BOUNDS.magnets.cover,
-									(v) => setMagnet('cover', v)
-								)}
-							{/if}
-						{/if}
-
-						<label class="flex items-center justify-between gap-2 text-sm">
-							<span>{m.boxes_hinge_enabled()}</span>
-							<input
-								type="checkbox"
-								class="checkbox"
-								checked={config.params.hinge.enabled}
-								onchange={(e) => setHinge(e.currentTarget.checked)}
-							/>
-						</label>
-						<p class="text-surface-600-400 text-xs">{m.boxes_hinge_hint()}</p>
-						{#if devMode && config.params.hinge.enabled}
-							<p class="text-surface-600-400 text-xs font-semibold">{m.boxes_hinge_dev_title()}</p>
-							{@render sliderRow(
-								m.boxes_hinge_pin_radius(),
-								config.params.hinge.pinRadius,
-								BOX_PARAM_SLIDER_BOUNDS.hinge.pinRadius,
-								(v) => setHingeParam('pinRadius', v)
-							)}
-							{@render sliderRow(
-								m.boxes_hinge_barrel_radius(),
-								config.params.hinge.barrelRadius,
-								BOX_PARAM_SLIDER_BOUNDS.hinge.barrelRadius,
-								(v) => setHingeParam('barrelRadius', v)
-							)}
-							{@render sliderRow(
-								m.boxes_hinge_clearance(),
-								config.params.hinge.clearance,
-								BOX_PARAM_SLIDER_BOUNDS.hinge.clearance,
-								(v) => setHingeParam('clearance', v)
-							)}
-							{@render sliderRow(
-								m.boxes_hinge_knuckles(),
-								config.params.hinge.knuckles,
-								BOX_PARAM_SLIDER_BOUNDS.hinge.knuckles,
-								(v) => setHingeParam('knuckles', v),
-								''
-							)}
-							{@render sliderRow(
-								m.boxes_hinge_knuckle_width(),
-								config.params.hinge.knuckleWidth,
-								BOX_PARAM_SLIDER_BOUNDS.hinge.knuckleWidth,
-								(v) => setHingeParam('knuckleWidth', v)
-							)}
-							{@render sliderRow(
-								m.boxes_hinge_indent(),
-								config.params.hinge.indent,
-								BOX_PARAM_SLIDER_BOUNDS.hinge.indent,
-								(v) => setHingeParam('indent', v)
-							)}
-						{/if}
-					</div>
-				</Collapsible>
-
-				<Collapsible title={m.boxes_section_dice()}>
-					<div class="flex flex-col gap-2 pt-2">
-						<p class="text-surface-600-400 text-xs">
-							{m.boxes_dice_summary({
-								included: orderedPlacements.filter((p) => p.include).length,
-								total: orderedPlacements.length
-							})}
-						</p>
-						<button
-							class="btn preset-tonal-primary mt-1"
-							disabled={orderedPlacements.length === 0 || layoutLoading}
-							onclick={openLayout}
-						>
-							<LayoutGrid class="size-4" />
-							<span>{layoutLoading ? m.boxes_layout_loading() : m.boxes_layout_edit()}</span>
-						</button>
-					</div>
-				</Collapsible>
-
-				<Collapsible title={m.boxes_section_export()}>
-					<div class="flex flex-col gap-2 pt-2">
-						<label class="flex flex-col gap-1">
-							<span class="text-sm">{m.export_format()}</span>
-							<select class="select" bind:value={format}>
-								<option value="stl">STL</option>
-								<option value="3mf">3MF</option>
-							</select>
-						</label>
-						{#if built?.hinge}
-							<p class="text-surface-600-400 text-xs">{m.boxes_hinge_export_note()}</p>
-						{:else}
-							<label class="flex items-center gap-2 text-sm">
-								<input type="radio" class="radio" value="zip" bind:group={fileLayout} />
-								<span>{m.boxes_export_zip()}</span>
-							</label>
-							<label class="flex items-center gap-2 text-sm">
-								<input type="radio" class="radio" value="single" bind:group={fileLayout} />
-								<span>{m.boxes_export_single()}</span>
-							</label>
-						{/if}
-						{#if !anyIncluded}
-							<p class="text-warning-600-400 text-sm">{m.boxes_nothing()}</p>
-						{/if}
-						<button
-							class="btn preset-filled-primary-500"
-							disabled={!built || building}
-							onclick={exportBox}
-						>
-							<Download class="size-4" />
-							{m.boxes_export_button()}
-						</button>
-					</div>
-				</Collapsible>
-
-				{#if showTuning}
-					<Collapsible defaultOpen={false} title={m.export_render_tuning_title()}>
-						<div class="flex flex-col gap-2 pt-2">
-							<p class="text-surface-600-400 text-xs">{m.export_render_tuning_hint()}</p>
-							<button type="button" class="btn btn-sm preset-tonal-primary" onclick={copyTuning}>
-								<Copy class="size-4" />
-								<span>{copiedTuning ? m.boxes_tuning_copied() : m.boxes_tuning_copy()}</span>
-							</button>
-							<span class="text-sm font-semibold">{m.export_render_tuning_base_colour()}</span>
-							<label class="flex items-center justify-between text-xs">
-								<span>{m.boxes_tuning_box_colour()}</span>
-								<input type="color" class="h-6 w-10 rounded" bind:value={tune.boxColour} />
-							</label>
-							<label class="flex items-center justify-between text-xs">
-								<span>{m.boxes_tuning_die_colour()}</span>
-								<input type="color" class="h-6 w-10 rounded" bind:value={tune.dieColour} />
-							</label>
-							<span class="text-sm font-semibold">{m.export_render_tuning_material()}</span>
-							{@render tuneRow(
-								m.export_render_tuning_roughness(),
-								tune.roughness,
-								0,
-								1,
-								0.01,
-								(v) => (tune.roughness = v)
-							)}
-							{@render tuneRow(
-								m.export_render_tuning_metalness(),
-								tune.metalness,
-								0,
-								1,
-								0.01,
-								(v) => (tune.metalness = v)
-							)}
-							{@render tuneRow(
-								m.export_render_tuning_clearcoat(),
-								tune.clearcoat,
-								0,
-								1,
-								0.01,
-								(v) => (tune.clearcoat = v)
-							)}
-							{@render tuneRow(
-								m.export_render_tuning_clearcoat_rough(),
-								tune.clearcoatRoughness,
-								0,
-								1,
-								0.01,
-								(v) => (tune.clearcoatRoughness = v)
-							)}
-							{@render tuneRow(
-								m.export_render_tuning_env_intensity(),
-								tune.envMapIntensity,
-								0,
-								3,
-								0.05,
-								(v) => (tune.envMapIntensity = v)
-							)}
-							{@render tuneRow(
-								m.export_render_tuning_exposure(),
-								tune.exposure,
-								0,
-								3,
-								0.05,
-								(v) => (tune.exposure = v)
-							)}
-							<span class="text-sm font-semibold">{m.export_render_tuning_lighting()}</span>
-							{@render tuneRow(
-								m.export_render_tuning_key_light(),
-								tune.lightIntensity,
-								0,
-								12,
-								0.1,
-								(v) => (tune.lightIntensity = v)
-							)}
-							{@render tuneRow(
-								m.export_render_tuning_key_light_2(),
-								tune.lightIntensity2,
-								0,
-								12,
-								0.1,
-								(v) => (tune.lightIntensity2 = v)
-							)}
-							{@render tuneRow(
-								m.export_render_tuning_fill(),
-								tune.fillIntensity,
-								0,
-								5,
-								0.05,
-								(v) => (tune.fillIntensity = v)
-							)}
-							<span class="text-sm font-semibold">{m.export_render_tuning_ao()}</span>
-							{@render tuneRow(
-								m.export_render_tuning_ao_radius(),
-								tune.aoRadius,
-								0,
-								10,
-								0.1,
-								(v) => (tune.aoRadius = v)
-							)}
-							{@render tuneRow(
-								m.export_render_tuning_ao_scale(),
-								tune.aoScale,
-								0,
-								3,
-								0.05,
-								(v) => (tune.aoScale = v)
-							)}
-							{@render tuneRow(
-								m.export_render_tuning_ao_thickness(),
-								tune.aoThickness,
-								0,
-								3,
-								0.05,
-								(v) => (tune.aoThickness = v)
-							)}
-							{@render tuneRow(
-								m.export_render_tuning_ao_dist_exp(),
-								tune.aoDistanceExponent,
-								0.1,
-								4,
-								0.05,
-								(v) => (tune.aoDistanceExponent = v)
-							)}
-						</div>
-					</Collapsible>
-				{/if}
+			<p class="text-surface-600-400 text-xs">
+				{m.boxes_outer_size({ x: outerSize.x.toFixed(1), y: outerSize.y.toFixed(1) })}
+			</p>
+			{#if buildError}
+				<p class="text-error-500 text-xs" role="alert">{buildError}</p>
 			{/if}
-		</div>
-	</div>
+			<p class="text-surface-600-400 text-xs">{m.boxes_seam_hint()}</p>
 
-	{#if config}
-		<LayoutEditor
-			open={layoutOpen}
-			initialItems={editorItems}
-			initialBox={editorBox}
-			params={config.params}
-			{dieLabel}
-			onApply={applyLayout}
-			onClose={() => (layoutOpen = false)}
-		/>
-	{/if}
+			<Collapsible title={m.boxes_section_dimensions()}>
+				<div class="flex flex-col gap-2 pt-2">
+					{@render sliderRow(
+						m.boxes_wall(),
+						config.params.wall,
+						BOX_PARAM_SLIDER_BOUNDS.wall,
+						(v) => setParam('wall', v)
+					)}
+					{@render sliderRow(
+						m.boxes_floor(),
+						config.params.floor,
+						BOX_PARAM_SLIDER_BOUNDS.floor,
+						(v) => setParam('floor', v)
+					)}
+					{@render sliderRow(
+						m.boxes_chamfer(),
+						config.params.chamfer,
+						BOX_PARAM_SLIDER_BOUNDS.chamfer,
+						(v) => setParam('chamfer', v)
+					)}
+					<p class="text-surface-600-400 text-xs">{m.boxes_chamfer_hint()}</p>
+					{@render sliderRow(
+						m.boxes_bevel(),
+						config.params.bevel,
+						BOX_PARAM_SLIDER_BOUNDS.bevel,
+						(v) => setParam('bevel', v)
+					)}
+					<p class="text-surface-600-400 text-xs">{m.boxes_bevel_hint()}</p>
+					{@render sliderRow(
+						m.boxes_tray_depth_base(),
+						config.params.trayDepthBase,
+						BOX_PARAM_SLIDER_BOUNDS.trayDepthBase,
+						(v) => setParam('trayDepthBase', v)
+					)}
+					{@render sliderRow(
+						m.boxes_tray_depth_lid(),
+						config.params.trayDepthLid,
+						BOX_PARAM_SLIDER_BOUNDS.trayDepthLid,
+						(v) => setParam('trayDepthLid', v)
+					)}
+					<p class="text-surface-600-400 text-xs">{m.boxes_tray_depth_hint()}</p>
+				</div>
+			</Collapsible>
+
+			<Collapsible title={m.boxes_section_cavities()}>
+				<div class="flex flex-col gap-2 pt-2">
+					{@render sliderRow(
+						m.boxes_cavity_tolerance(),
+						config.params.cavityTolerance,
+						BOX_PARAM_SLIDER_BOUNDS.cavityTolerance,
+						(v) => setParam('cavityTolerance', v)
+					)}
+					{@render sliderRow(
+						m.boxes_cavity_bevel(),
+						config.params.cavityBevel,
+						BOX_PARAM_SLIDER_BOUNDS.cavityBevel,
+						(v) => setParam('cavityBevel', v)
+					)}
+					<p class="text-surface-600-400 text-xs">{m.boxes_cavity_bevel_hint()}</p>
+				</div>
+			</Collapsible>
+
+			<Collapsible title={m.boxes_section_magnets()}>
+				<div class="flex flex-col gap-2 pt-2">
+					<p class="text-surface-600-400 text-xs">{m.boxes_magnets_hint()}</p>
+					<label class="flex items-center justify-between gap-2 text-sm">
+						<span>{m.boxes_magnets_enabled()}</span>
+						<input
+							type="checkbox"
+							class="checkbox"
+							checked={config.params.magnets.enabled}
+							onchange={(e) => setMagnet('enabled', e.currentTarget.checked)}
+						/>
+					</label>
+					{#if config.params.magnets.enabled}
+						<div class="flex flex-col">
+							<span class="flex justify-between text-sm">
+								<span>{m.boxes_magnet_count()}</span>
+								<span>{config.params.magnets.count}</span>
+							</span>
+							<Slider
+								class="py-1"
+								value={config.params.magnets.count}
+								{...BOX_PARAM_SLIDER_BOUNDS.magnets.count}
+								onChange={(v) => setMagnet('count', v)}
+							/>
+						</div>
+						<div class="flex flex-col gap-1">
+							<span class="text-sm">{m.boxes_magnet_mode()}</span>
+							<div class="flex gap-2">
+								<label class="flex items-center gap-1 text-sm">
+									<input
+										type="radio"
+										class="radio"
+										checked={config.params.magnets.mode === 'pushin'}
+										onchange={() => setMagnet('mode', 'pushin')}
+									/>
+									<span>{m.boxes_magnet_pushin()}</span>
+								</label>
+								<label class="flex items-center gap-1 text-sm">
+									<input
+										type="radio"
+										class="radio"
+										checked={config.params.magnets.mode === 'printin'}
+										onchange={() => setMagnet('mode', 'printin')}
+									/>
+									<span>{m.boxes_magnet_printin()}</span>
+								</label>
+							</div>
+						</div>
+						{@render sliderRow(
+							m.boxes_magnet_diameter(),
+							config.params.magnets.diameter,
+							BOX_PARAM_SLIDER_BOUNDS.magnets.diameter,
+							(v) => setMagnet('diameter', v)
+						)}
+						{@render sliderRow(
+							m.boxes_magnet_thickness(),
+							config.params.magnets.thickness,
+							BOX_PARAM_SLIDER_BOUNDS.magnets.thickness,
+							(v) => setMagnet('thickness', v)
+						)}
+						{@render sliderRow(
+							m.boxes_magnet_tolerance(),
+							config.params.magnets.tolerance,
+							BOX_PARAM_SLIDER_BOUNDS.magnets.tolerance,
+							(v) => setMagnet('tolerance', v)
+						)}
+						{#if config.params.magnets.mode === 'printin'}
+							{@render sliderRow(
+								m.boxes_magnet_cover(),
+								config.params.magnets.cover,
+								BOX_PARAM_SLIDER_BOUNDS.magnets.cover,
+								(v) => setMagnet('cover', v)
+							)}
+						{/if}
+					{/if}
+
+					<label class="flex items-center justify-between gap-2 text-sm">
+						<span>{m.boxes_hinge_enabled()}</span>
+						<input
+							type="checkbox"
+							class="checkbox"
+							checked={config.params.hinge.enabled}
+							onchange={(e) => setHinge(e.currentTarget.checked)}
+						/>
+					</label>
+					<p class="text-surface-600-400 text-xs">{m.boxes_hinge_hint()}</p>
+					{#if devMode && config.params.hinge.enabled}
+						<p class="text-surface-600-400 text-xs font-semibold">{m.boxes_hinge_dev_title()}</p>
+						{@render sliderRow(
+							m.boxes_hinge_pin_radius(),
+							config.params.hinge.pinRadius,
+							BOX_PARAM_SLIDER_BOUNDS.hinge.pinRadius,
+							(v) => setHingeParam('pinRadius', v)
+						)}
+						{@render sliderRow(
+							m.boxes_hinge_barrel_radius(),
+							config.params.hinge.barrelRadius,
+							BOX_PARAM_SLIDER_BOUNDS.hinge.barrelRadius,
+							(v) => setHingeParam('barrelRadius', v)
+						)}
+						{@render sliderRow(
+							m.boxes_hinge_clearance(),
+							config.params.hinge.clearance,
+							BOX_PARAM_SLIDER_BOUNDS.hinge.clearance,
+							(v) => setHingeParam('clearance', v)
+						)}
+						{@render sliderRow(
+							m.boxes_hinge_knuckles(),
+							config.params.hinge.knuckles,
+							BOX_PARAM_SLIDER_BOUNDS.hinge.knuckles,
+							(v) => setHingeParam('knuckles', v),
+							''
+						)}
+						{@render sliderRow(
+							m.boxes_hinge_knuckle_width(),
+							config.params.hinge.knuckleWidth,
+							BOX_PARAM_SLIDER_BOUNDS.hinge.knuckleWidth,
+							(v) => setHingeParam('knuckleWidth', v)
+						)}
+						{@render sliderRow(
+							m.boxes_hinge_indent(),
+							config.params.hinge.indent,
+							BOX_PARAM_SLIDER_BOUNDS.hinge.indent,
+							(v) => setHingeParam('indent', v)
+						)}
+					{/if}
+				</div>
+			</Collapsible>
+
+			<Collapsible title={m.boxes_section_dice()}>
+				<div class="flex flex-col gap-2 pt-2">
+					<p class="text-surface-600-400 text-xs">
+						{m.boxes_dice_summary({
+							included: orderedPlacements.filter((p) => p.include).length,
+							total: orderedPlacements.length
+						})}
+					</p>
+					<button
+						class="btn preset-tonal-primary mt-1"
+						disabled={orderedPlacements.length === 0 || layoutLoading}
+						onclick={openLayout}
+					>
+						<LayoutGrid class="size-4" />
+						<span>{layoutLoading ? m.boxes_layout_loading() : m.boxes_layout_edit()}</span>
+					</button>
+				</div>
+			</Collapsible>
+
+			<Collapsible title={m.boxes_section_export()}>
+				<div class="flex flex-col gap-2 pt-2">
+					<label class="flex flex-col gap-1">
+						<span class="text-sm">{m.export_format()}</span>
+						<select class="select" bind:value={format}>
+							<option value="stl">STL</option>
+							<option value="3mf">3MF</option>
+						</select>
+					</label>
+					{#if built?.hinge}
+						<p class="text-surface-600-400 text-xs">{m.boxes_hinge_export_note()}</p>
+					{:else}
+						<label class="flex items-center gap-2 text-sm">
+							<input type="radio" class="radio" value="zip" bind:group={fileLayout} />
+							<span>{m.boxes_export_zip()}</span>
+						</label>
+						<label class="flex items-center gap-2 text-sm">
+							<input type="radio" class="radio" value="single" bind:group={fileLayout} />
+							<span>{m.boxes_export_single()}</span>
+						</label>
+					{/if}
+					{#if !anyIncluded}
+						<p class="text-warning-600-400 text-sm">{m.boxes_nothing()}</p>
+					{/if}
+					<button
+						class="btn preset-filled-primary-500"
+						disabled={!built || building}
+						onclick={exportBox}
+					>
+						<Download class="size-4" />
+						{m.boxes_export_button()}
+					</button>
+				</div>
+			</Collapsible>
+
+			{#if showTuning}
+				<Collapsible defaultOpen={false} title={m.export_render_tuning_title()}>
+					<div class="flex flex-col gap-2 pt-2">
+						<p class="text-surface-600-400 text-xs">{m.export_render_tuning_hint()}</p>
+						<button type="button" class="btn btn-sm preset-tonal-primary" onclick={copyTuning}>
+							<Copy class="size-4" />
+							<span>{copiedTuning ? m.boxes_tuning_copied() : m.boxes_tuning_copy()}</span>
+						</button>
+						<span class="text-sm font-semibold">{m.export_render_tuning_material()}</span>
+						{@render tuneRow(
+							m.export_render_tuning_roughness(),
+							tune.roughness,
+							0,
+							1,
+							0.01,
+							(v) => (tune.roughness = v)
+						)}
+						{@render tuneRow(
+							m.export_render_tuning_metalness(),
+							tune.metalness,
+							0,
+							1,
+							0.01,
+							(v) => (tune.metalness = v)
+						)}
+						{@render tuneRow(
+							m.export_render_tuning_clearcoat(),
+							tune.clearcoat,
+							0,
+							1,
+							0.01,
+							(v) => (tune.clearcoat = v)
+						)}
+						{@render tuneRow(
+							m.export_render_tuning_clearcoat_rough(),
+							tune.clearcoatRoughness,
+							0,
+							1,
+							0.01,
+							(v) => (tune.clearcoatRoughness = v)
+						)}
+						{@render tuneRow(
+							m.export_render_tuning_env_intensity(),
+							tune.envMapIntensity,
+							0,
+							3,
+							0.05,
+							(v) => (tune.envMapIntensity = v)
+						)}
+						{@render tuneRow(
+							m.export_render_tuning_exposure(),
+							tune.exposure,
+							0,
+							3,
+							0.05,
+							(v) => (tune.exposure = v)
+						)}
+						<span class="text-sm font-semibold">{m.export_render_tuning_lighting()}</span>
+						{@render tuneRow(
+							m.export_render_tuning_key_light(),
+							tune.lightIntensity,
+							0,
+							12,
+							0.1,
+							(v) => (tune.lightIntensity = v)
+						)}
+						{@render tuneRow(
+							m.export_render_tuning_key_light_2(),
+							tune.lightIntensity2,
+							0,
+							12,
+							0.1,
+							(v) => (tune.lightIntensity2 = v)
+						)}
+						{@render tuneRow(
+							m.export_render_tuning_fill(),
+							tune.fillIntensity,
+							0,
+							5,
+							0.05,
+							(v) => (tune.fillIntensity = v)
+						)}
+						<span class="text-sm font-semibold">{m.export_render_tuning_ao()}</span>
+						{@render tuneRow(
+							m.export_render_tuning_ao_radius(),
+							tune.aoRadius,
+							0,
+							10,
+							0.1,
+							(v) => (tune.aoRadius = v)
+						)}
+						{@render tuneRow(
+							m.export_render_tuning_ao_scale(),
+							tune.aoScale,
+							0,
+							3,
+							0.05,
+							(v) => (tune.aoScale = v)
+						)}
+						{@render tuneRow(
+							m.export_render_tuning_ao_thickness(),
+							tune.aoThickness,
+							0,
+							3,
+							0.05,
+							(v) => (tune.aoThickness = v)
+						)}
+						{@render tuneRow(
+							m.export_render_tuning_ao_dist_exp(),
+							tune.aoDistanceExponent,
+							0.1,
+							4,
+							0.05,
+							(v) => (tune.aoDistanceExponent = v)
+						)}
+					</div>
+				</Collapsible>
+			{/if}
+		{/if}
+	</div>
+</div>
+
+{#if config}
+	<LayoutEditor
+		open={layoutOpen}
+		initialItems={editorItems}
+		initialBox={editorBox}
+		params={config.params}
+		{dieLabel}
+		onApply={applyLayout}
+		onClose={() => (layoutOpen = false)}
+	/>
+{/if}

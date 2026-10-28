@@ -40,7 +40,23 @@ export type Preferences = {
 	exportArrange: 'grid' | 'plate';
 	/** Last build plate used by "fit to build plate". */
 	buildPlate: BuildPlatePreference;
+	/** sRGB hex colour of dice in the dice export preview. */
+	diceRenderColor: string;
+	/** sRGB hex colour of dice in the box preview. */
+	boxDiceRenderColor: string;
+	/** sRGB hex colour of the box shell in the box preview. */
+	boxRenderColor: string;
+	/** 0–1 opacity of dice in the box preview. */
+	diceRenderOpacity: number;
 };
+
+/** Navy-gray dice in the dice export preview. */
+export const DEFAULT_DICE_RENDER_COLOR = '#6b7a94';
+/** Off-white dice in the box preview. */
+export const DEFAULT_BOX_DICE_RENDER_COLOR = '#f4f1ea';
+/** Box-shell colour from the box preview tuning defaults. */
+export const DEFAULT_BOX_RENDER_COLOR = '#58697e';
+export const DEFAULT_DICE_RENDER_OPACITY = 0.33;
 
 export type BuildPlatePreference = {
 	/** A BUILD_PLATE_PRESETS key, or CUSTOM_PLATE_ID. */
@@ -67,11 +83,25 @@ const defaults: Preferences = {
 		x: defaultPlate.x,
 		y: defaultPlate.y,
 		opacity: 0.35
-	}
+	},
+	diceRenderColor: DEFAULT_DICE_RENDER_COLOR,
+	boxDiceRenderColor: DEFAULT_BOX_DICE_RENDER_COLOR,
+	boxRenderColor: DEFAULT_BOX_RENDER_COLOR,
+	diceRenderOpacity: DEFAULT_DICE_RENDER_OPACITY
 };
 
 // reactive singleton holding the current preferences.
 let prefs = $state<Preferences>({ ...defaults });
+
+const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
+
+function sanitizeHexColor(raw: unknown, fallback: string): string {
+	return typeof raw === 'string' && HEX_COLOR.test(raw) ? raw.toLowerCase() : fallback;
+}
+
+function sanitizeUnitInterval(raw: unknown, fallback: number): number {
+	return typeof raw === 'number' && Number.isFinite(raw) ? Math.min(1, Math.max(0, raw)) : fallback;
+}
 
 function load(): Preferences {
 	if (!browser) {
@@ -94,6 +124,16 @@ function load(): Preferences {
 		if (parsed.exportArrange !== 'grid' && parsed.exportArrange !== 'plate') {
 			merged.exportArrange = defaults.exportArrange;
 		}
+		merged.diceRenderColor = sanitizeHexColor(parsed.diceRenderColor, defaults.diceRenderColor);
+		merged.boxDiceRenderColor = sanitizeHexColor(
+			parsed.boxDiceRenderColor,
+			defaults.boxDiceRenderColor
+		);
+		merged.boxRenderColor = sanitizeHexColor(parsed.boxRenderColor, defaults.boxRenderColor);
+		merged.diceRenderOpacity = sanitizeUnitInterval(
+			parsed.diceRenderOpacity,
+			defaults.diceRenderOpacity
+		);
 		return merged;
 	} catch {
 		return { ...defaults };

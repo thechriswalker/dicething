@@ -4,7 +4,13 @@ import dice from '$lib/dice';
 import type { Dice, DiceSet } from '$lib/interfaces/storage.svelte';
 import { manifold, geometryToManifold, toFlatPositions } from '$lib/utils/manifold';
 import { checkMesh } from '$lib/utils/mesh_check';
-import { buildBox, chooseHingeClusters, isLayoutValid, magnetCorners, prepareLayout } from './box_builder';
+import {
+	buildBox,
+	chooseHingeClusters,
+	isLayoutValid,
+	magnetCorners,
+	prepareLayout
+} from './box_builder';
 import { defaultBoxParams, type BoxConfig } from './types';
 
 // build a Dice using a model's parameter defaults (no legends needed: the box
@@ -31,6 +37,8 @@ function makeSet(kinds: Array<keyof typeof dice>): DiceSet {
 
 function makeConfig(set: DiceSet, overrides: Partial<BoxConfig['params']> = {}): BoxConfig {
 	return {
+		id: 'box',
+		name: 'box',
 		setId: set.id,
 		updated: 0,
 		params: { ...defaultBoxParams(), ...overrides },
@@ -408,7 +416,11 @@ describe('box builder produces printable solids', () => {
 			hinge: boolean;
 			tray?: { trayDepthBase: number; trayDepthLid: number };
 		}> = [
-			{ label: 'mixed unhinged', kinds: ['d6_cube', 'd8_trapezohedron', 'd20_icosahedron'], hinge: false },
+			{
+				label: 'mixed unhinged',
+				kinds: ['d6_cube', 'd8_trapezohedron', 'd20_icosahedron'],
+				hinge: false
+			},
 			{
 				label: 'coin with tray',
 				kinds: ['d2_coin'],

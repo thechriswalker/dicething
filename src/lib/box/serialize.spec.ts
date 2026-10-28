@@ -35,6 +35,8 @@ function makeSet(kinds: Array<keyof typeof dice>): DiceSet {
 
 function makeConfig(set: DiceSet): BoxConfig {
 	return {
+		id: 'box',
+		name: 'box',
 		setId: set.id,
 		updated: 0,
 		params: defaultBoxParams(),

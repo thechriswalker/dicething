@@ -294,15 +294,16 @@ describe('planPlateLayout', () => {
 		expect([...platesByGroup.get('dice')!][0]).not.toBe([...platesByGroup.get('blanks')!][0]);
 	});
 
-	it('spreads one type evenly when it needs more than one plate', () => {
+	it('fills the first plate before starting another of the same type', () => {
 		const meshes = Array.from({ length: 6 }, () => box(40, 40, 'dice'));
+		// Usable area is 96×96, which holds four 40 mm squares and not five.
 		const { plan } = expectPacked(meshes, { x: 100, y: 100 }, 4, 2);
 		expect(plan.plateCount).toBe(2);
 		const counts = [0, 0];
 		for (const m of meshes) {
 			counts[plan.placements.get(m)!.plate]++;
 		}
-		expect(counts).toEqual([3, 3]);
+		expect(counts).toEqual([4, 2]);
 	});
 
 	it('packs rectangles that do not fit in simple rows', () => {

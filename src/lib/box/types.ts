@@ -1,7 +1,9 @@
-// Data model for the box builder. A BoxConfig is persisted (keyed by the dice
-// set it belongs to) and fully describes a printable carry box: the parametric
-// shell dimensions, how each die is placed/oriented, and the optional magnet /
-// hinge hardware. Geometry is produced from this by box_builder.ts.
+// Data model for the box builder. A BoxConfig is one saved box. A dice set can
+// have several (a long thin box and a short fat one, or different subsets), so
+// the box has its own id; setId is the set it was designed against. The config
+// fully describes a printable carry box: the parametric shell dimensions, how
+// each die is placed/oriented, and the optional magnet / hinge hardware.
+// Geometry is produced from this by box_builder.ts.
 //
 // The box is an EDDC-style clamshell: a base and a lid of *equal height*, each a
 // solid octagonal slab (the rectangular footprint has its four corners truncated
@@ -130,6 +132,8 @@ export type BoxParams = {
 };
 
 export type BoxConfig = {
+	id: string;
+	name: string;
 	// the dice set this box was designed for.
 	setId: string;
 	updated: number;

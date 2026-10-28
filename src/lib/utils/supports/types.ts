@@ -58,7 +58,7 @@ export const DEFAULT_SUPPORT_SETTINGS: SupportSettings = {
 	faceMinAngleDeg: 15,
 	maxHeadLeanDeg: 45,
 	postDiameterMm: 2,
-	postFinThicknessMm: 0.25
+	postFinThicknessMm: 0.18
 };
 
 /**

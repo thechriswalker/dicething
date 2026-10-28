@@ -5,10 +5,10 @@
 //      separate blocks when that still fits; otherwise they share the plate.
 //   2. Otherwise each type (dice, blanks, platforms, …) gets its own plate or
 //      plates, so a mixed export does not interleave kinds across beds.
-//   3. A type that itself does not fit on one plate is split across as few
-//      plates as possible, with the counts kept as even as the geometry allows.
+//   3. A type that itself does not fit on one plate fills each plate before
+//      the next one is started, so the first plate holds as many as will pack.
 //
-// Placement is a 2D pack of each mesh's convex XZ footprint (Y is up and is
+// Placement is a 2D pack of each mesh's convex XZ footprint (´Y is up and is
 // not moved, so every object stays on the bed). The bounding box is only a
 // fallback: a point-down die leaves the corners of that box empty, and packing
 // the boxes spills sets that nest by hand onto a second plate. Quarter-turn
@@ -21,9 +21,9 @@ import type { Manifold } from './manifold';
 import { footprintOf, packPolygons, type Pt } from './plate_pack';
 
 /** Gap between neighbouring objects, matching the grid layout (mm). */
-export const PLATE_GAP_MM = 2;
+export const PLATE_GAP_MM = 1;
 /** Inset from the plate edge so nothing sits flush with the rim (mm). */
-export const PLATE_MARGIN_MM = 2;
+export const PLATE_MARGIN_MM = 1;
 
 const EPS = 1e-3;
 
@@ -396,11 +396,11 @@ function blockPack(
 	return out;
 }
 
-// Spread `items` across the fewest plates whose counts differ as little as
-// the geometry allows. Round-robin of largest-first gives equal counts; if
-// that arrangement will not pack, items go to the lightest plate that can
-// still hold them.
-function packEven(
+// Place `items` onto as few plates as the greedy fill needs. Each plate takes
+// as many of the remaining objects as will still pack; leftovers start the
+// next plate. Count wins over a fuller-but-smaller set, so a plate of many
+// small dice is kept ahead of one that holds fewer large ones.
+function packFill(
 	items: Array<Item>,
 	binW: number,
 	binH: number,
@@ -409,59 +409,60 @@ function packEven(
 	if (items.length === 0) {
 		return [];
 	}
-	const area = items.reduce((sum, it) => sum + it.w * it.h, 0);
-	const plateArea = Math.max(EPS, binW * binH);
-	const lower = Math.max(1, Math.ceil(area / plateArea));
-
-	const byArea = [...items].sort((a, b) => b.w * b.h - a.w * a.h || a.index - b.index);
-
-	for (let k = lower; k <= items.length; k++) {
-		const roundRobin: Array<Array<Item>> = Array.from({ length: k }, () => []);
-		byArea.forEach((it, i) => roundRobin[i % k].push(it));
-		const robinPacked = roundRobin.map((bin) =>
-			packTight(
-				[...bin].sort((a, b) => a.index - b.index),
-				binW,
-				binH,
-				gap,
-				true
-			)
-		);
-		if (robinPacked.every((p): p is Array<RectPlacement> => p !== null)) {
-			return robinPacked;
+	let rest = [...items];
+	const bins: Array<Array<RectPlacement>> = [];
+	while (rest.length > 0) {
+		const placed = fillPlate(rest, binW, binH, gap);
+		if (!placed || placed.length === 0) {
+			return null;
 		}
+		bins.push(placed);
+		const used = new Set(placed.map((p) => p.index));
+		rest = rest.filter((it) => !used.has(it.index));
+	}
+	return bins;
+}
 
-		const bins: Array<Array<Item>> = Array.from({ length: k }, () => []);
-		const binArea = new Array<number>(k).fill(0);
-		let ok = true;
-		for (const it of byArea) {
-			const order = bins
-				.map((_, i) => i)
-				.sort((a, b) => binArea[a] - binArea[b] || bins[a].length - bins[b].length || a - b);
-			let placed = false;
-			for (const i of order) {
-				const trial = [...bins[i], it].sort((a, b) => a.index - b.index);
-				if (packTight(trial, binW, binH, gap, true)) {
-					bins[i] = trial;
-					binArea[i] += it.w * it.h;
-					placed = true;
-					break;
-				}
-			}
-			if (!placed) {
-				ok = false;
-				break;
+function fillPlate(
+	items: Array<Item>,
+	binW: number,
+	binH: number,
+	gap: number
+): Array<RectPlacement> | null {
+	const byArea = (dir: number) =>
+		[...items].sort((a, b) => dir * (b.w * b.h - a.w * a.h) || a.index - b.index);
+	// Set order, largest first, then smallest first. The last of those is what
+	// finds a higher count when a big piece would block several smaller ones.
+	const orders = [items, byArea(1), byArea(-1)];
+	let best: Array<RectPlacement> | null = null;
+	let bestArea = -1;
+	for (const order of orders) {
+		let chosen: Array<Item> = [];
+		let packed: Array<RectPlacement> | null = null;
+		for (const it of order) {
+			const trial = packTight([...chosen, it], binW, binH, gap, true);
+			if (trial) {
+				chosen = [...chosen, it];
+				packed = trial;
 			}
 		}
-		if (!ok) {
+		if (!packed) {
 			continue;
 		}
-		const packed = bins.map((bin) => packTight(bin, binW, binH, gap, true));
-		if (packed.every((p): p is Array<RectPlacement> => p !== null)) {
+		const area = packed.reduce((sum, r) => sum + r.w * r.h, 0);
+		if (
+			!best ||
+			packed.length > best.length ||
+			(packed.length === best.length && area > bestArea + EPS)
+		) {
+			best = packed;
+			bestArea = area;
+		}
+		if (packed.length === items.length) {
 			return packed;
 		}
 	}
-	return null;
+	return best;
 }
 
 function centerOnPlate(
@@ -600,7 +601,7 @@ export function planPlateLayout(
 		plateCount = fitting.length > 0 ? 1 : 0;
 	} else {
 		for (const group of groups) {
-			const bins = packEven(group, usableW, usableH, gap);
+			const bins = packFill(group, usableW, usableH, gap);
 			if (!bins) {
 				overflow.push(...group);
 				continue;

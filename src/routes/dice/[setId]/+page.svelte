@@ -82,6 +82,7 @@
 	import { download, exportSetJson } from '$lib/utils/export';
 	import { dieDisplayName } from '$lib/utils/die_display_name';
 	import { resolvePickerSelection } from '$lib/utils/die_migrate';
+	import { closestRectIndex, moveItem, reorderSlot, type RectLike } from '$lib/utils/reorder';
 	import { event } from '$lib/utils/use_event';
 	import {
 		TriangleAlert,
@@ -139,7 +140,7 @@
 	type PageLoadState = 'loading' | 'ready' | 'missing';
 	let pageLoad = $state<PageLoadState>('loading');
 
-	// per-session undo/redo of the dice state (params, face params, add/remove).
+	// per-session undo/redo of the dice state (params, face params, order, add/remove).
 	const history = createHistory(250);
 
 	function gotoDie(id: string) {
@@ -317,6 +318,272 @@
 		save(setData);
 		gotoDie(copy.id);
 	};
+
+	// Reorder the set's dice array from the thumbnail strip. A short press still
+	// opens the die; movement past the threshold becomes a drag that commits on
+	// drop. The dragged thumbnail leaves the flow (a copy follows the pointer)
+	// and a ghost slot takes its landing place so the other dice shift aside.
+	// Slot hit-testing uses unscaled layout boxes: the hover grow is a transform,
+	// and getBoundingClientRect would otherwise pull the drop target toward it.
+	const REORDER_THRESHOLD_PX = 8;
+	type DieDrag = {
+		id: string;
+		pointerId: number;
+		target: number;
+		x: number;
+		y: number;
+		preview: string;
+	};
+	let dieStripEl = $state<HTMLDivElement>();
+	let floaterEl = $state<HTMLDivElement>();
+	// Plain source of truth for the gesture. The $state mirror below is only for
+	// the template; reading it back in the same pointer event can still be stale.
+	let activeDieDrag: DieDrag | null = null;
+	let reorderDrag = $state<DieDrag | null>(null);
+	let pendingDieDrag: {
+		id: string;
+		pointerId: number;
+		startX: number;
+		startY: number;
+	} | null = null;
+	let swallowNextDieClick = false;
+
+	function dieStripRects(strip: HTMLElement): Array<RectLike> {
+		const origin = strip.getBoundingClientRect();
+		const tiles = strip.querySelectorAll<HTMLElement>('[data-die-id]');
+		return [...tiles].map((tile) => {
+			const visual = tile.getBoundingClientRect();
+			const left =
+				visual.left + (visual.width - tile.offsetWidth) / 2 - origin.left + strip.scrollLeft;
+			const top =
+				visual.top + (visual.height - tile.offsetHeight) / 2 - origin.top + strip.scrollTop;
+			return {
+				left,
+				top,
+				right: left + tile.offsetWidth,
+				bottom: top + tile.offsetHeight
+			};
+		});
+	}
+
+	function pointerInStrip(strip: HTMLElement, e: PointerEvent): { x: number; y: number } {
+		const bounds = strip.getBoundingClientRect();
+		return {
+			x: e.clientX - bounds.left + strip.scrollLeft,
+			y: e.clientY - bounds.top + strip.scrollTop
+		};
+	}
+
+	// Visual slot under the pointer. Each slot's `data-reorder-slot` is the index
+	// `moveItem` should land on, including the ghost that stands in for the drag.
+	function closestReorderSlot(
+		strip: HTMLElement,
+		pointer: { x: number; y: number }
+	): number | undefined {
+		const origin = strip.getBoundingClientRect();
+		const nodes = strip.querySelectorAll<HTMLElement>('[data-reorder-slot]');
+		const rects: Array<RectLike> = [];
+		const indexes: Array<number> = [];
+		for (const tile of nodes) {
+			const visual = tile.getBoundingClientRect();
+			if (visual.width <= 0 || visual.height <= 0) {
+				continue;
+			}
+			const left =
+				visual.left + (visual.width - tile.offsetWidth) / 2 - origin.left + strip.scrollLeft;
+			const top =
+				visual.top + (visual.height - tile.offsetHeight) / 2 - origin.top + strip.scrollTop;
+			rects.push({
+				left,
+				top,
+				right: left + tile.offsetWidth,
+				bottom: top + tile.offsetHeight
+			});
+			indexes.push(Number(tile.dataset.reorderSlot));
+		}
+		if (rects.length === 0) {
+			return undefined;
+		}
+		return indexes[closestRectIndex(pointer, rects)];
+	}
+
+	function placeFloater(drag: DieDrag) {
+		if (!floaterEl) {
+			return;
+		}
+		floaterEl.style.left = drag.x + 'px';
+		floaterEl.style.top = drag.y + 'px';
+	}
+
+	function onEscapeCancelReorder(e: KeyboardEvent) {
+		if (e.key !== 'Escape') {
+			return;
+		}
+		e.preventDefault();
+		cancelDieReorder();
+	}
+
+	function releaseStripCapture(pointerId: number | undefined) {
+		if (pointerId !== undefined && dieStripEl?.hasPointerCapture(pointerId)) {
+			dieStripEl.releasePointerCapture(pointerId);
+		}
+	}
+
+	function cancelDieReorder() {
+		releaseStripCapture(activeDieDrag?.pointerId ?? pendingDieDrag?.pointerId);
+		pendingDieDrag = null;
+		activeDieDrag = null;
+		reorderDrag = null;
+		if (typeof window !== 'undefined') {
+			window.removeEventListener('keydown', onEscapeCancelReorder);
+		}
+	}
+
+	function onDieStripPointerDown(e: PointerEvent) {
+		if (formatPaintMode || e.button !== 0 || !setData || !dieStripEl) {
+			return;
+		}
+		const target = e.target;
+		if (!(target instanceof Element) || target.closest('button')) {
+			return;
+		}
+		const tile = target.closest<HTMLElement>('[data-die-id]');
+		const id = tile?.dataset.dieId;
+		if (!id) {
+			return;
+		}
+		pendingDieDrag = { id, pointerId: e.pointerId, startX: e.clientX, startY: e.clientY };
+		tile.focus({ preventScroll: true });
+		dieStripEl.setPointerCapture(e.pointerId);
+	}
+
+	function onDieStripPointerMove(e: PointerEvent) {
+		if (!setData || !dieStripEl) {
+			return;
+		}
+		const pending = pendingDieDrag;
+		let drag = reorderDrag;
+		if (pending && e.pointerId === pending.pointerId && !drag) {
+			const dx = e.clientX - pending.startX;
+			const dy = e.clientY - pending.startY;
+			if (dx * dx + dy * dy < REORDER_THRESHOLD_PX * REORDER_THRESHOLD_PX) {
+				return;
+			}
+			const from = setData.dice.findIndex((d) => d.id === pending.id);
+			const tile = dieStripEl.querySelector<HTMLElement>(
+				`[data-die-id="${CSS.escape(pending.id)}"] img`
+			);
+			const created: DieDrag = {
+				id: pending.id,
+				pointerId: pending.pointerId,
+				target:
+					from < 0 ? 0 : closestRectIndex(pointerInStrip(dieStripEl, e), dieStripRects(dieStripEl)),
+				x: e.clientX,
+				y: e.clientY,
+				preview: tile instanceof HTMLImageElement ? tile.currentSrc || tile.src : ''
+			};
+			pendingDieDrag = null;
+			activeDieDrag = created;
+			reorderDrag = created;
+			window.addEventListener('keydown', onEscapeCancelReorder);
+			return;
+		}
+		if (!drag || e.pointerId !== drag.pointerId) {
+			return;
+		}
+		e.preventDefault();
+		const slot = closestReorderSlot(dieStripEl, pointerInStrip(dieStripEl, e));
+		// Publish a fresh object so the floating preview follows the pointer.
+		// Mutating the previous one is not visible to the template in this event.
+		const next: DieDrag = {
+			id: drag.id,
+			pointerId: drag.pointerId,
+			target: slot ?? drag.target,
+			x: e.clientX,
+			y: e.clientY,
+			preview: drag.preview
+		};
+		activeDieDrag = next;
+		reorderDrag = next;
+		placeFloater(next);
+	}
+
+	function finishDieReorder(e: PointerEvent) {
+		const pending = pendingDieDrag;
+		const drag = activeDieDrag;
+		const pointerId = drag?.pointerId ?? pending?.pointerId;
+		if (pointerId === undefined || e.pointerId !== pointerId) {
+			return;
+		}
+		if (dieStripEl?.hasPointerCapture(e.pointerId)) {
+			dieStripEl.releasePointerCapture(e.pointerId);
+		}
+		pendingDieDrag = null;
+		activeDieDrag = null;
+		reorderDrag = null;
+		window.removeEventListener('keydown', onEscapeCancelReorder);
+		// Capturing the pointer retargets the click that follows pointerup, so a
+		// plain press opens the die here. A completed drag must not.
+		swallowNextDieClick = true;
+		setTimeout(() => {
+			swallowNextDieClick = false;
+		}, 0);
+		if (!setData) {
+			return;
+		}
+		if (!drag) {
+			if (pending) {
+				gotoDie(pending.id);
+			}
+			return;
+		}
+		const from = setData.dice.findIndex((d) => d.id === drag.id);
+		if (from >= 0 && drag.target !== from) {
+			moveItem(setData.dice, from, drag.target);
+			save(setData);
+		}
+	}
+
+	function onDieStripClick(id: string) {
+		if (swallowNextDieClick) {
+			return;
+		}
+		gotoDie(id);
+	}
+
+	function moveDieBy(id: string, delta: number) {
+		if (!setData || activeDieDrag) {
+			return;
+		}
+		const from = setData.dice.findIndex((d) => d.id === id);
+		const to = from + delta;
+		if (from < 0 || to < 0 || to >= setData.dice.length) {
+			return;
+		}
+		moveItem(setData.dice, from, to);
+		save(setData);
+	}
+
+	function onDieKeydown(e: KeyboardEvent, id: string) {
+		if (e.target instanceof Element && e.target.closest('button')) {
+			return;
+		}
+		if (e.key === 'Enter' || e.key === ' ') {
+			e.preventDefault();
+			gotoDie(id);
+			return;
+		}
+		if (!e.altKey) {
+			return;
+		}
+		if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+			e.preventDefault();
+			moveDieBy(id, -1);
+		} else if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+			e.preventDefault();
+			moveDieBy(id, 1);
+		}
+	}
 
 	// need to load the set by id, or 404 if it doesn't exist.
 	onMount(async () => {
@@ -672,6 +939,7 @@
 		setTimeout(() => runBuilds(0), 0);
 	};
 	onDestroy(() => {
+		cancelDieReorder();
 		lastEngravingSig.clear();
 		dieFacades.clear();
 	});
@@ -1690,11 +1958,24 @@
 	{:else if pageLoad === 'ready' && setData}
 		<div class="flex h-full min-h-0 flex-col">
 			<div
-				class={'flex flex-row flex-wrap items-center justify-start gap-4 pb-4' +
-					(formatPaintMode ? ' opacity-50' : '')}
+				bind:this={dieStripEl}
+				class={'relative flex flex-row flex-wrap items-center justify-start gap-4 pb-4' +
+					(formatPaintMode ? ' opacity-50' : '') +
+					(reorderDrag ? ' cursor-grabbing touch-none' : '')}
 				inert={formatPaintMode}
+				onpointerdown={onDieStripPointerDown}
+				onpointermove={onDieStripPointerMove}
+				onpointerup={finishDieReorder}
+				onpointercancel={cancelDieReorder}
 			>
-				{#each setData?.dice as die}
+				{#each setData?.dice ?? [] as die, idx (die.id)}
+					{@const dragId = reorderDrag?.id}
+					{@const dragFrom = dragId ? (setData?.dice ?? []).findIndex((d) => d.id === dragId) : -1}
+					{@const dragging = dragId === die.id}
+					{@const flexOrder =
+						reorderDrag && dragFrom >= 0 && !dragging
+							? reorderSlot(idx, dragFrom, reorderDrag.target)
+							: undefined}
 					{@const dieErrors = dieEngravingErrors[die.id] ?? []}
 					{@const landWarning = dieLandWarnings[die.id] ?? false}
 					{#snippet dieTip()}
@@ -1717,15 +1998,25 @@
 									{m.dice_land_warning({ kind: die.kind })}
 								</span>
 							{/if}
+							<span class="text-surface-200-800 text-xs">{m.controls_reorder_die()}</span>
 						</div>
 					{/snippet}
-					<Tooltip content={dieTip} side="bottom">
+					<Tooltip content={dieTip} side="bottom" disabled={!!reorderDrag}>
 						{#snippet children(tipProps)}
-							<!-- svelte-ignore a11y_click_events_have_key_events, a11y_interactive_supports_focus -->
 							<div
 								{...tipProps}
+								data-die-id={die.id}
+								data-reorder-slot={flexOrder}
+								style:order={flexOrder}
 								role="button"
-								class={'transition-duration-100 hover:border-primary-500 group hover:shadow-primary-500 relative size-16 cursor-pointer rounded-md border transition-transform ease-in-out hover:scale-120 hover:shadow-md ' +
+								tabindex="0"
+								draggable="false"
+								aria-label={die.nickname?.trim() || dieDisplayName(die.kind, die.legend_ordering)}
+								aria-keyshortcuts="Alt+ArrowLeft Alt+ArrowRight Alt+ArrowUp Alt+ArrowDown"
+								aria-grabbed={dragging ? 'true' : undefined}
+								class={'transition-duration-100 hover:border-primary-500 group hover:shadow-primary-500 focus-visible:ring-primary-500 relative size-16 rounded-md border transition-transform ease-in-out outline-none select-none hover:shadow-md focus-visible:ring-2 ' +
+									(reorderDrag ? 'cursor-grabbing ' : 'cursor-grab hover:scale-120 ') +
+									(dragging ? 'hidden ' : '') +
 									(die.id === dieId
 										? 'border-primary-500 shadow-primary-500 hover:border-primary-500 group hover:shadow-primary-500 shadow-md'
 										: dieErrors.length > 0
@@ -1733,7 +2024,8 @@
 											: landWarning
 												? 'border-amber-500'
 												: '')}
-								onclick={() => gotoDie(die.id)}
+								onclick={() => onDieStripClick(die.id)}
+								onkeydown={(e) => onDieKeydown(e, die.id)}
 							>
 								<!-- duplicate -->
 								<button
@@ -1744,7 +2036,8 @@
 											duplicateDie(die.id);
 										}
 									}}
-									class="bg-secondary-500 text-secondary-contrast-500 absolute top-[-2px] left-[-8px] hidden size-5 items-center justify-center rounded-md group-hover:flex"
+									class={'bg-secondary-500 text-secondary-contrast-500 absolute top-[-2px] left-[-8px] hidden size-5 items-center justify-center rounded-md ' +
+										(reorderDrag ? '' : 'group-hover:flex')}
 									aria-label={m.controls_duplicate_die()}
 									title={m.controls_duplicate_die()}
 								>
@@ -1759,7 +2052,8 @@
 											removeDie(die.id);
 										}
 									}}
-									class="absolute top-[-2px] right-[-8px] hidden size-5 items-center justify-center rounded-md bg-red-500 text-white group-hover:flex"
+									class={'absolute top-[-2px] right-[-8px] hidden size-5 items-center justify-center rounded-md bg-red-500 text-white ' +
+										(reorderDrag ? '' : 'group-hover:flex')}
 									aria-label={m.controls_remove_die()}
 									title={m.controls_remove_die()}
 								>
@@ -1786,93 +2080,125 @@
 										<TriangleAlert size={16} />
 									</div>
 								{/if}
-								<DiePreview {die} legends={setData?.legends!} enabled={sceneLive} />
+								<DiePreview
+									class="pointer-events-none"
+									{die}
+									legends={setData?.legends!}
+									enabled={sceneLive}
+								/>
 							</div>
 						{/snippet}
 					</Tooltip>
 				{/each}
-				<Modal>
-					{#snippet title()}
-						{m.controls_add_new_die()}
-					{/snippet}
-					{#snippet trigger(props)}
-						<Tooltip content={m.controls_add_new_die()}>
-							{#snippet children(tipProps)}
-								{@const merged = mergeTriggerProps(props, tipProps)}
-								<button
-									{...merged}
-									class="hover:border-primary-500 hover:shadow-primary-500 flex size-16 cursor-pointer items-center justify-center overflow-hidden rounded-md border text-center hover:shadow-md"
-									aria-label={m.controls_add_new_die()}
-								>
-									<Plus size={32} />
-								</button>
-							{/snippet}
-						</Tooltip>
-					{/snippet}
-					{#snippet inner(close)}
-						<div class="flex max-h-[70vh] flex-col gap-3 overflow-y-auto">
-							<div class="bg-surface-100-900 sticky top-0 z-10 flex gap-2 pb-1">
-								<button
-									class="flex items-center gap-1.5 rounded-md border px-3 py-1 text-sm hover:shadow-md {dieGroupBy ===
-									'shape'
-										? 'border-primary-500 text-primary-500'
-										: ''}"
-									onclick={() => (dieGroupBy = 'shape')}
-								>
-									<Shapes size={16} />
-									{m.controls_group_by_shape()}
-								</button>
-								<button
-									class="flex items-center gap-1.5 rounded-md border px-3 py-1 text-sm hover:shadow-md {dieGroupBy ===
-									'number'
-										? 'border-primary-500 text-primary-500'
-										: ''}"
-									onclick={() => (dieGroupBy = 'number')}
-								>
-									<Squircle size={16} />
-									{m.controls_group_by_number()}
-								</button>
-								<button
-									class="flex items-center gap-1.5 rounded-md border px-3 py-1 text-sm hover:shadow-md {dieGroupBy ===
-									'rarity'
-										? 'border-primary-500 text-primary-500'
-										: ''}"
-									onclick={() => (dieGroupBy = 'rarity')}
-								>
-									<WandSparkles size={16} />
-									{m.controls_group_by_rarity()}
-								</button>
-							</div>
-							{#each dieGroups as group (group.key)}
-								<div class="flex flex-col gap-2">
-									<h3 class="text-surface-600-400 text-sm font-semibold">{group.label}</h3>
-									<div class="grid grid-cols-2 gap-3 sm:grid-cols-4 md:grid-cols-6">
-										{#each group.dice as preview (preview.kind)}
-											<Tooltip content={m.dice_blurb({ kind: preview.kind })}>
-												{#snippet children(tipProps)}
-													<button
-														{...tipProps}
-														class="hover:border-primary-500 hover:shadow-primary-500 flex cursor-pointer flex-col items-center gap-1 rounded-md border p-2 text-center hover:shadow-md"
-														onclick={() => {
-															addDie(preview.kind);
-															close();
-														}}
-													>
-														{#if setData}
-															<DiePreview die={preview} legends={setData.legends} />
-														{/if}
-														<span class="text-sm">{m.dice_name({ kind: preview.kind })}</span>
-													</button>
-												{/snippet}
-											</Tooltip>
-										{/each}
-									</div>
+				{#if reorderDrag}
+					<div
+						data-reorder-slot={reorderDrag.target}
+						style:order={reorderDrag.target}
+						class="border-primary-500/80 bg-primary-500/10 size-16 rounded-md border-2 border-dashed"
+						aria-hidden="true"
+					></div>
+				{/if}
+				<div style:order={reorderDrag ? 1000 : undefined}>
+					<Modal>
+						{#snippet title()}
+							{m.controls_add_new_die()}
+						{/snippet}
+						{#snippet trigger(props)}
+							<Tooltip content={m.controls_add_new_die()}>
+								{#snippet children(tipProps)}
+									{@const merged = mergeTriggerProps(props, tipProps)}
+									<button
+										{...merged}
+										class="hover:border-primary-500 hover:shadow-primary-500 flex size-16 cursor-pointer items-center justify-center overflow-hidden rounded-md border text-center hover:shadow-md"
+										aria-label={m.controls_add_new_die()}
+									>
+										<Plus size={32} />
+									</button>
+								{/snippet}
+							</Tooltip>
+						{/snippet}
+						{#snippet inner(close)}
+							<div class="flex max-h-[70vh] flex-col gap-3 overflow-y-auto">
+								<div class="bg-surface-100-900 sticky top-0 z-10 flex gap-2 pb-1">
+									<button
+										class="flex items-center gap-1.5 rounded-md border px-3 py-1 text-sm hover:shadow-md {dieGroupBy ===
+										'shape'
+											? 'border-primary-500 text-primary-500'
+											: ''}"
+										onclick={() => (dieGroupBy = 'shape')}
+									>
+										<Shapes size={16} />
+										{m.controls_group_by_shape()}
+									</button>
+									<button
+										class="flex items-center gap-1.5 rounded-md border px-3 py-1 text-sm hover:shadow-md {dieGroupBy ===
+										'number'
+											? 'border-primary-500 text-primary-500'
+											: ''}"
+										onclick={() => (dieGroupBy = 'number')}
+									>
+										<Squircle size={16} />
+										{m.controls_group_by_number()}
+									</button>
+									<button
+										class="flex items-center gap-1.5 rounded-md border px-3 py-1 text-sm hover:shadow-md {dieGroupBy ===
+										'rarity'
+											? 'border-primary-500 text-primary-500'
+											: ''}"
+										onclick={() => (dieGroupBy = 'rarity')}
+									>
+										<WandSparkles size={16} />
+										{m.controls_group_by_rarity()}
+									</button>
 								</div>
-							{/each}
-						</div>
-					{/snippet}
-				</Modal>
+								{#each dieGroups as group (group.key)}
+									<div class="flex flex-col gap-2">
+										<h3 class="text-surface-600-400 text-sm font-semibold">{group.label}</h3>
+										<div class="grid grid-cols-2 gap-3 sm:grid-cols-4 md:grid-cols-6">
+											{#each group.dice as preview (preview.kind)}
+												<Tooltip content={m.dice_blurb({ kind: preview.kind })}>
+													{#snippet children(tipProps)}
+														<button
+															{...tipProps}
+															class="hover:border-primary-500 hover:shadow-primary-500 flex cursor-pointer flex-col items-center gap-1 rounded-md border p-2 text-center hover:shadow-md"
+															onclick={() => {
+																addDie(preview.kind);
+																close();
+															}}
+														>
+															{#if setData}
+																<DiePreview die={preview} legends={setData.legends} />
+															{/if}
+															<span class="text-sm">{m.dice_name({ kind: preview.kind })}</span>
+														</button>
+													{/snippet}
+												</Tooltip>
+											{/each}
+										</div>
+									</div>
+								{/each}
+							</div>
+						{/snippet}
+					</Modal>
+				</div>
 			</div>
+			{#if reorderDrag}
+				<div
+					bind:this={floaterEl}
+					class="border-primary-500 bg-surface-50-950 pointer-events-none fixed z-[250] size-16 rounded-md border shadow-xl"
+					style="left: {reorderDrag.x}px; top: {reorderDrag.y}px; transform: translate(-50%, -50%) scale(1.08)"
+					aria-hidden="true"
+				>
+					{#if reorderDrag.preview}
+						<img
+							src={reorderDrag.preview}
+							alt=""
+							class="size-full object-contain"
+							draggable="false"
+						/>
+					{/if}
+				</div>
+			{/if}
 			<EngineScene
 				class="relative min-h-0 w-full grow"
 				{sceneReady}

@@ -12,7 +12,6 @@ import {
 	PerspectiveCamera,
 	PMREMGenerator,
 	Scene,
-	SRGBColorSpace,
 	type Texture,
 	UnsignedByteType,
 	Vector2,
@@ -550,16 +549,10 @@ export function createFancyRender(ctx: SceneRenderer) {
 		material.dispose();
 	}
 
-	// TEMP: set the material base colour from 0..1 sRGB components.
-	function setColor(r: number, g: number, b: number) {
-		material.color.setRGB(r, g, b, SRGBColorSpace);
-	}
-
 	return {
 		setEnabled,
 		styleMesh,
 		dispose,
-		setColor,
 		// exposed for the temporary tuning panel on the export page.
 		material,
 		ao,

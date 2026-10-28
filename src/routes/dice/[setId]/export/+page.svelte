@@ -48,6 +48,7 @@
 		isMergeOption
 	} from '$lib/utils/build_options';
 	import Collapsible from '$lib/components/collapsible/Collapsible.svelte';
+	import RenderColorPopover from '$lib/components/render_color/RenderColorPopover.svelte';
 	import Tooltip from '$lib/components/tooltip/Tooltip.svelte';
 	import { type EngravingError } from '$lib/utils/builder';
 	import { exportDieInEngine, loadEngineSet } from '$lib/utils/die_engine_client';
@@ -715,9 +716,6 @@
 	// TEMP tuning panel state. Defaults mirror createFancyRender(). Once good
 	// values are found these (and the panel markup) can be removed.
 	let tune = $state({
-		r: 0.42,
-		g: 0.48,
-		b: 0.58,
 		roughness: 1.0,
 		metalness: 0.25,
 		clearcoat: 0.81,
@@ -739,7 +737,7 @@
 		if (!fr || !ctx) {
 			return;
 		}
-		fr.setColor(tune.r, tune.g, tune.b);
+		fr.material.color.set(prefs.diceRenderColor);
 		fr.material.roughness = tune.roughness;
 		fr.material.metalness = tune.metalness;
 		fr.material.clearcoat = tune.clearcoat;
@@ -1260,7 +1258,15 @@
 
 	<div class="flex h-full flex-row gap-4 p-4">
 		<Scene class="relative h-full grow" {sceneReady}>
-			<ul class="list-style-type-none absolute top-2 left-2 flex flex-col gap-2">
+			<ul class="list-style-type-none absolute top-2 left-2 z-20 flex flex-col gap-2">
+				<li>
+					<RenderColorPopover
+						label={m.boxes_tuning_die_colour()}
+						hint={m.export_render_tuning_hint()}
+						value={prefs.diceRenderColor}
+						onChange={(hex) => setPreference('diceRenderColor', hex)}
+					/>
+				</li>
 				<li>
 					<Tooltip content={m.export_toggle_fancy_render()} side="right">
 						{#snippet children(props)}
@@ -1362,14 +1368,6 @@
 				<Collapsible defaultOpen={false} title={m.export_render_tuning_title()}>
 					<div class="flex flex-col gap-2 pt-2">
 						<p class="text-surface-600-400 text-xs">{m.export_render_tuning_hint()}</p>
-						<span class="text-sm font-semibold">{m.export_render_tuning_base_colour()}</span>
-						<div
-							class="h-6 w-full rounded"
-							style={`background: rgb(${Math.round(tune.r * 255)}, ${Math.round(tune.g * 255)}, ${Math.round(tune.b * 255)})`}
-						></div>
-						{@render tuneRow(m.export_render_tuning_r(), tune.r, 0, 1, 0.01, (v) => (tune.r = v))}
-						{@render tuneRow(m.export_render_tuning_g(), tune.g, 0, 1, 0.01, (v) => (tune.g = v))}
-						{@render tuneRow(m.export_render_tuning_b(), tune.b, 0, 1, 0.01, (v) => (tune.b = v))}
 						<span class="text-sm font-semibold">{m.export_render_tuning_material()}</span>
 						{@render tuneRow(
 							m.export_render_tuning_roughness(),
