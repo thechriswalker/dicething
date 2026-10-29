@@ -8,12 +8,16 @@ import { applyOrderingToFaces } from '$lib/utils/legend_orderings';
 import { migrateLegacyDice } from '$lib/utils/die_migrate';
 import { normalizeStoredSupports } from './supports/config';
 import { Legend, loadMutableLegends, type LegendSet, type SerialisedLegendSet } from './legends';
-import { extraBuildOptions, isMergeOption, type OptionValues } from './build_options';
+import {
+	extraBuildOptions,
+	isMergeOption,
+	type BuildArtifact,
+	type OptionValues
+} from './build_options';
 import { blanks, isBuiltin, loadBuiltinById } from '$lib/fonts';
 import { uuid } from './uuid';
 import type { Manifold } from './manifold';
 import {
-	cloneManifold,
 	deleteAll,
 	geometryToIndexedMesh,
 	manifold,
@@ -214,132 +218,168 @@ export function buildExportMeshesForDie(
 		args.builders?.set(die.id, builder);
 	}
 
-	// Merge options (e.g. supports) produce solids that are unioned into dice /
-	// blanks rather than exported as their own files. Build each once.
-	const mergeSolids = new Map<string, Manifold>();
-	for (const option of extraBuildOptions) {
-		if (!isMergeOption(option)) continue;
-		const state = optionStates[option.id];
-		if (!state?.enabled) continue;
+	// Merge options (supports) are unioned into dice / blanks, not exported on
+	// their own. Each target gets its own solid — blank supports follow the
+	// resized blank — and that solid is consumed by one union.
+	const mergeByTarget = new Map<string, Map<string, Manifold>>();
+	const optionValues: Record<string, OptionValues> = {};
+	for (const [id, state] of Object.entries(optionStates)) {
+		optionValues[id] = state.values;
+	}
+
+	const mergeEnabledFor = (target: string) =>
+		extraBuildOptions.some((o) => o.mergeInto?.includes(target) && optionStates[o.id]?.enabled);
+
+	let builderReady = false;
+	const ensureBuilder = () => {
+		if (builderReady) return;
 		builder.build(
 			die.parameters,
 			die.face_parameters,
 			{ explode: false, ordering: die.legend_ordering },
 			die.string_parameters ?? {}
 		);
-		const artifacts = option.generate({
-			die,
-			model,
-			builder,
-			legends: set.legends,
-			values: state.values,
-			onProgress: args.onProgress,
-			isCancelled: args.isCancelled
-		});
-		const parts = artifacts.map((a) => a.manifold).filter((m): m is Manifold => !!m);
-		for (const a of artifacts) {
-			if (!a.manifold) a.mesh.geometry.dispose();
+		builderReady = true;
+	};
+
+	const adoptArtifacts = (artifacts: Array<BuildArtifact>): Manifold | undefined => {
+		const parts: Array<Manifold> = [];
+		for (const artifact of artifacts) {
+			artifact.mesh.geometry.dispose();
+			if (artifact.manifold) parts.push(artifact.manifold);
 		}
-		if (parts.length === 0) continue;
+		if (parts.length === 0) return undefined;
 		let solid = parts[0];
 		for (let i = 1; i < parts.length; i++) {
 			solid = unionManifoldsOwned(solid, parts[i]);
 		}
-		mergeSolids.set(option.id, solid);
-	}
+		return solid;
+	};
 
-	const targetHasMerge = (target: string) =>
-		extraBuildOptions.some((o) => o.mergeInto?.includes(target) && mergeSolids.has(o.id));
-
-	const mergeIntoTarget = (target: string, host: Manifold): Manifold => {
-		let result = host;
+	const generateMergeSolids = (target: string) => {
+		if (mergeByTarget.has(target) || !mergeEnabledFor(target)) return;
+		ensureBuilder();
+		const solids = new Map<string, Manifold>();
 		for (const option of extraBuildOptions) {
 			if (!option.mergeInto?.includes(target)) continue;
-			const solid = mergeSolids.get(option.id);
-			if (!solid) continue;
-			result = unionManifoldsOwned(result, cloneManifold(solid));
+			const state = optionStates[option.id];
+			if (!state?.enabled) continue;
+			const solid = adoptArtifacts(
+				option.generate({
+					die,
+					model,
+					builder,
+					legends: set.legends,
+					values: state.values,
+					mergeTarget: target,
+					optionValues,
+					onProgress: args.onProgress,
+					isCancelled: args.isCancelled
+				})
+			);
+			if (solid) solids.set(option.id, solid);
 		}
+		mergeByTarget.set(target, solids);
+	};
+
+	const mergeIntoTarget = (target: string, host: Manifold): Manifold => {
+		const solids = mergeByTarget.get(target);
+		if (!solids) return host;
+		let result = host;
+		for (const [id, solid] of solids) {
+			result = unionManifoldsOwned(result, solid);
+			solids.delete(id);
+		}
+		mergeByTarget.delete(target);
 		return result;
 	};
 
-	if (includeDice) {
-		const mainMesh = builder.export(
-			die.parameters,
-			die.face_parameters,
-			die.string_parameters ?? {},
-			die.legend_ordering
-		);
-		const mainManifold = builder.takeExportManifold();
-		if (mainManifold && targetHasMerge('dice')) {
-			const merged = mergeIntoTarget('dice', mainManifold);
-			mainMesh.geometry.dispose();
-			out.push({
-				name: baseName,
-				mesh: meshFromManifold(merged),
-				dieId: die.id,
-				group: 'dice',
-				manifold: merged
-			});
-		} else {
-			out.push({
-				name: baseName,
-				mesh: mainMesh,
-				dieId: die.id,
-				group: 'dice',
-				manifold: mainManifold
-			});
-		}
-	}
+	const hasMergeSolid = (target: string) => (mergeByTarget.get(target)?.size ?? 0) > 0;
 
-	for (const option of extraBuildOptions) {
-		if (isMergeOption(option)) continue;
-		const state = optionStates[option.id];
-		if (!state?.enabled) {
-			continue;
-		}
-		builder.build(
-			die.parameters,
-			die.face_parameters,
-			{ explode: false, ordering: die.legend_ordering },
-			die.string_parameters ?? {}
-		);
-		const artifacts = option.generate({
-			die,
-			model,
-			builder,
-			legends: set.legends,
-			values: state.values,
-			onProgress: args.onProgress,
-			isCancelled: args.isCancelled
-		});
-		for (const artifact of artifacts) {
-			if (artifact.manifold && targetHasMerge(option.id)) {
-				const merged = mergeIntoTarget(option.id, artifact.manifold);
-				artifact.mesh.geometry.dispose();
+	try {
+		if (includeDice) {
+			// Dice supports before the engraved solid is in the heap. Blank
+			// supports are built later, once this solid has been consumed.
+			generateMergeSolids('dice');
+			const mainMesh = builder.export(
+				die.parameters,
+				die.face_parameters,
+				die.string_parameters ?? {},
+				die.legend_ordering
+			);
+			const mainManifold = builder.takeExportManifold();
+			if (mainManifold && hasMergeSolid('dice')) {
+				const merged = mergeIntoTarget('dice', mainManifold);
+				mainMesh.geometry.dispose();
 				out.push({
-					name: `${baseName}_${artifact.suffix}`,
+					name: baseName,
 					mesh: meshFromManifold(merged),
 					dieId: die.id,
-					group: option.id,
+					group: 'dice',
 					manifold: merged
 				});
 			} else {
 				out.push({
-					name: `${baseName}_${artifact.suffix}`,
-					mesh: artifact.mesh,
+					name: baseName,
+					mesh: mainMesh,
 					dieId: die.id,
-					group: option.id,
-					manifold: artifact.manifold
+					group: 'dice',
+					manifold: mainManifold
 				});
 			}
 		}
-	}
 
-	for (const solid of mergeSolids.values()) {
-		solid.delete();
-	}
+		for (const option of extraBuildOptions) {
+			if (isMergeOption(option)) continue;
+			const state = optionStates[option.id];
+			if (!state?.enabled) {
+				continue;
+			}
+			builder.build(
+				die.parameters,
+				die.face_parameters,
+				{ explode: false, ordering: die.legend_ordering },
+				die.string_parameters ?? {}
+			);
+			generateMergeSolids(option.id);
+			const artifacts = option.generate({
+				die,
+				model,
+				builder,
+				legends: set.legends,
+				values: state.values,
+				onProgress: args.onProgress,
+				isCancelled: args.isCancelled
+			});
+			for (const artifact of artifacts) {
+				if (artifact.manifold && hasMergeSolid(option.id)) {
+					const merged = mergeIntoTarget(option.id, artifact.manifold);
+					artifact.mesh.geometry.dispose();
+					out.push({
+						name: `${baseName}_${artifact.suffix}`,
+						mesh: meshFromManifold(merged),
+						dieId: die.id,
+						group: option.id,
+						manifold: merged
+					});
+				} else {
+					out.push({
+						name: `${baseName}_${artifact.suffix}`,
+						mesh: artifact.mesh,
+						dieId: die.id,
+						group: option.id,
+						manifold: artifact.manifold
+					});
+				}
+			}
+		}
 
-	return out;
+		return out;
+	} finally {
+		for (const solids of mergeByTarget.values()) {
+			for (const solid of solids.values()) solid.delete();
+		}
+	}
 }
 
 function dieExportName(set: DiceSet, dieId: string, idx: number): string {

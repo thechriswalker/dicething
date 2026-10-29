@@ -42,6 +42,13 @@ export type ExtraBuildContext = {
 	builder: Builder; // already built for this die; exposes getFaces(), getFace2FaceDistance()
 	legends: LegendSet;
 	values: OptionValues; // values for THIS option's controls (see `controls`)
+	/**
+	 * Group a merge-option solid will be unioned into (`'dice'`, `'blanks'`, …).
+	 * Each target gets its own `generate` call so the solid can follow that group.
+	 */
+	mergeTarget?: string;
+	/** Control values for every build option, keyed by option id. */
+	optionValues?: Record<string, OptionValues>;
 	/** Optional progress callback (worker / long-running options like supports). */
 	onProgress?: (phase: string, fraction?: number, label?: string) => void;
 	/** Optional cooperative cancel check. */
@@ -51,7 +58,11 @@ export type ExtraBuildContext = {
 // One artifact produced for a single die. `suffix` is appended to the die's
 // export name, e.g. "die-3_blank", "die-3_platform". When present, `manifold` is
 // the authoritative print solid; the mesh is for preview only.
-export type BuildArtifact = { suffix: string; mesh: Mesh; manifold?: import('../manifold').Manifold };
+export type BuildArtifact = {
+	suffix: string;
+	mesh: Mesh;
+	manifold?: import('../manifold').Manifold;
+};
 
 // An extra build option that plugs into the export flow. Implement this + add it
 // to the registry in `index.ts` to surface a new kind of exportable artifact.
